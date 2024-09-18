@@ -1,0 +1,140 @@
+---
+- name: Install and configure Prometheus
+  hosts: prometheus_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.prometheus
+
+- name: Install and configure Node Exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.node_exporter
+
+- name: Install and configure Alert Manager
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.alertmanager
+  vars:
+    alertmanager_version: latest
+
+- name: Install and configure Bind Exporter
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  roles:
+    - role: prometheus.prometheus.bind_exporter
+
+- name: Install and configure Blackbox Exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.blackbox_exporter
+
+- name: Install and configure cadvisor
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.cadvisor
+
+- name: Install and configure chrony_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.chrony_exporter
+
+- name: Install and configure fail2ban_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.fail2ban_exporter
+
+- name: Install and configure ipmi_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.ipmi_exporter
+
+- name: Install and configure memcached_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.memcached_exporter
+
+- name: Install and configure mongodb_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.mongodb_exporter
+
+- name: Install and configure mysqld exporter
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  roles:
+    - role: prometheus.prometheus.mysqld_exporter
+
+- name: Install and configure nginx_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.nginx_exporter
+
+- name: Install and configure PostgreSQL exporter
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  roles:
+    - role: prometheus.prometheus.postgres_exporter
+
+- name: Install and configure process_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.process_exporter
+
+- name: Install and configure pushgateway
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.pushgateway
+
+- name: Install and configure redis_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.redis_exporter
+
+- name: Install and configure smartctl_exporter
+  hosts: target_servers
+  become: true
+  roles:
+    - role: prometheus.prometheus.smartctl_exporter
+
+- name: Install and configure smokeping_prober
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  roles:
+    - role: prometheus.prometheus.smokeping_prober
+
+- name: Install and configure SNMP exporter
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  roles:
+    - role: prometheus.prometheus.snmp_exporter
+
+- name: Install and configure systemd exporter
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  roles:
+    - role: prometheus.prometheus.systemd_exporter
