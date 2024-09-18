@@ -1,9 +1,12 @@
+---
 - name: Install and configure Grafana
   hosts: grafana_servers
   become: true
+  collections:
+    - grafana.grafana
   roles:
-    - role: grafana.grafana.grafana
-      vars:
-        grafana_security:
-          admin_user: admin
-          admin_password: admin123
+    - grafana
+  vars:
+    grafana_security:
+      admin_user: admin
+      admin_password: admin123
