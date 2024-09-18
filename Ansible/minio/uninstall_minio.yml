@@ -1,0 +1,83 @@
+---
+- name: Uninstall and cleanup MinIO
+  hosts: minio_servers
+  become: yes
+  vars_files:
+    - vars.yml
+  tasks:
+    
+    - name: Check if MinIO service exists
+      command: systemctl is-active --quiet minio
+      register: minio_service_status
+      failed_when: false
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Stop and disable MinIO service if it exists
+      ansible.builtin.systemd:
+        name: minio
+        state: stopped
+        enabled: no
+      when: minio_service_status.rc == 0
+
+    - name: Remove MinIO service file
+      file:
+        path: /usr/lib/systemd/system/minio.service
+        state: absent
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: yes
+
+    - name: Remove MinIO binary
+      file:
+        path: /usr/local/bin/minio
+        state: absent
+
+    - name: Remove MinIO environment file
+      file:
+        path: /etc/default/minio
+        state: absent
+
+    - name: Remove all files in MinIO data directory
+      become: yes
+      file:
+        path: "{{ minio_directory }}"
+        state: directory
+        recurse: yes
+        force: yes
+      ignore_errors: yes
+
+    - name: Remove MinIO data directory
+      become: yes
+      file:
+        path: "{{ minio_directory }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove MinIO user
+      user:
+        name: minio-user
+        state: absent
+      ignore_errors: yes
+      become: yes
+
+    - name: Remove MinIO group
+      group:
+        name: minio-user
+        state: absent
+      ignore_errors: yes
+      become: yes
+
+    - name: Remove wget on multiple OS (Debian/Ubuntu)
+      package:
+        name: wget
+        state: absent
+        purge: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Remove wget on multiple OS (RHEL/CentOS)
+      package:
+        name: wget
+        state: absent
+      when: ansible_os_family == "RedHat"
