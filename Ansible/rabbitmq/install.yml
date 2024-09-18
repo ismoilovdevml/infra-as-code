@@ -1,0 +1,80 @@
+---
+- name: Install RabbitMQ and configure admin user
+  hosts: rabbitmq_servers
+  become: true
+
+  vars:
+    rabbitmq_version: "3.13"
+    rabbitmq_admin_user: "admin"
+    rabbitmq_admin_password: "strongpassword123"
+    rabbitmq_plugins:
+      - rabbitmq_management
+
+  tasks:
+    # RHEL/CentOS/AlmaLinux/Rocky specific tasks
+    - name: Ensure EPEL repository is present (RHEL-based)
+      ansible.builtin.yum:
+        name: epel-release
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Add RabbitMQ Cloudsmith repository (RHEL-based)
+      ansible.builtin.yum_repository:
+        name: rabbitmq_rpm
+        description: RabbitMQ RPM Cloudsmith Repo
+        baseurl: https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/rpm/el/$releasever/$basearch/
+        gpgkey: https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/gpg.9505C563D9E34F09.key
+        enabled: yes
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install RabbitMQ on RHEL-based systems
+      ansible.builtin.yum:
+        name: rabbitmq-server
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # Ubuntu/Debian specific tasks
+    - name: Add RabbitMQ APT repository (Debian-based)
+      ansible.builtin.apt_repository:
+        repo: "deb https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/deb/debian buster main"
+        state: present
+        filename: rabbitmq.list
+      when: ansible_os_family == "Debian"
+
+    - name: Add RabbitMQ public key (Debian-based)
+      ansible.builtin.apt_key:
+        url: https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/gpg.9505C563D9E34F09.key
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install RabbitMQ on Debian-based systems
+      ansible.builtin.apt:
+        name: rabbitmq-server
+        update_cache: yes
+        state: present
+      when: ansible_os_family == "Debian"
+
+    # Common tasks
+    - name: Enable and start RabbitMQ service
+      ansible.builtin.service:
+        name: rabbitmq-server
+        enabled: yes
+        state: started
+
+    - name: Ensure RabbitMQ management plugin is enabled
+      community.rabbitmq.rabbitmq_plugin:
+        name: rabbitmq_management
+        state: enabled
+
+    - name: Create admin user with full access
+      community.rabbitmq.rabbitmq_user:
+        user: "{{ rabbitmq_admin_user }}"
+        password: "{{ rabbitmq_admin_password }}"
+        tags: admin
+        permissions:
+          - vhost: "/"
+            configure_priv: ".*"
+            write_priv: ".*"
+            read_priv: ".*"
+        state: present
