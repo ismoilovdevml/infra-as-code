@@ -1,0 +1,50 @@
+---
+
+- name: PGDG block
+  when: postgresql_flavor is defined and postgresql_flavor == "pgdg"
+  block:
+
+    - name: APT keyrings directory
+      file:
+        path: "{{ postgresql_apt_keys_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install pgdg package signing key (Debian/pgdg)
+      get_url:
+        url: "{{ postgresql_pgdg_key_url }}"
+        dest: "{{ postgresql_pgdg_key_dest }}"
+        mode: "0644"
+      register: __postgresql_apt_key_result
+      until: __postgresql_apt_key_result is succeeded
+      retries: 5
+      delay: 5
+
+    - name: Install pgdg repository (Debian/pgdg)
+      apt_repository:
+        repo: "{{ postgresql_pgdg_repo }}"
+        update_cache: true
+
+- name: Install PostgreSQL (Debian)
+  apt:
+    name: postgresql{{ '-' ~ postgresql_version if postgresql_version is defined else '' }}
+  register: __postgresql_apt_result
+  until: __postgresql_apt_result is succeeded
+  retries: 5
+  delay: 5
+
+- name: Get installed version
+  command: dpkg-query -f ${Version;3} --show postgresql
+  when: postgresql_version is not defined
+  register: __postgresql_version_query_result
+  changed_when: false
+
+- name: Set version fact
+  set_fact:
+    postgresql_version: "{{ __postgresql_version_query_result.stdout.split('+') | first }}"
+  when: postgresql_version is not defined
+
+- name: Install psycopg2
+  apt:
+    name: "python{{ (ansible_python.version.major == 3) | ternary('3', '') }}-psycopg2"
+  when: postgresql_install_psycopg2

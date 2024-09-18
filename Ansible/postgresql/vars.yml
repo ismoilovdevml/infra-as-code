@@ -1,4 +1,0 @@
-postgresql_version: 16
-postgresql_password: "oasjofdjqpwe"
-listen_address: "*"
-expose_address: "0.0.0.0/0"

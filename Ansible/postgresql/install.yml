@@ -1,67 +1,22 @@
 ---
 - name: Install and configure PostgreSQL
   hosts: postgresql_servers
-  become: yes
-  vars_files:
-    - vars.yml
+  become: true
+  vars:
+    postgresql_version: 16
+    postgresql_listen_addresses: "*"
+    postgresql_pg_hba_conf:
+      - { type: host, database: all, user: all, address: '0.0.0.0/0', method: md5 }
+    postgresql_password: "123"
+
+  roles:
+    - galaxyproject.postgresql
 
   tasks:
-    - name: Ensure the correct repository is added (RedHat/CentOS)
-      when: ansible_facts['os_family'] == "RedHat"
-      yum_repository:
-        name: "PostgreSQL"
-        description: "PostgreSQL repository"
-        baseurl: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-$releasever-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
-        state: present
-        gpgcheck: yes
-
-    - name: Ensure the correct repository is added (Debian/Ubuntu)
-      when: ansible_facts['os_family'] == "Debian"
-      apt_repository:
-        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
-        state: present
-        filename: 'pgdg.list'
-
-    - name: Install PostgreSQL
-      package:
-        name: 
-          - "postgresql-{{ postgresql_version }}"
-          - "postgresql-client-{{ postgresql_version }}"
-          - "postgresql-contrib-{{ postgresql_version }}"
-        state: present
-
-    - name: Initialize PostgreSQL database (RHEL-based)
-      when: ansible_facts['os_family'] == "RedHat"
-      command: "/usr/pgsql-{{ postgresql_version }}/bin/postgresql-{{ postgresql_version }}-setup initdb"
-
-    - name: Ensure PostgreSQL is started and enabled
-      service:
-        name: postgresql
-        state: started
-        enabled: yes
-
-    - name: Configure PostgreSQL to listen on all addresses
-      lineinfile:
-        path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
-        regexp: '^#?listen_addresses ='
-        line: "listen_addresses = '{{ listen_address }}'"
-        notify: Restart PostgreSQL
-
-    - name: Configure pg_hba.conf to allow remote connections
-      lineinfile:
-        path: "/etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf"
-        regexp: '^#?host'
-        line: "host    all             all             {{ expose_address }}          md5"
-        notify: Restart PostgreSQL
-
     - name: Set PostgreSQL user password
-      community.postgresql.postgresql_user:
+      become_user: postgres
+      postgresql_user:
         name: postgres
         password: "{{ postgresql_password }}"
-        state: present
 
-  handlers:
-    - name: Restart PostgreSQL
-      service:
-        name: postgresql
-        state: restarted
+# ansible-galaxy install galaxyproject.postgresql
