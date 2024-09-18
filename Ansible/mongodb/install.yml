@@ -1,0 +1,35 @@
+---
+- name: Install and configure MongoDB
+  hosts: mongodb_servers
+  become: true
+  vars:
+    mongo_admin_user: "admin"
+    mongo_admin_pass: "123"  # Replace with a strong password
+
+  tasks:
+    - name: Install MongoDB repository
+      ansible.builtin.include_role:
+        name: community.mongodb.mongodb_repository
+
+    - name: Install MongoDB
+      ansible.builtin.include_role:
+        name: community.mongodb.mongodb_install
+
+    - name: Configure mongod service
+      ansible.builtin.include_role:
+        name: community.mongodb.mongodb_mongod
+      vars:
+        mongodb_mongod_net_bind_ip: "0.0.0.0"
+        mongodb_mongod_net_port: 27017
+        mongodb_mongod_security_authorization: "enabled"
+
+    - name: Create MongoDB admin user
+      community.mongodb.mongodb_user:
+        database: admin
+        name: "{{ mongo_admin_user }}"
+        password: "{{ mongo_admin_pass }}"
+        roles:
+          - role: root
+        state: present
+
+# ansible-galaxy collection install community.mongodb

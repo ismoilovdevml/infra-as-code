@@ -1,0 +1,93 @@
+- import_tasks: iproute.yml
+
+- name: Import MongoDB public GPG Key
+  apt_key:
+    url: "{{ apt.key_url }}"
+    state: "present"
+  when:
+  - ansible_distribution == 'Ubuntu'
+
+- name: Add MongoDB repository into sources list
+  apt_repository:
+    repo: '{{ apt.repo }}'
+    state: present
+    update_cache: true
+  when:
+  - ansible_distribution == 'Ubuntu'
+
+- name: Ensure mongod package is installed
+  apt:
+    name: '{{ mongodb_packages.mongod }}'
+    state: present
+    force: true
+  when:
+  - ansible_distribution == 'Ubuntu'
+
+- name: Ensure mongos package is installed
+  apt:
+    name: '{{ mongodb_packages.mongos }}'
+    state: present
+    force: true
+  when:
+  - ansible_distribution == 'Ubuntu'
+
+- name: Ensure mongo client is installed
+  apt:
+    name: '{{ mongodb_packages.mongo }}'
+    state: present
+    force: true
+  when:
+  - ansible_distribution == 'Ubuntu'
+
+- name: Add MongopDB repo
+  yum_repository:
+    name: '{{ yum.name }}'
+    description: '{{ yum.description }}'
+    baseurl: '{{ yum.baseurl }}'
+    gpgcheck: '{{ yum.gpgcheck }}'
+    gpgkey: '{{ yum.gpgkey }}'
+  when:
+  - ansible_os_family == "RedHat"
+  - not ansible_distribution == "Fedora"
+
+- name: Another url for Fedora based systems
+  yum_repository:
+    name: '{{ yum.name }}'
+    description: '{{ yum.description }}'
+    baseurl: '{{ yum.fedoraurl }}'
+    gpgcheck: '{{ yum.gpgcheck }}'
+    gpgkey: '{{ yum.gpgkey }}'
+  when:
+  - ansible_distribution == "Fedora"
+
+- name: Ensure mongod package is installed
+  yum:
+    name: '{{ mongodb_packages.mongod }}'
+    state: present
+  register: monogd_installed_packages
+  notify: Remove mongod installed packages
+  when: ansible_os_family == "RedHat"
+
+- name: Ensure mongos package is installed
+  yum:
+    name: '{{ mongodb_packages.mongos }}'
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Ensure mongo client is installed
+  yum:
+    name: '{{ mongodb_packages.mongo }}'
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Ensure mongodb-mongosh package is installed
+  package:
+    name: mongodb-mongosh
+    state: present
+  when: mongodb_version[0] | int >= 5
+
+- name: Install pip packages
+  pip:
+    name: '{{ pip_packages }}'
+    state: present
+  notify: remove mongodb pip packages

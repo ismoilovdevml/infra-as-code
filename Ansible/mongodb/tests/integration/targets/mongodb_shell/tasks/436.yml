@@ -1,0 +1,36 @@
+---
+# Tasks for for testing feature to solve Issue 436
+
+- name: Insert a record into a collection
+  community.mongodb.mongodb_shell:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_port: 3001
+    debug: yes
+    db: "test"
+    eval: 'db.hosts.insertOne({"_id": "first_record"})'
+    mongo_cmd: "auto"
+  register: first_insert
+
+- assert:
+    that: 
+      - first_insert.changed
+      - "first_insert.transformed_output == {\"acknowledged\": true, \"insertedId\": \"first_record\"}"
+
+# mongosh throws an error, previously mongo did not
+- name: Insert a duplicate record into a collection
+  community.mongodb.mongodb_shell:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_port: 3001
+    debug: yes
+    db: "test"
+    eval: 'db.hosts.insertOne({"_id": "first_record"})'
+    mongo_cmd: "auto"
+  ignore_errors: true
+  register: first_insert_duplicate
+      
+- assert:
+    that: 
+      - "first_insert_duplicate.failed"
+      - "' E11000 duplicate key error collection' in first_insert_duplicate.msg"

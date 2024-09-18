@@ -1,0 +1,6 @@
+venv/*
+**/.DS_Store
+*.tar.gz
+tests/output/*
+**/__pycache__/*
+.idea/*

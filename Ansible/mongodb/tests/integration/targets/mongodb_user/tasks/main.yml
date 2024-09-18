@@ -1,0 +1,429 @@
+- name: Ensure tests home exists
+  file:
+    path: '{{ remote_tmp_dir }}/tests'
+    state: directory
+
+- set_fact:
+    mongodb_nodes:
+    - 3001
+    - 3002
+    - 3003
+
+- include_tasks: mongod_teardown.yml
+
+- set_fact:
+    current_replicaset: mongodb_user_tests_replicaset
+
+- include_tasks: mongod_start_replicaset.yml
+
+- include_tasks: mongod_config_replicaset.yml
+
+- name: Create admin user with module
+  community.mongodb.mongodb_user:
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: '{{ mongodb_admin_user }}'
+    password: '{{ mongodb_admin_password }}'
+    roles: root
+    state: present
+  register: mongodb_admin_user_created
+- assert:
+    that:
+    - mongodb_admin_user_created.changed == True
+
+- name: Check the status of the replicaset with mongodb_status module
+  community.mongodb.mongodb_status:
+    login_host: localhost
+    login_port: 3001
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    replica_set: '{{ current_replicaset }}'
+    poll: 99
+    interval: 10
+
+- include_tasks: mongod_stop.yml
+
+- set_fact:
+    mongod_auth: true
+
+- include_tasks: mongod_start_replicaset.yml
+
+- name: Check the status of the replicaset with mongodb_status module
+  community.mongodb.mongodb_status:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_host: localhost
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    poll: 99
+    interval: 10
+
+- name: Run admin user creation again
+  community.mongodb.mongodb_user:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_database: admin
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: '{{ mongodb_admin_user }}'
+    password: '{{ mongodb_admin_password }}'
+    roles: root
+    state: present
+    update_password: on_create
+  register: mongodb_admin_user_created
+
+- assert:
+    that:
+    - mongodb_admin_user_created.changed == False
+
+- name: Run admin user creation again with forced pw update
+  community.mongodb.mongodb_user:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_database: admin
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: '{{ mongodb_admin_user }}'
+    password: '{{ mongodb_admin_password }}'
+    roles: root
+    state: present
+    update_password: always
+  register: mongodb_admin_user_created
+
+- assert:
+    that:
+    - mongodb_admin_user_created.changed == True
+
+- name: Run user creation
+  community.mongodb.mongodb_user:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_database: admin
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: '{{ item.database }}'
+    name: '{{ item.name }}'
+    password: '{{ item.password }}'
+    roles: '{{ item.roles }}'
+    state: present
+  with_items: '{{ mongodb_user_list }}'
+
+- name: Test login for all users
+  #shell: mongo "{{ item.database }}" --host "{{ current_replicaset }}/localhost:3001" --username "{{ item.name }}" --password "{{ item.password }}" --eval "printjson(db.getCollectionNames())"
+  mongodb_shell:
+    login_user: "{{ item.name }}"
+    login_password: "{{ item.password }}"
+    login_database: "{{ item.database }}"
+    login_host: "{{ current_replicaset }}/localhost"
+    login_port: 3001
+    #db: "{{ item.database }}"
+    eval: "printjson(db.getCollectionNames())"
+    mongo_cmd: "auto"
+  with_items: '{{ mongodb_user_list }}'
+  register: login_test
+
+- name: Assert all logins successful
+  assert:
+    that: '{{ item.changed }}'
+  with_items: '{{ login_test.results }}'
+
+- name: Get admin db users
+  #shell: mongo admin --host "{{ current_replicaset }}/localhost:3001" --username "{{ mongodb_admin_user }}" --password "{{ mongodb_admin_password }}" --eval "printjson(db.getUsers())"
+  mongodb_shell:
+    login_host: "{{ current_replicaset }}/localhost"
+    login_port: 3001
+    login_user: "{{ mongodb_admin_user }}"
+    login_password: "{{ mongodb_admin_password }}"
+    login_database: admin
+    db: "admin"
+    eval: printjson(db.getUsers())
+    mongo_cmd: "auto"
+    transform: "raw"
+  register: admin_db_users
+
+- name: Assert that roles exist in admin db output
+  assert:
+    that:
+    - '''clusterAdmin'' in admin_db_users.transformed_output | string'
+    - '''readAnyDatabase'' in admin_db_users.transformed_output | string'
+    - '''readWriteAnyDatabase'' in admin_db_users.transformed_output | string'
+    - '''userAdminAnyDatabase'' in admin_db_users.transformed_output | string'
+    - '''dbAdminAnyDatabase'' in admin_db_users.transformed_output | string'
+
+- name: Get test db users
+  #shell: mongo test --authenticationDatabase admin --host "{{ current_replicaset }}/localhost:3001" --username "{{ mongodb_admin_user }}" --password "{{ mongodb_admin_password }}" --eval "printjson(db.getUsers())"
+  mongodb_shell:
+    login_host: "{{ current_replicaset }}/localhost"
+    login_port: 3001
+    login_user: "{{ mongodb_admin_user }}"
+    login_password: "{{ mongodb_admin_password }}"
+    login_database: "admin"
+    db: "test"
+    eval: "printjson(db.getUsers())"
+    mongo_cmd: "auto"
+    transform: "raw"
+  register: test_db_users
+
+- name: Assert that roles exist in test db output
+  assert:
+    that:
+    - "'read' in test_db_users.transformed_output | string"
+    - "'readWrite' in test_db_users.transformed_output | string"
+    - "'dbAdmin' in test_db_users.transformed_output | string"
+    - "'userAdmin' in test_db_users.transformed_output | string"
+
+- name: Drop users in test db
+  community.mongodb.mongodb_user:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_database: admin
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: '{{ item.database }}'
+    name: '{{ item.name }}'
+    state: absent
+  with_items: '{{ mongodb_user_list }}'
+  when: item.database == "test"
+
+- name: Get test db users
+  #shell: mongo test --authenticationDatabase admin --host "{{ current_replicaset }}/localhost:3001" --username "{{ mongodb_admin_user }}" --password "{{ mongodb_admin_password }}" --eval "printjson(db.getUsers())"
+  mongodb_shell:
+    login_host: "{{ current_replicaset }}/localhost"
+    login_port: 3001
+    login_user: "{{ mongodb_admin_user }}"
+    login_password: "{{ mongodb_admin_password }}"
+    login_database: admin
+    db: "test"
+    eval: "printjson(db.getUsers())"
+    mongo_cmd: "auto"
+    transform: "raw"
+  register: test_db_users
+
+- name: Assert that roles do not exist in test db output
+  assert:
+    that:
+    - '''user1'' not in test_db_users.transformed_output | string'
+    - '''user2'' not in test_db_users.transformed_output | string'
+    - '''user3'' not in test_db_users.transformed_output | string'
+    - '''user4'' not in test_db_users.transformed_output | string'
+
+- name: Create user with multiple roles in test db
+  community.mongodb.mongodb_user:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_database: admin
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: test
+    name: test_multiple_roles
+    password: secret
+    roles: readWrite,dbAdmin,userAdmin
+    state: present
+
+- name: Get test db users
+  #shell: mongo test --authenticationDatabase admin --host "{{ current_replicaset }}/localhost:3001" --username "{{ mongodb_admin_user }}" --password "{{ mongodb_admin_password }}" --eval "printjson(db.getUsers())"
+  mongodb_shell:
+    login_host: "{{ current_replicaset }}/localhost"
+    login_port: 3001
+    login_user: "{{ mongodb_admin_user }}"
+    login_password: "{{ mongodb_admin_password }}"
+    login_database: "admin"
+    db: "test"
+    eval: "printjson(db.getUsers())"
+    mongo_cmd: "auto"
+  register: test_db_users
+
+- debug:
+    var: test_db_users
+
+- include_tasks: mongod_teardown.yml
+
+- set_fact:
+    current_replicaset: mongodb_user_test_localhost_exception_replicaset
+
+- set_fact:
+    mongod_auth: true
+
+- include_tasks: mongod_start_replicaset.yml
+
+- include_tasks: mongod_config_replicaset.yml
+
+- name: Check for absence of the create_for_localhost_exception file
+  stat:
+    path: '{{ remote_tmp_dir }}/tests/admin_create.success'
+  register: create_for_localhost_exception_file
+- assert:
+    that:
+    - not create_for_localhost_exception_file.stat.exists
+
+- name: Create admin user with module and create_for_localhost_exception
+  community.mongodb.mongodb_user:
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: '{{ mongodb_admin_user }}'
+    password: '{{ mongodb_admin_password }}'
+    roles: root
+    state: present
+    create_for_localhost_exception: '{{ remote_tmp_dir }}/tests/admin_create.success'
+  register: mongodb_admin_user_created
+
+- name: Check the status of the replicaset with mongodb_status module
+  community.mongodb.mongodb_status:
+    login_host: localhost
+    login_port: 3001
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    replica_set: '{{ current_replicaset }}'
+    poll: 99
+    interval: 10
+
+- assert:
+    that:
+    - mongodb_admin_user_created is changed
+
+- name: Check for presence of the create_for_localhost_exception file
+  stat:
+    path: '{{ remote_tmp_dir }}/tests/admin_create.success'
+  register: create_for_localhost_exception_file
+- assert:
+    that:
+    - create_for_localhost_exception_file.stat.exists
+
+- name: Create admin when create_for_localhost_exception file exists
+  community.mongodb.mongodb_user:
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: '{{ mongodb_admin_user }}'
+    password: '{{ mongodb_admin_password }}'
+    roles: root
+    state: present
+    create_for_localhost_exception: '{{ remote_tmp_dir }}/tests/admin_create.success'
+  register: mongodb_admin_user_created
+
+- assert:
+    that:
+    - mongodb_admin_user_created is skipped
+
+- include_tasks: mongod_teardown.yml
+
+######################################
+- set_fact:
+    current_replicaset: issue_278
+
+- set_fact:
+    mongod_auth: true
+
+- include_tasks: mongod_start_replicaset.yml
+
+- include_tasks: mongod_config_replicaset.yml
+
+- name: Ensure create_for_localhost_exception file does not exist
+  file:
+    path: '{{ remote_tmp_dir }}/tests/admin_create.success'
+    state: absent
+
+- name: Create admin user with module and create_for_localhost_exception
+  community.mongodb.mongodb_user:
+    login_port: 3001
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: '{{ mongodb_admin_user }}'
+    password: '{{ mongodb_admin_password }}'
+    roles: root
+    state: present
+    create_for_localhost_exception: '{{ remote_tmp_dir }}/tests/admin_create.success'
+
+- name: Check the status of the replicaset with mongodb_status module
+  community.mongodb.mongodb_status:
+    login_host: localhost
+    login_port: 3001
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    replica_set: '{{ current_replicaset }}'
+    poll: 99
+    interval: 10
+
+- name: 278 - Create MongoDB user
+  community.mongodb.mongodb_user:
+    login_port: 3001
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    name: myuser
+    roles:
+      - dbAdmin
+    database: admin
+    password: secret
+    replica_set: issue_278
+    update_password: on_create
+
+- name: 278 - Update MongoDB user
+  community.mongodb.mongodb_user:
+    login_port: 3001
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    name: myuser
+    roles:
+      - userAdmin
+    database: admin
+    password: secret
+    replica_set: issue_278
+    update_password: on_create
+
+- name: Get myuser db users
+  #shell: mongo admin --host "{{ current_replicaset }}/localhost:3001" --username "{{ mongodb_admin_user }}" --password "{{ mongodb_admin_password }}" --eval "printjson(db.getUser('myuser'))"
+  mongodb_shell:
+    login_host: "{{ current_replicaset }}/localhost"
+    login_port: 3001
+    login_user: "{{ mongodb_admin_user }}"
+    login_password: "{{ mongodb_admin_password }}"
+    login_database: admin
+    db: admin
+    eval: "printjson(db.getUser('myuser'))"
+    mongo_cmd: "auto"
+  register: admin_myuser
+
+
+# https://github.com/ansible-collections/community.mongodb/actions/runs/3118300294/jobs/5057595821
+- name: Assert that user setup is as expected
+  assert:
+    that:
+    - admin_myuser.transformed_output.user == 'myuser'
+    - admin_myuser.transformed_output.roles.0.role == 'userAdmin'
+    - '''dbAdmin'' not in admin_myuser.transformed_output | string'
+  when: False  # TODO Disable for now
+
+- name: Add replicaset connectivity test
+  community.mongodb.mongodb_user:
+    login_user: '{{ mongodb_admin_user }}'
+    login_password: '{{ mongodb_admin_password }}'
+    login_port: 3002
+    replica_set: '{{ current_replicaset }}'
+    database: admin
+    name: rs_test
+    password: 'secret'
+    roles: root
+    state: present
+  register: rs_test
+
+- assert:
+    that:
+      - "rs_test.changed"
+
+- include_tasks: mongod_teardown.yml
+
+- name: Save mongod_storage_engine_opts to a variable so we can reset it later
+  set_fact:
+    old_mongod_storage_engine_opts: "{{ mongod_storage_engine_opts }}"
+
+- include_tasks: 421.yml
+  when: mongodb_version == "6.0"  # TODO This needs to work for MongoDB 7.0+
+
+- include_tasks: mongod_teardown.yml
+
+# TODO - ssl tests need fixing https://github.com/ansible-collections/community.mongodb/issues/634
+#- include_tasks: 444.yml
