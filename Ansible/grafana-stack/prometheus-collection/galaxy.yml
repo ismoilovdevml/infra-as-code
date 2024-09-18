@@ -1,0 +1,35 @@
+---
+namespace: prometheus
+name: prometheus
+version: 0.17.1
+readme: README.md
+authors:
+  - "Ben Kochie (https://github.com/SuperQ)"
+  - "Garðar Arnarsson (https://github.com/gardar)"
+  - "Paweł Krupa (https://github.com/paulfantom)"
+description: "Ansible Collection for Prometheus"
+license_file: LICENSE
+tags:
+  - observability
+  - o11y
+  - monitoring
+  - prometheus
+  - metrics
+  - alerts
+  - alerting
+  - cloud
+dependencies:
+  community.general: '>=1.0.0'
+repository: "https://github.com/prometheus-community/ansible"
+documentation: "https://prometheus-community.github.io/ansible"
+homepage: "https://prometheus.io"
+issues: "https://github.com/prometheus-community/ansible/issues"
+build_ignore:
+  - .config
+  - .github
+  - .gitignore
+  - changelogs
+  - roles/*/molecule
+  - tests
+  - '*test-requirements.txt'
+  - '*.tar.gz'
