@@ -1,0 +1,31 @@
+---
+- name: Install and configure RabbitMQ
+  hosts: rabbitmq_servers
+  become: true
+  collections:
+    - community.rabbitmq
+  roles:
+    - rabbitmq
+  vars:
+    rabbitmq_admin_user: admin
+    rabbitmq_admin_password: jfq48sd267Dlds
+    rabbitmq_vhosts:
+      - name: "/"
+        state: present
+    rabbitmq_users:
+      - user: admin
+        password: jfq48sd267Dlds
+        tags: administrator
+        state: present
+    rabbitmq_permissions:
+      - vhost: "/"
+        user: admin
+        configure_priv: ".*"
+        write_priv: ".*"
+        read_priv: ".*"
+
+  tasks:
+    - name: Enable RabbitMQ management plugin
+      community.rabbitmq.rabbitmq_plugin:
+        name: rabbitmq_management
+        state: enabled
