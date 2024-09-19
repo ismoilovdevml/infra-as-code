@@ -1,0 +1,7 @@
+---
+- hosts: go_servers
+  become: yes
+  vars:
+    go_version: "1.23.1"
+  roles:
+    - geerlingguy.go
