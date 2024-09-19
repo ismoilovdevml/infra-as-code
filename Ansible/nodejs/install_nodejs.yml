@@ -1,0 +1,7 @@
+---
+- hosts: nodejs_servers
+  become: yes
+  vars:
+    nodejs_version: "21.x"
+  roles:
+    - geerlingguy.nodejs

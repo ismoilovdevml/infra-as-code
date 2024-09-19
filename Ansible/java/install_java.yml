@@ -1,5 +1,5 @@
 ---
-- hosts: all
+- hosts: java_servers
   become: yes
   vars:
     java_packages:
