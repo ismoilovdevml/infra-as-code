@@ -1,0 +1,6 @@
+---
+- name: Install RabbitMQ
+  hosts: rabbitmq_servers
+  become: true
+  roles:
+    - geerlingguy.rabbitmq

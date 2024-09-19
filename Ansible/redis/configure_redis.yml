@@ -7,7 +7,7 @@
     - vars.yml
 
   tasks:
-    - name: Configure protected mode
+    - name: Disable protected mode
       lineinfile:
         path: /etc/redis/redis.conf
         regexp: '^protected-mode'
@@ -15,7 +15,7 @@
         state: present
       notify: Restart Redis
 
-    - name: Set bind address
+    - name: Set bind address to 0.0.0.0
       lineinfile:
         path: /etc/redis/redis.conf
         regexp: '^bind'
@@ -26,5 +26,5 @@
   handlers:
     - name: Restart Redis
       service:
-        name: redis-server
+        name: "{{ ansible_os_family == 'RedHat' | ternary('redis', 'redis-server') }}"
         state: restarted

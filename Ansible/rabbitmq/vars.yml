@@ -1,0 +1,3 @@
+rabbitmq_admin_user: admin
+rabbitmq_admin_password: pasaedf123
+rabbitmq_management_ui_state: enabled

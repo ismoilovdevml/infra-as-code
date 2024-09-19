@@ -1,0 +1,44 @@
+---
+- name: Configure RabbitMQ
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Enable RabbitMQ management plugin
+      community.rabbitmq.rabbitmq_plugin:
+        name: rabbitmq_management
+        state: enabled
+
+    - name: Bind RabbitMQ to 0.0.0.0
+      lineinfile:
+        path: /etc/rabbitmq/rabbitmq.conf
+        regexp: '^listeners.tcp.default'
+        line: "listeners.tcp.default = 0.0.0.0"
+        state: present
+        create: yes
+      notify: Restart RabbitMQ
+
+    - name: Create RabbitMQ admin user
+      community.rabbitmq.rabbitmq_user:
+        user: "{{ rabbitmq_admin_user }}"
+        password: "{{ rabbitmq_admin_password }}"
+        tags:
+          - administrator
+        vhost: /
+        configure_priv: ".*"
+        read_priv: ".*"
+        write_priv: ".*"
+        state: present
+
+    - name: Enable RabbitMQ management UI
+      community.rabbitmq.rabbitmq_plugin:
+        name: rabbitmq_management
+        state: "{{ rabbitmq_management_ui_state }}"
+
+  handlers:
+    - name: Restart RabbitMQ
+      service:
+        name: rabbitmq-server
+        state: restarted
