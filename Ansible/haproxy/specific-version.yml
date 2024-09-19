@@ -1,0 +1,40 @@
+---
+- name: Install specific version of HAProxy on multiple OSes
+  hosts: haproxy_servers
+  become: yes
+  tasks:
+    - name: Add HAProxy repository and install specific version on Debian 12 (Bookworm)
+      apt_key:
+        url: https://haproxy.debian.net/bernat.debian.org.gpg
+        state: present
+      when: ansible_facts['ansible_distribution'] == "Debian" and ansible_facts['ansible_distribution_version'] == "12"
+      
+    - name: Add HAProxy repository to sources.list for Debian 12
+      apt_repository:
+        repo: 'deb http://haproxy.debian.net bookworm-backports-2.8 main'
+        state: present
+      when: ansible_facts['ansible_distribution'] == "Debian" and ansible_facts['ansible_distribution_version'] == "12"
+
+    - name: Install HAProxy 2.8 on Debian 12
+      apt:
+        name: "haproxy=2.8.*"
+        state: present
+      when: ansible_facts['ansible_distribution'] == "Debian" and ansible_facts['ansible_distribution_version'] == "12"
+    
+    - name: Add HAProxy repository and install specific version on Ubuntu 20.04 (Focal)
+      apt_key:
+        url: https://haproxy.debian.net/bernat.debian.org.gpg
+        state: present
+      when: ansible_facts['ansible_distribution'] == "Ubuntu" and ansible_facts['ansible_distribution_version'] == "20.04"
+
+    - name: Add HAProxy repository to sources.list for Ubuntu 20.04
+      apt_repository:
+        repo: 'deb http://haproxy.debian.net focal-backports-2.9 main'
+        state: present
+      when: ansible_facts['ansible_distribution'] == "Ubuntu" and ansible_facts['ansible_distribution_version'] == "20.04"
+
+    - name: Install HAProxy 2.9 on Ubuntu 20.04
+      apt:
+        name: "haproxy=2.9.*"
+        state: present
+      when: ansible_facts['ansible_distribution'] == "Ubuntu" and ansible_facts['ansible_distribution_version'] == "20.04"
