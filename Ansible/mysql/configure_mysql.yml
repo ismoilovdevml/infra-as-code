@@ -2,13 +2,15 @@
 - name: Configure MySQL and grant root access
   hosts: mysql_servers
   become: yes
+  vars_files:
+    - vars.yml
 
   tasks:
     - name: Ensure MySQL is listening on all interfaces (Debian/Ubuntu/MariaDB)
       lineinfile:
         path: /etc/mysql/my.cnf
         regexp: '^bind-address'
-        line: 'bind-address = 0.0.0.0'
+        line: 'bind-address = {{ bind-address }}'
         state: present
       when: ansible_os_family == "Debian"
       notify: Restart MySQL
@@ -17,7 +19,7 @@
       lineinfile:
         path: /etc/my.cnf
         regexp: '^bind-address'
-        line: 'bind-address = 0.0.0.0'
+        line: 'bind-address = {{ bind-address }}'
         state: present
       when: ansible_os_family == "RedHat"
       notify: Restart MySQL
@@ -31,11 +33,10 @@
         state: present
 
     - name: Flush privileges to apply changes
-      mysql_privs:
-        name: root
-        host: '%'
-        priv: '*.*:ALL,GRANT'
-        state: present
+      mysql_query:
+        query: "FLUSH PRIVILEGES;"
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
       ignore_errors: yes
 
   handlers:
