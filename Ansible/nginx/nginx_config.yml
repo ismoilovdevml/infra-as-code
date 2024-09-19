@@ -2,18 +2,22 @@
 - name: Configure NGINX reverse proxy
   hosts: target_servers
   become: yes
+  vars:
+    domen: "nginx.helm.uz"  # Define the domain variable here
+
   roles:
     - role: nginxinc.nginx
       vars:
         nginx_http_template_enable: false  # Disable inline HTTP template
+
   tasks:
     - name: Create NGINX configuration in sites-available
       copy:
-        dest: /etc/nginx/sites-available/nginx.helm.uz.conf
+        dest: /etc/nginx/sites-available/{{ domen }}.conf
         content: |
           server {
               listen 80;
-              server_name nginx.helm.uz;
+              server_name {{ domen }} www.{{ domen }};
               
               location / {
                   proxy_pass http://localhost:3001;
@@ -27,8 +31,8 @@
 
     - name: Create symbolic link in sites-enabled
       file:
-        src: /etc/nginx/sites-available/nginx.helm.uz.conf
-        dest: /etc/nginx/sites-enabled/nginx.helm.uz.conf
+        src: /etc/nginx/sites-available/{{ domen }}.conf
+        dest: /etc/nginx/sites-enabled/{{ domen }}.conf
         state: link
         force: yes
 

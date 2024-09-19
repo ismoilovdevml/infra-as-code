@@ -1,0 +1,20 @@
+---
+- name: Obtain SSL certificate for NGINX and configure it
+  hosts: certbot_servers
+  become: yes
+  vars:
+    domen: nginx.helm.uz
+  tasks:
+    - name: Obtain SSL certificate with Certbot for NGINX
+      shell: |
+        certbot --nginx -d {{ domen }} -d www.{{ domen }} --non-interactive --agree-tos --email teshmat@gmail.com
+      register: certbot_output
+
+    - name: Debug Certbot output
+      debug:
+        var: certbot_output.stdout
+
+    - name: Restart NGINX to apply SSL certificate
+      service:
+        name: nginx
+        state: restarted

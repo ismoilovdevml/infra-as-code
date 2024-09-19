@@ -1,0 +1,31 @@
+---
+- name: Install Certbot and obtain SSL certificate for NGINX
+  hosts: certbot_servers
+  become: yes
+  roles:
+    - role: geerlingguy.certbot
+      vars:
+        certbot_install_method: package  # Force Snap installation on all systems
+        certbot_email: "teshmat@gmail.com"  # Email for Let's Encrypt notifications
+        certbot_certs:
+          - domains:
+              - nginx.helm.uz  # Main domain
+              - www.nginx.helm.uz  # Additional domain
+            webserver: nginx  # Configure Certbot for NGINX web server
+        certbot_auto_renew: true  # Enable auto-renewal of certificates
+        certbot_auto_renew_hour: "0,12"  # Renew certificates at midnight and noon
+        certbot_auto_renew_minute: "30"  # Renew at 30 minutes past the hour
+        certbot_auto_renew_user: "root"  # Ensure renewal runs as root user
+
+  tasks:
+    - name: Ensure NGINX is stopped before standalone Certbot execution
+      service:
+        name: nginx
+        state: stopped
+      when: certbot_create_method == "standalone"
+
+    - name: Start NGINX after Certbot obtains certificates
+      service:
+        name: nginx
+        state: started
+      when: certbot_create_method == "standalone"
