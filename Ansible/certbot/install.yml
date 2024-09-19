@@ -1,0 +1,17 @@
+---
+- name: Install Certbot and obtain SSL certificate
+  hosts: certboot_servers
+  become: yes
+  roles:
+    - role: geerlingguy.certbot
+      vars:
+        certbot_email: "your-email@example.com"
+        certbot_certs:
+          - domains:
+              - nginx.helm.uz
+              - www.nginx.helm.uz
+            webserver: nginx
+        certbot_auto_renew: true
+        certbot_auto_renew_hour: "0,12"  # Runs at midnight and noon
+        certbot_auto_renew_minute: "30"
+        certbot_auto_renew_user: "root"
