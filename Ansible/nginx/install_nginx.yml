@@ -1,10 +1,57 @@
 ---
-- name: NGINX'ni o'rnatish
+- name: Install and configure NGINX
   hosts: nginx_servers
   become: yes
   roles:
     - role: nginxinc.nginx
       vars:
-        nginx_install_epel_repo: true  # EPEL repository o'rnatish
-        nginx_enable: true  # NGINX servisini yoqish
-        nginx_start: true  # NGINX'ni ishga tushirish
+        nginx_install_epel_repo: true  # EPEL repository installation
+        nginx_enable: true  # Enable NGINX service
+        nginx_start: true  # Start NGINX service
+
+  tasks:
+    - name: Create sites-available directory
+      file:
+        path: /etc/nginx/sites-available
+        state: directory
+        mode: '0755'
+
+    - name: Create sites-enabled directory
+      file:
+        path: /etc/nginx/sites-enabled
+        state: directory
+        mode: '0755'
+
+    - name: Add sites-enabled to nginx.conf
+      lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: 'include /etc/nginx/conf.d/\*.conf;'
+        insertafter: 'include /etc/nginx/conf.d/\*.conf;'
+        line: '    include /etc/nginx/sites-enabled/*;'
+        state: present
+
+    - name: Create a default site configuration in sites-available
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          server {
+              listen 80 default_server;
+              server_name _;
+              root /var/www/html;
+
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+          }
+        mode: '0644'
+
+    - name: Enable default site by creating symlink in sites-enabled
+      file:
+        src: /etc/nginx/sites-available/default
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+
+    - name: Reload NGINX to apply changes
+      service:
+        name: nginx
+        state: reloaded

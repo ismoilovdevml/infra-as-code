@@ -1,21 +1,38 @@
 ---
-- name: Configure NGINX as a reverse proxy using nginxinc.nginx role
-  hosts: nginx_servers
+- name: Configure NGINX reverse proxy
+  hosts: target_servers
   become: yes
   roles:
     - role: nginxinc.nginx
       vars:
-        nginx_http_template_enable: true  # Enable HTTP templates
-        nginx_http_template_conf: |
+        nginx_http_template_enable: false  # Disable inline HTTP template
+  tasks:
+    - name: Create NGINX configuration in sites-available
+      copy:
+        dest: /etc/nginx/sites-available/nginx.helm.uz.conf
+        content: |
           server {
               listen 80;
-              server_name {{ domain_name }};
+              server_name nginx.helm.uz;
               
               location / {
-                  proxy_pass http://{{ backend_server }};
+                  proxy_pass http://localhost:3001;
                   proxy_set_header Host $host;
                   proxy_set_header X-Real-IP $remote_addr;
                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                   proxy_set_header X-Forwarded-Proto $scheme;
               }
           }
+        mode: '0644'
+
+    - name: Create symbolic link in sites-enabled
+      file:
+        src: /etc/nginx/sites-available/nginx.helm.uz.conf
+        dest: /etc/nginx/sites-enabled/nginx.helm.uz.conf
+        state: link
+        force: yes
+
+    - name: Reload NGINX to apply new configuration
+      service:
+        name: nginx
+        state: reloaded
