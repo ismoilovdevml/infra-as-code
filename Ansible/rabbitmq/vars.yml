@@ -1,3 +1,16 @@
+---
+# Common variables
+rabbitmq_package_state: present
+
+# RedHat/CentOS specific variables
+rabbitmq_rpm_key: "https://packagecloud.io/rabbitmq/rabbitmq-server/gpgkey"
+
+# Debian/Ubuntu specific variables
+rabbitmq_deb_repo: "deb https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/deb/debian buster main"
+
+# Admin user credentials (to be used later for configurations)
 rabbitmq_admin_user: admin
-rabbitmq_admin_password: pasaedf123
+rabbitmq_admin_password: your_password
+
+# Management UI settings (to be used later for configurations)
 rabbitmq_management_ui_state: enabled
