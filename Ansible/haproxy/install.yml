@@ -1,22 +1,6 @@
 ---
-- name: Install and configure HAProxy
-  hosts: all
+- name: Install HAProxy
+  hosts: haproxy_servers
   become: yes
   roles:
     - role: geerlingguy.haproxy
-      vars:
-        haproxy_frontend_name: 'mainfrontend'
-        haproxy_frontend_bind_address: '*'
-        haproxy_frontend_port: 80
-        haproxy_frontend_mode: 'http'
-        haproxy_backend_name: 'mainbackend'
-        haproxy_backend_mode: 'http'
-        haproxy_backend_balance_method: 'roundrobin'
-        haproxy_backend_servers:
-          - name: app1
-            address: 192.168.1.101:80
-          - name: app2
-            address: 192.168.1.102:80
-        haproxy_global_vars:
-          - 'ssl-default-bind-ciphers ECDHE-RSA-AES128-GCM-SHA256'
-          - 'ssl-default-bind-options no-sslv3'
