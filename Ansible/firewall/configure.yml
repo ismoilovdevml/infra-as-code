@@ -1,0 +1,51 @@
+---
+- hosts: all
+  become: true  # Ensure we have root privileges for firewall configuration
+  roles:
+    - geerlingguy.firewall
+
+  vars:
+    # TCP ports to be allowed through the firewall
+    firewall_allowed_tcp_ports:
+      - "22"    # SSH access
+      - "80"    # HTTP web server
+      - "443"   # HTTPS web server
+      - "8080"  # Custom application on port 8080
+
+    # UDP ports to be allowed through the firewall
+    firewall_allowed_udp_ports:
+      - "53"    # DNS (Domain Name System)
+      - "123"   # NTP (Network Time Protocol)
+
+    # Additional custom rules for advanced configurations
+    firewall_additional_rules:
+      # Rule 1: Allow ICMP (ping) from a specific network (192.168.1.0/24) on eth0 interface
+      - action: accept
+        interface: eth0
+        proto: icmp
+        source: 192.168.1.0/24
+        destination: any
+        destination_port: any
+        comment: "Allow ICMP (ping) from the local network on eth0"
+
+      # Rule 2: Block TCP traffic to port 8081 on interface eth1 from any source
+      - action: drop
+        interface: eth1
+        proto: tcp
+        source: 0.0.0.0/0
+        destination: any
+        destination_port: "8081"
+        comment: "Drop traffic to port 8081 on eth1 interface"
+
+    # Enable logging for dropped packets (useful for troubleshooting and security monitoring)
+    firewall_log_dropped_packets: true
+
+    # Custom iptables rules for more advanced or specific requirements
+    firewall_custom_rules:
+      # Rule 1: Allow MySQL traffic on port 3306 from the 10.0.0.0/8 subnet
+      - rule: '-A INPUT -s 10.0.0.0/8 -p tcp --dport 3306 -j ACCEPT'
+        comment: "Allow MySQL access from the 10.0.0.0/8 network"
+
+      # Rule 2: Accept established and related connections (important for stateful firewall behavior)
+      - rule: '-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
+        comment: "Allow established and related connections"
