@@ -20,12 +20,11 @@ The Node.js version can be customized in the playbook by setting the `nodejs_ver
 
 ### Example
 
-To install Node.js version `16.x`, set the `nodejs_version` variable in the playbook as shown below:
+To install Node.js version `21.x`, set the `nodejs_version` variable in the playbook as shown below:
 
 ```yml
 vars:
-  java_packages:
-    - openjdk-11-jdk
+  nodejs_version: "21.x"
 ```
 
 ### Playbook Explanation
