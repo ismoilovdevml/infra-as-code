@@ -1,0 +1,10 @@
+---
+- name: NGINX'ni o'rnatish
+  hosts: nginx_servers
+  become: yes
+  roles:
+    - role: nginxinc.nginx
+      vars:
+        nginx_install_epel_repo: true  # EPEL repository o'rnatish
+        nginx_enable: true  # NGINX servisini yoqish
+        nginx_start: true  # NGINX'ni ishga tushirish

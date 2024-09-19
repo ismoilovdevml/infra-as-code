@@ -8,6 +8,7 @@
     admin_password: "123"
     database_name: "admin"
     mongodb_port: 27017
+    auth_mechanism: "SCRAM-SHA-256"
 
   roles:
     - role: community.mongodb.mongodb_install
@@ -53,6 +54,8 @@
             db: "{{ database_name }}"
         state: present
         database: "{{ database_name }}"
+        update_password: "always"
+        auth_mechanism: "{{ auth_mechanism }}"
       when: "'true' in is_primary_node.transformed_output[0]"
 
     - name: Re-enable authentication after user creation
@@ -68,3 +71,13 @@
         name: mongod
         state: restarted
         enabled: true
+
+    - name: Debug authentication status
+      community.mongodb.mongodb_shell:
+        eval: "db.getUsers()"
+        mongo_cmd: "mongosh"
+      register: auth_status
+
+    - name: Show authentication result
+      ansible.builtin.debug:
+        var: auth_status
