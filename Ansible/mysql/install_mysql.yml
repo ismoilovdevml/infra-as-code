@@ -1,0 +1,13 @@
+---
+- name: Install MySQL
+  hosts: mysql_servers
+  become: yes
+
+  vars:
+    mysql_root_password: "123"
+    mysql_bind_address: '0.0.0.0'
+    mysql_root_password_update: true
+    mysql_enabled_on_startup: true
+
+  roles:
+    - role: geerlingguy.mysql
