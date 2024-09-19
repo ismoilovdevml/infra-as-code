@@ -1,0 +1,30 @@
+---
+- name: Configure Redis
+  hosts: redis_servers
+  become: yes
+
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Configure protected mode
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^protected-mode'
+        line: "protected-mode {{ redis_protected_mode }}"
+        state: present
+      notify: Restart Redis
+
+    - name: Set bind address
+      lineinfile:
+        path: /etc/redis/redis.conf
+        regexp: '^bind'
+        line: "bind {{ redis_bind_interface }}"
+        state: present
+      notify: Restart Redis
+
+  handlers:
+    - name: Restart Redis
+      service:
+        name: redis-server
+        state: restarted
