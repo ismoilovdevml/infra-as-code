@@ -26,13 +26,14 @@ This playbook supports the following Linux distributions:
 * 🐧 **Debian:** 11,12
 * 🐧 **Ubuntu:** 20.04,22.04
 * 🐧 **RHEL:** 7,8
-* 🐧 **Fedora:** 39,40
+* 🐧 **Rocky Linux:** 8,9
 
 # ✅ Tested Operating Systems
 The playbook has been tested on the following OS versions:
 * ✅**Debian:** 11,12
 * ✅**Ubuntu:** 20.04,22.04
 * ✅**RHEL:** 7,8
+* ✅**Rocky Linux:** 8,9
 
 # ⚙️ Supported Ansible Versions
 * ✅ ansible [core 2.16.3]
