@@ -1,0 +1,25 @@
+---
+- name: Configure Promtail
+  hosts: promtail_servers
+  become: true
+  collections:
+    - grafana.grafana
+
+  vars:
+    config_file_path: "./promtail_config/{{ promtail_config_file_name }}"  # define the file name yourself
+    promtail_service_name: promtail
+
+  tasks:
+    - name: Copy Promtail config file to the server
+      ansible.builtin.copy:
+        src: "{{ config_file_path }}"
+        dest: /etc/promtail/config.yml  # Default configuration path
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Restart Promtail service to apply new configuration
+      ansible.builtin.service:
+        name: "{{ promtail_service_name }}"
+        state: restarted
+        enabled: true

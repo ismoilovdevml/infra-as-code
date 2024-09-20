@@ -1,0 +1,24 @@
+---
+- name: Install Promtail
+  hosts: promtail_servers
+  become: true
+  collections:
+    - grafana.grafana
+
+  vars:
+    promtail_version: "latest"  # or specific version
+    promtail_http_listen_port: 9080
+    promtail_http_listen_address: "0.0.0.0"
+    
+  tasks:
+    - name: Ensure Promtail is installed
+      ansible.builtin.package:
+        name: promtail
+        state: present
+      become: true
+
+    - name: Start and enable Promtail service
+      ansible.builtin.service:
+        name: promtail
+        state: started
+        enabled: true
