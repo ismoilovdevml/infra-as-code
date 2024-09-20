@@ -19,28 +19,28 @@
             upgrade: dist
       when: ansible_distribution in ['Ubuntu', 'Debian']
 
-    - name: Install GPG key for EPEL on RHEL
+    - name: Install GPG key for EPEL on RHEL/Rocky
       block:
         - name: Install GPG key for EPEL
           ansible.builtin.rpm_key:
             state: present
             key: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{ ansible_distribution_major_version }}
-      when: ansible_distribution in ['RedHat']
+      when: ansible_distribution in ['RedHat', 'Rocky']
 
-    - name: Install EPEL repository on RHEL (manual download)
+    - name: Install EPEL repository on RHEL/Rocky (manual download)
       block:
-        - name: Download EPEL repository RPM for RHEL
+        - name: Download EPEL repository RPM for RHEL/Rocky
           ansible.builtin.get_url:
             url: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
             dest: "/tmp/epel-release.rpm"
 
-        - name: Install EPEL repository RPM for RHEL
+        - name: Install EPEL repository RPM for RHEL/Rocky
           ansible.builtin.yum:
             name: "/tmp/epel-release.rpm"
             state: present
-      when: ansible_distribution in ['RedHat']
+      when: ansible_distribution in ['RedHat', 'Rocky']
 
-    - name: Update and upgrade CentOS/RHEL
+    - name: Update and upgrade CentOS/RHEL/Rocky
       block:
         - name: Update package list
           ansible.builtin.yum:
@@ -50,7 +50,7 @@
           ansible.builtin.yum:
             name: "*"
             state: latest
-      when: ansible_distribution in ['CentOS', 'RedHat']
+      when: ansible_distribution in ['CentOS', 'RedHat', 'Rocky']
 
     - name: Update and upgrade Fedora
       block:
@@ -80,7 +80,7 @@
             state: present
       when: ansible_distribution in ['Ubuntu', 'Debian']
 
-    - name: Install required tools on CentOS/RHEL
+    - name: Install required tools on CentOS/RHEL/Rocky
       block:
         - name: Install common tools
           ansible.builtin.yum:
@@ -94,7 +94,7 @@
               - net-tools
               - traceroute
             state: present
-      when: ansible_distribution in ['CentOS', 'RedHat']
+      when: ansible_distribution in ['CentOS', 'RedHat', 'Rocky']
 
     - name: Install required tools on Fedora
       block:

@@ -2,9 +2,11 @@
 - hosts: php_servers
   become: yes
   vars:
-    php_version: "8.3"  # Specify the PHP version you want to install
+    php_version: "8.3"
+    php_webserver_daemon: "nginx"
   roles:
     - name: geerlingguy.repo-remi
       when: ansible_os_family == 'RedHat'
     - geerlingguy.php-versions
+    # - geerlingguy.nginx  # Ensure Nginx is installed
     - geerlingguy.php
