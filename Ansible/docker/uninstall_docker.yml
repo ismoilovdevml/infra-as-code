@@ -14,7 +14,6 @@
       ignore_errors: true
       failed_when: docker_installed.rc != 0 and docker_installed.rc != 1
 
-
     - name: Stop all running containers (if Docker is found)
       ansible.builtin.shell: docker stop $(docker ps -q)
       when: docker_installed.rc == 0
@@ -61,7 +60,7 @@
         - docker.io
       when: ansible_distribution in ['Ubuntu', 'Debian']
 
-    - name: Remove Docker packages (CentOS/RHEL/Fedora)
+    - name: Remove Docker packages (CentOS/RHEL/Fedora/Rocky)
       ansible.builtin.yum:
         name:
           - docker
@@ -74,7 +73,7 @@
           - docker-engine
           - containerd.io
         state: absent
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora']
+      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
 
     - name: Remove Docker packages (SLES)
       community.general.zypper:
@@ -101,17 +100,17 @@
         state: absent
 
     - name: Clean up APT sources (Ubuntu/Debian)
-      file:
+      ansible.builtin.file:
         path: /etc/apt/sources.list.d/docker.list
         state: absent
       when: ansible_distribution in ['Ubuntu', 'Debian']
       ignore_errors: yes
 
-    - name: Clean up Yum/DNF sources (CentOS/RHEL/Fedora)
-      file:
+    - name: Clean up Yum/DNF sources (CentOS/RHEL/Fedora/Rocky)
+      ansible.builtin.file:
         path: /etc/yum.repos.d/docker-ce.repo
         state: absent
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora']
+      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
       ignore_errors: yes
 
     - name: Remove Docker GPG key (Ubuntu/Debian)
@@ -122,8 +121,8 @@
         - 9DC858229FC7DD38854AE2D88D81803C0EBFCD88  # Docker GPG key for Ubuntu/Debian
       when: ansible_distribution in ['Ubuntu', 'Debian']
 
-    - name: Remove Docker GPG key (CentOS/RHEL/Fedora)
+    - name: Remove Docker GPG key (CentOS/RHEL/Fedora/Rocky)
       ansible.builtin.rpm_key:
         key: https://download.docker.com/linux/centos/gpg
         state: absent
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora']
+      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']

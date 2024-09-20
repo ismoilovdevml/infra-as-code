@@ -21,6 +21,7 @@ The playbook has been tested on the following OS versions:
 * ✅**Debian:** 11,12
 * ✅**Ubuntu:** 20.04,22.04
 * ✅**RHEL:** 7,8
+* ✅**Rocky Linux:** 8,9
 
 # ⚙️ Supported Ansible Versions
 * ✅ ansible [core 2.16.3]

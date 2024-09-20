@@ -20,7 +20,7 @@
         state: absent
       when: ansible_distribution in ['Ubuntu', 'Debian']
 
-    - name: Remove old Docker versions (CentOS/RHEL/Fedora)
+    - name: Remove old Docker versions (CentOS/RHEL/Fedora/Rocky)
       ansible.builtin.shell: |
         sudo {{ ansible_pkg_mgr }} remove -y docker \
                                         docker-client \
@@ -30,7 +30,7 @@
                                         docker-latest-logrotate \
                                         docker-logrotate \
                                         docker-engine
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora']
+      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
 
     - name: Install Docker on Ubuntu/Debian
       block:
@@ -65,7 +65,7 @@
             state: present
       when: ansible_distribution in ['Ubuntu', 'Debian']
 
-    - name: Install Docker on CentOS/RHEL
+    - name: Install Docker on CentOS/RHEL/Rocky
       block:
         - name: Install dependencies
           ansible.builtin.yum:
@@ -84,7 +84,7 @@
               - docker-buildx-plugin
               - docker-compose-plugin
             state: present
-      when: ansible_distribution in ['RedHat', 'CentOS']
+      when: ansible_distribution in ['RedHat', 'CentOS', 'Rocky']
 
     - name: Install Docker on Fedora
       block:
@@ -106,22 +106,6 @@
               - docker-compose-plugin
             state: present
       when: ansible_distribution == 'Fedora'
-
-    - name: Install Docker on SLES (s390x)
-      block:
-        - name: Add OpenSUSE SELinux repository
-          ansible.builtin.shell: |
-            zypper addrepo https://download.opensuse.org/repositories/security:/SELinux/openSUSE_Factory/security:SELinux.repo
-
-        - name: Add Docker repository and install
-          ansible.builtin.zypper:
-            name:
-              - docker
-              - docker-compose
-              - containerd
-              - runc
-            state: present
-      when: ansible_distribution == 'SLES'
 
     - name: Start and enable Docker
       ansible.builtin.systemd:
