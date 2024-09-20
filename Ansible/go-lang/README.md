@@ -1,6 +1,6 @@
 # 📋 Go Installation Playbook
 
-This Ansible playbook installs a specified version of the Go programming language across multiple servers using the official **geerlingguy.go** role.
+This Ansible playbook installs a specified version of the Go programming language across multiple servers using the official **geerlingguy.go role**. It supports automatic version detection, platform-appropriate tarball downloads, and installation.
 
 ## 🛠️ Usage
 
@@ -25,6 +25,32 @@ To install Go version `1.20.4`, set the `go_version` variable in the playbook as
 ```yml
 vars:
   go_version: "1.20.4"
+```
+The role will automatically download the appropriate tarball for your system based on the platform (Linux, macOS, etc.) and architecture (amd64, arm64, etc.).
+
+## Playbook Overview
+* **Role used:** geerlingguy.go
+* This role simplifies the Go installation process by:
+   * Downloading the correct version and architecture-specific tarball.
+   * Verifying the tarball's checksum to ensure file integrity.
+   * Installing Go to `/usr/local/go` and setting up the appropriate environment variables.
+
+### Playbook Example:
+Here’s an example playbook to install Go version `1.23.1:`
+
+```yml
+---
+- hosts: go_servers
+  become: yes
+  vars:
+    go_version: "1.23.1"
+    go_platform: linux
+    go_arch: amd64
+    go_tarball: go{{ go_version }}.{{ go_platform }}-{{ go_arch }}.tar.gz
+    go_download_url: https://dl.google.com/go/{{ go_tarball }}
+    go_checksum: "550f9845451c0c94be679faf116291e7807a8d78b43149f9506c1b15eb89008c"  # Ensure the correct checksum is provided
+  roles:
+    - geerlingguy.go
 ```
 
 ### Playbook Explanation
