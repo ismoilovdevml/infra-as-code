@@ -6,58 +6,19 @@
     - grafana.grafana
 
   vars:
-    loki_version: "latest"  # or specific version
+    loki_version: "latest"  # or a specific version
     loki_http_listen_port: 3100
     loki_http_listen_address: "0.0.0.0"
-    loki_config:
-      auth_enabled: false
-
-      server:
-        http_listen_port: 3100
-        grpc_listen_port: 9096
-
-      common:
-        instance_addr: 0.0.0.0
-        path_prefix: /tmp/loki
-        storage:
-          filesystem:
-            chunks_directory: /tmp/loki/chunks
-            rules_directory: /tmp/loki/rules
-        replication_factor: 1
-        ring:
-          kvstore:
-            store: inmemory
-
-      query_range:
-        results_cache:
-          cache:
-            embedded_cache:
-              enabled: true
-              max_size_mb: 100
-
-      schema_config:
-        configs:
-          - from: 2020-10-24
-            store: tsdb
-            object_store: filesystem
-            schema: v13
-            index:
-              prefix: index_
-              period: 24h
-
-      ruler:
-        alertmanager_url: http://localhost:9093
+    loki_storage_config:
+      filesystem:
+        directory: "/var/lib/loki"
+    loki_ruler:
+      alertmanager_url: http://localhost:9093
 
   tasks:
-    - name: Ensure Loki is installed
-      ansible.builtin.package:
-        name: loki
-        state: present
-      become: true
-
-    - name: Configure Loki settings
-      grafana.grafana.loki_config:
-        config: "{{ loki_config }}"
+    - name: Install Loki using the Grafana Loki role
+      include_role:
+        name: grafana.grafana.loki
 
     - name: Start and enable Loki service
       ansible.builtin.service:

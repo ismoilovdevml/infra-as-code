@@ -1,0 +1,52 @@
+---
+- name: Install and Configure Promtail via Docker
+  hosts: promtail_servers
+  become: true
+
+  tasks:
+    - name: Ensure Docker is installed
+      ansible.builtin.package:
+        name: docker
+        state: present
+
+    - name: Start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create Promtail configuration directory
+      ansible.builtin.file:
+        path: /etc/promtail
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy Promtail config file to the server
+      ansible.builtin.copy:
+        src: ./promtail_config/config.yml
+        dest: /etc/promtail/config.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Pull the latest Promtail Docker image
+      ansible.builtin.docker_image:
+        name: grafana/promtail
+        tag: latest
+        source: pull
+
+    - name: Run Promtail container
+      ansible.builtin.docker_container:
+        name: promtail
+        image: grafana/promtail:latest
+        state: started
+        restart_policy: always
+        volumes:
+          - /etc/promtail/config.yml:/etc/promtail/config.yml
+          - /var/lib/docker/containers:/var/lib/docker/containers:ro
+          - /var/run/docker.sock:/var/run/docker.sock
+        command: "-config.file=/etc/promtail/config.yml"
+        ports:
+          - "9080:9080"

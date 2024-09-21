@@ -3,6 +3,8 @@
 #
 # http://prometheus.io/docs/operating/configuration/
 
+# /etc/prometheus/prometheus.yml
+
 global:
   scrape_interval: 15s
   scrape_timeout: 10s

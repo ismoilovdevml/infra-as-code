@@ -1,0 +1,27 @@
+---
+- name: Update Promtail Configuration and Restart Docker Container
+  hosts: promtail_servers
+  become: true
+
+  tasks:
+    - name: Copy new Promtail config file
+      ansible.builtin.copy:
+        src: ./promtail_config/{{ promtail_config_file_name }}
+        dest: /etc/promtail/config.yml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Restart Promtail Docker container
+      ansible.builtin.docker_container:
+        name: promtail
+        image: grafana/promtail:latest
+        state: restarted
+        restart_policy: always
+        volumes:
+          - /etc/promtail/config.yml:/etc/promtail/config.yml
+          - /var/lib/docker/containers:/var/lib/docker/containers:ro
+          - /var/run/docker.sock:/var/run/docker.sock
+        command: "-config.file=/etc/promtail/config.yml"
+        ports:
+          - "9080:9080"
