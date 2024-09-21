@@ -1,83 +1,24 @@
 ---
-- name: Install and configure MongoDB using community.mongodb roles
+- name: Install MongoDB
   hosts: mongodb_servers
   become: true
   vars:
     mongodb_version: "7.0"
-    admin_user: "admin"
-    admin_password: "123"
-    database_name: "admin"
-    mongodb_port: 27017
-    auth_mechanism: "SCRAM-SHA-256"
-
+  collections:
+    - community.mongodb
   roles:
-    - role: community.mongodb.mongodb_install
-    - role: community.mongodb.mongodb_mongod
+      - mongodb_repository
+      - mongodb_install
 
   tasks:
-    - name: Configure MongoDB service without authentication (initial setup)
-      include_role:
-        name: community.mongodb.mongodb_mongod
-      vars:
-        mongodb_mongod_security_authorization: "disabled"
-        mongodb_mongod_net_bind_ip: "0.0.0.0"
-        mongodb_mongod_net_port: "{{ mongodb_port }}"
-
     - name: Start MongoDB service
       ansible.builtin.systemd:
         name: mongod
         state: started
         enabled: true
 
-    - name: Wait for MongoDB to be ready
+    - name: Wait for MongoDB service to be up
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
         port: 27017
         state: started
-
-    - name: Check if this node is the primary
-      community.mongodb.mongodb_shell:
-        eval: "db.isMaster().ismaster"
-        mongo_cmd: "mongosh"
-      register: is_primary_node
-
-    - name: Debug is_primary_node output
-      ansible.builtin.debug:
-        var: is_primary_node.transformed_output[0]
-
-    - name: Create MongoDB admin user if primary
-      community.mongodb.mongodb_user:
-        name: "{{ admin_user }}"
-        password: "{{ admin_password }}"
-        roles:
-          - role: "userAdminAnyDatabase"
-            db: "{{ database_name }}"
-        state: present
-        database: "{{ database_name }}"
-        update_password: "always"
-        auth_mechanism: "{{ auth_mechanism }}"
-      when: "'true' in is_primary_node.transformed_output[0]"
-
-    - name: Re-enable authentication after user creation
-      include_role:
-        name: community.mongodb.mongodb_mongod
-      vars:
-        mongodb_mongod_security_authorization: "enabled"
-        mongodb_mongod_net_bind_ip: "0.0.0.0"
-        mongodb_mongod_net_port: "{{ mongodb_port }}"
-
-    - name: Restart MongoDB service with authentication
-      ansible.builtin.systemd:
-        name: mongod
-        state: restarted
-        enabled: true
-
-    - name: Debug authentication status
-      community.mongodb.mongodb_shell:
-        eval: "db.getUsers()"
-        mongo_cmd: "mongosh"
-      register: auth_status
-
-    - name: Show authentication result
-      ansible.builtin.debug:
-        var: auth_status

@@ -1,0 +1,46 @@
+---
+- name: Configure MongoDB
+  hosts: mongodb_servers
+  become: true
+  vars:
+    admin_user: "admin"
+    admin_password: "sdlkjqe092"
+    database_name: "admin"
+    mongodb_port: 27017
+    auth_mechanism: "SCRAM-SHA-256"
+
+  roles:
+    - role: community.mongodb.mongodb_mongod
+
+  tasks:
+    - name: Configure MongoDB without authentication
+      include_role:
+        name: community.mongodb.mongodb_mongod
+      vars:
+        mongodb_mongod_security_authorization: "disabled"
+        mongodb_mongod_net_bind_ip: "0.0.0.0"
+        mongodb_mongod_net_port: "{{ mongodb_port }}"
+
+    - name: Create admin user
+      community.mongodb.mongodb_user:
+        name: "{{ admin_user }}"
+        password: "{{ admin_password }}"
+        roles:
+          - role: "userAdminAnyDatabase"
+            db: "{{ database_name }}"
+        database: "{{ database_name }}"
+        auth_mechanism: "{{ auth_mechanism }}"
+
+    - name: Enable MongoDB authentication
+      include_role:
+        name: community.mongodb.mongodb_mongod
+      vars:
+        mongodb_mongod_security_authorization: "enabled"
+        mongodb_mongod_net_bind_ip: "0.0.0.0"
+        mongodb_mongod_net_port: "{{ mongodb_port }}"
+
+    - name: Restart MongoDB with authentication
+      ansible.builtin.systemd:
+        name: mongod
+        state: restarted
+        enabled: true

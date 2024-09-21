@@ -12,32 +12,32 @@ minio_directory: /mnt/data
 minio_admin_user: admin
 minio_admin_user_password: wo#*4fd-LDSsgsa
 ```
-# Install MinIO
+## Install MinIO
 Run the following command to install MinIO on your servers:
 ```bash
 ansible-playbook -i inventory.ini ./install_minio.yml
 ```
-# Clean up and Uninstall MinIO
+## Clean up and Uninstall MinIO
 To clean up and uninstall MinIO, use the following command:
 ```bash
 ansible-playbook -i inventory.ini ./uninstall_minio.yml
 ```
 
-# 💻 Supported Linux Operating Systems
+## 💻 Supported Linux Operating Systems
 This playbook supports the following Linux distributions:
 * 🐧 **Debian:** 11,12
 * 🐧 **Ubuntu:** 20.04,22.04
 * 🐧 **RHEL:** 7,8
 * 🐧 **Rocky Linux:** 8,9
 
-# ✅ Tested Operating Systems
+## ✅ Tested Operating Systems
 The playbook has been tested on the following OS versions:
 * ✅**Debian:** 11,12
 * ✅**Ubuntu:** 20.04,22.04
 * ✅**RHEL:** 7,8
 * ✅**Rocky Linux:** 8,9
 
-# ⚙️ Supported Ansible Versions
+## ⚙️ Supported Ansible Versions
 * ✅ ansible [core 2.16.3]
 * ❗️ ansible [core 2.17.3] (compatibility issues)
 

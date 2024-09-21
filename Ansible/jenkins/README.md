@@ -9,7 +9,7 @@ To install Jenkins on your servers, execute the following command:
 ```bash
 ansible-playbook -i inventory.ini ./install_jenkins.yml
 ```
-# Uninstall Jenkins and Clean Up
+## Uninstall Jenkins and Clean Up
 To uninstall Jenkins and clean up associated files and services from your servers, use the following command:
 ```bash
 ansible-playbook -i inventory.ini ./uninstall_jenkins.yml
@@ -21,21 +21,21 @@ This will:
 * Clean up Jenkins directories (logs, cache, data).
 
 
-# 💻 Supported Linux Operating Systems
+## 💻 Supported Linux Operating Systems
 This playbook supports the following Linux distributions:
 * 🐧 **Debian:** 11,12
 * 🐧 **Ubuntu:** 20.04,22.04
 * 🐧 **RHEL:** 7,8
 * 🐧 **Rocky Linux:** 8,9
 
-# ✅ Tested Operating Systems
+## ✅ Tested Operating Systems
 The playbook has been tested on the following OS versions:
 * ✅**Debian:** 11,12
 * ✅**Ubuntu:** 20.04,22.04
 * ✅**RHEL:** 7,8
 * ✅**Rocky Linux:** 8,9
 
-# ⚙️ Supported Ansible Versions
+## ⚙️ Supported Ansible Versions
 * ✅ ansible [core 2.16.3]
 * ❗️ ansible [core 2.17.3] (compatibility issues)
 

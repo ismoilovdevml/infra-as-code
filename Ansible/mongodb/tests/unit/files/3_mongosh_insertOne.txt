@@ -1,4 +1,0 @@
-{
-  acknowledged: true,
-  insertedId: ObjectId("633839a5c213b3865ee85564")
-}

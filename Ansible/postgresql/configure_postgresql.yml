@@ -1,0 +1,31 @@
+---
+- name: Configure PostgreSQL
+  hosts: postgresql_servers
+  become: true
+  vars:
+    postgresql_listen_addresses: "*"
+    postgresql_pg_hba_conf:
+      - { type: host, database: all, user: all, address: '0.0.0.0/0', method: md5 }
+    postgresql_password: "123"
+
+  tasks:
+    - name: Update PostgreSQL listen_addresses
+      ansible.builtin.lineinfile:
+        dest: /var/lib/pgsql/data/postgresql.conf
+        regexp: '^listen_addresses\s*='
+        line: "listen_addresses = '{{ postgresql_listen_addresses }}'"
+      notify: Restart PostgreSQL
+
+    - name: Configure pg_hba.conf for remote connections
+      ansible.builtin.blockinfile:
+        dest: /var/lib/pgsql/data/pg_hba.conf
+        block: |
+          host    all             all             0.0.0.0/0                md5
+      notify: Restart PostgreSQL
+
+    - name: Set PostgreSQL user password
+      become_user: postgres
+      postgresql_user:
+        name: postgres
+        password: "{{ postgresql_password }}"
+        encrypted: yes

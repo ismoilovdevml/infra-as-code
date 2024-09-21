@@ -7,6 +7,7 @@ This repository contains Ansible playbooks for setting up and configuring **Graf
 Ensure that you have Ansible installed and can connect to your target servers. You will also need to install the Grafana Ansible collection using the command below:
 
 ```bash
+ansible-galaxy collection install community.docker
 ansible-galaxy collection install ansible.posix
 ansible-galaxy collection install grafana.grafana
 ```

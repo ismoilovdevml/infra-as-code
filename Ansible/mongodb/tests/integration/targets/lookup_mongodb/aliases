@@ -1,6 +1,0 @@
-shippable/posix/group2
-skip/freebsd
-skip/osx
-skip/rhel
-skip/python2.6
-destructive

@@ -12,7 +12,7 @@ This playbook is based on the following Ansible collections:
 ## ✨ Modifications
 
 The playbook has been modified from the official repositories to provide more flexibility, including:
-- **Selective Exporter Installation**: Ability to define which Prometheus exporters to install through variable flags (`yes` or `no`).
+- **Selective Exporter Installation**: Ability to define which Prometheus exporters to install through variable flags (`ture` or `false`).
 - **Preconfigured Alert Manager**: Integrated configuration for **AlertManager** to send notifications to Discord via webhooks.
 
 ## 📋 Prerequisites

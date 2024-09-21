@@ -1,22 +1,25 @@
 ---
-- name: Install and configure PostgreSQL
+- name: Install PostgreSQL
   hosts: postgresql_servers
   become: true
   vars:
     postgresql_version: 16
-    postgresql_listen_addresses: "*"
-    postgresql_pg_hba_conf:
-      - { type: host, database: all, user: all, address: '0.0.0.0/0', method: md5 }
-    postgresql_password: "123"
 
   roles:
     - galaxyproject.postgresql
 
   tasks:
-    - name: Set PostgreSQL user password
-      become_user: postgres
-      postgresql_user:
-        name: postgres
-        password: "{{ postgresql_password }}"
+    - name: Install PostgreSQL package
+      ansible.builtin.package:
+        name: "postgresql-{{ postgresql_version }}"
+        state: present
 
-# ansible-galaxy install galaxyproject.postgresql
+    - name: Initialize PostgreSQL if not initialized
+      ansible.builtin.shell: postgresql-setup --initdb
+      when: not postgresql_is_initialized.stat.exists
+
+    - name: Start and enable PostgreSQL service
+      ansible.builtin.service:
+        name: postgresql
+        state: started
+        enabled: true
