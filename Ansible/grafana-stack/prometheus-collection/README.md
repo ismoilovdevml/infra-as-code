@@ -33,19 +33,19 @@ ansible-playbook -i inventory.ini install_prometheus.yml
 This will install and configure Prometheus on the servers listed under `prometheus_servers`.
 
 ## 📊 Installing Prometheus Exporters
-The playbook `prometheus_exporters.yml` allows you to selectively install multiple exporters. You can control which exporters to install by editing the `vars.yml` file and setting each exporter to `yes` or `no`.
+The playbook `prometheus_exporters.yml` allows you to selectively install multiple exporters. You can control which exporters to install by editing the `vars.yml` file and setting each exporter to `true` or `false`.
 
 For example:
 
 ```yml
 # vars.yml
 exporters:
-  node_exporter: yes
-  alertmanager: yes
-  bind_exporter: no
-  blackbox_exporter: yes
-  cadvisor: no
-  chrony_exporter: no
+  node_exporter: true
+  alertmanager: true
+  bind_exporter: false
+  blackbox_exporter: true
+  cadvisor: false
+  chrony_exporter: false
   ...
 ```
 

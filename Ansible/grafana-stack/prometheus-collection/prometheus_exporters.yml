@@ -9,16 +9,16 @@
 
   tasks:
     - name: Install and configure Node Exporter
-      when: exporters.node_exporter == 'yes'
-      roles:
-        - node_exporter
+      when: exporters.node_exporter == true
+      include_role:
+        name: node_exporter
 
     - name: Install and configure Alert Manager
-      when: exporters.alertmanager == 'yes'
-      roles:
-        - alertmanager
+      when: exporters.alertmanager == true
+      include_role:
+        name: alertmanager
       vars:
-        alertmanager_version: latest
+        alertmanager_version: 0.27.0
         alertmanager_receivers:
           - name: discord
             webhook_configs:
@@ -32,91 +32,91 @@
           receiver: discord
 
     - name: Install and configure Bind Exporter
-      when: exporters.bind_exporter == 'yes'
-      roles:
-        - bind_exporter
+      when: exporters.bind_exporter == true
+      include_role:
+        name: bind_exporter
 
     - name: Install and configure Blackbox Exporter
-      when: exporters.blackbox_exporter == 'yes'
-      roles:
-        - blackbox_exporter
+      when: exporters.blackbox_exporter == true
+      include_role:
+        name: blackbox_exporter
 
     - name: Install and configure cAdvisor
-      when: exporters.cadvisor == 'yes'
-      roles:
-        - cadvisor
+      when: exporters.cadvisor == true
+      include_role:
+        name: cadvisor
 
     - name: Install and configure Chrony Exporter
-      when: exporters.chrony_exporter == 'yes'
-      roles:
-        - chrony_exporter
+      when: exporters.chrony_exporter == true
+      include_role:
+        name: chrony_exporter
 
     - name: Install and configure Fail2ban Exporter
-      when: exporters.fail2ban_exporter == 'yes'
-      roles:
-        - fail2ban_exporter
+      when: exporters.fail2ban_exporter == true
+      include_role:
+        name: fail2ban_exporter
 
     - name: Install and configure IPMI Exporter
-      when: exporters.ipmi_exporter == 'yes'
-      roles:
-        - ipmi_exporter
+      when: exporters.ipmi_exporter == true
+      include_role:
+        name: ipmi_exporter
 
     - name: Install and configure Memcached Exporter
-      when: exporters.memcached_exporter == 'yes'
-      roles:
-        - memcached_exporter
+      when: exporters.memcached_exporter == true
+      include_role:
+        name: memcached_exporter
 
     - name: Install and configure MongoDB Exporter
-      when: exporters.mongodb_exporter == 'yes'
-      roles:
-        - mongodb_exporter
+      when: exporters.mongodb_exporter == true
+      include_role:
+        name: mongodb_exporter
 
     - name: Install and configure MySQL Exporter
-      when: exporters.mysqld_exporter == 'yes'
-      roles:
-        - mysqld_exporter
+      when: exporters.mysqld_exporter == true
+      include_role:
+        name: mysqld_exporter
 
     - name: Install and configure NGINX Exporter
-      when: exporters.nginx_exporter == 'yes'
-      roles:
-        - nginx_exporter
+      when: exporters.nginx_exporter == true
+      include_role:
+        name: nginx_exporter
 
     - name: Install and configure PostgreSQL Exporter
-      when: exporters.postgres_exporter == 'yes'
-      roles:
-        - postgres_exporter
+      when: exporters.postgres_exporter == true
+      include_role:
+        name: postgres_exporter
 
     - name: Install and configure Process Exporter
-      when: exporters.process_exporter == 'yes'
-      roles:
-        - process_exporter
+      when: exporters.process_exporter == true
+      include_role:
+        name: process_exporter
 
     - name: Install and configure Pushgateway
-      when: exporters.pushgateway == 'yes'
-      roles:
-        - pushgateway
+      when: exporters.pushgateway == true
+      include_role:
+        name: pushgateway
 
     - name: Install and configure Redis Exporter
-      when: exporters.redis_exporter == 'yes'
-      roles:
-        - redis_exporter
+      when: exporters.redis_exporter == true
+      include_role:
+        name: redis_exporter
 
     - name: Install and configure Smartctl Exporter
-      when: exporters.smartctl_exporter == 'yes'
-      roles:
-        - smartctl_exporter
+      when: exporters.smartctl_exporter == true
+      include_role:
+        name: smartctl_exporter
 
     - name: Install and configure Smokeping Prober
-      when: exporters.smokeping_prober == 'yes'
-      roles:
-        - smokeping_prober
+      when: exporters.smokeping_prober == true
+      include_role:
+        name: smokeping_prober
 
     - name: Install and configure SNMP Exporter
-      when: exporters.snmp_exporter == 'yes'
-      roles:
-        - snmp_exporter
+      when: exporters.snmp_exporter == true
+      include_role:
+        name: snmp_exporter
 
     - name: Install and configure Systemd Exporter
-      when: exporters.systemd_exporter == 'yes'
-      roles:
-        - systemd_exporter
+      when: exporters.systemd_exporter == true
+      include_role:
+        name: systemd_exporter
