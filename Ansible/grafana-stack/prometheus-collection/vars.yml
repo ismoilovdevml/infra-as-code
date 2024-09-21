@@ -1,0 +1,21 @@
+exporters:
+  node_exporter: yes
+  alertmanager: yes
+  bind_exporter: no
+  blackbox_exporter: yes
+  cadvisor: yes
+  chrony_exporter: yes
+  fail2ban_exporter: yes
+  ipmi_exporter: yes
+  memcached_exporter: yes
+  mongodb_exporter: yes
+  mysqld_exporter: yes
+  nginx_exporter: yes
+  postgres_exporter: yes
+  process_exporter: yes
+  pushgateway: no
+  redis_exporter: yes
+  smartctl_exporter: no
+  smokeping_prober: no
+  snmp_exporter: yes
+  systemd_exporter: yes

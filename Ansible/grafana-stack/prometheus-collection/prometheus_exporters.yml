@@ -1,0 +1,122 @@
+---
+- name: Install Prometheus Exporters
+  hosts: target_servers
+  become: true
+  collections:
+    - prometheus.prometheus
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Install and configure Node Exporter
+      when: exporters.node_exporter == 'yes'
+      roles:
+        - node_exporter
+
+    - name: Install and configure Alert Manager
+      when: exporters.alertmanager == 'yes'
+      roles:
+        - alertmanager
+      vars:
+        alertmanager_version: latest
+        alertmanager_receivers:
+          - name: discord
+            webhook_configs:
+              - send_resolved: true
+                url: "https://discord.com/api/webhooks/1156904139327017063/UYC-Az12KeFyvpv2nEm_yvo_Ype0yvqenAxJNeNvTLUnN6hH-9p6YBc6jKJOKFWmlUTb"
+        alertmanager_route:
+          group_by: ['alertname', 'cluster', 'service']
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 3h
+          receiver: discord
+
+    - name: Install and configure Bind Exporter
+      when: exporters.bind_exporter == 'yes'
+      roles:
+        - bind_exporter
+
+    - name: Install and configure Blackbox Exporter
+      when: exporters.blackbox_exporter == 'yes'
+      roles:
+        - blackbox_exporter
+
+    - name: Install and configure cAdvisor
+      when: exporters.cadvisor == 'yes'
+      roles:
+        - cadvisor
+
+    - name: Install and configure Chrony Exporter
+      when: exporters.chrony_exporter == 'yes'
+      roles:
+        - chrony_exporter
+
+    - name: Install and configure Fail2ban Exporter
+      when: exporters.fail2ban_exporter == 'yes'
+      roles:
+        - fail2ban_exporter
+
+    - name: Install and configure IPMI Exporter
+      when: exporters.ipmi_exporter == 'yes'
+      roles:
+        - ipmi_exporter
+
+    - name: Install and configure Memcached Exporter
+      when: exporters.memcached_exporter == 'yes'
+      roles:
+        - memcached_exporter
+
+    - name: Install and configure MongoDB Exporter
+      when: exporters.mongodb_exporter == 'yes'
+      roles:
+        - mongodb_exporter
+
+    - name: Install and configure MySQL Exporter
+      when: exporters.mysqld_exporter == 'yes'
+      roles:
+        - mysqld_exporter
+
+    - name: Install and configure NGINX Exporter
+      when: exporters.nginx_exporter == 'yes'
+      roles:
+        - nginx_exporter
+
+    - name: Install and configure PostgreSQL Exporter
+      when: exporters.postgres_exporter == 'yes'
+      roles:
+        - postgres_exporter
+
+    - name: Install and configure Process Exporter
+      when: exporters.process_exporter == 'yes'
+      roles:
+        - process_exporter
+
+    - name: Install and configure Pushgateway
+      when: exporters.pushgateway == 'yes'
+      roles:
+        - pushgateway
+
+    - name: Install and configure Redis Exporter
+      when: exporters.redis_exporter == 'yes'
+      roles:
+        - redis_exporter
+
+    - name: Install and configure Smartctl Exporter
+      when: exporters.smartctl_exporter == 'yes'
+      roles:
+        - smartctl_exporter
+
+    - name: Install and configure Smokeping Prober
+      when: exporters.smokeping_prober == 'yes'
+      roles:
+        - smokeping_prober
+
+    - name: Install and configure SNMP Exporter
+      when: exporters.snmp_exporter == 'yes'
+      roles:
+        - snmp_exporter
+
+    - name: Install and configure Systemd Exporter
+      when: exporters.systemd_exporter == 'yes'
+      roles:
+        - systemd_exporter
