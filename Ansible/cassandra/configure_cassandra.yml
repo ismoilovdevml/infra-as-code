@@ -1,0 +1,45 @@
+---
+- name: Configure Cassandra for external access and authentication
+  hosts: cassandra_nodes
+  become: yes
+
+  collections:
+    - community.cassandra
+
+  vars_files:
+    - vars.yml
+
+  roles:
+    - cassandra_linux
+
+  tasks:
+    - name: Configure Cassandra for external access
+      include_role:
+        name: cassandra_linux
+      vars:
+        cassandra_listen_address: "{{ listen_address }}"
+        cassandra_rpc_address: "{{ rpc_address }}"
+        cassandra_broadcast_address: "{{ broadcast_address }}"
+
+    - name: Enable Cassandra authentication and authorization
+      lineinfile:
+        path: /etc/cassandra/cassandra.yaml
+        regexp: '^(authenticator|authorizer):.*'
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "authenticator: {{ authenticator }}"
+        - "authorizer: {{ authorizer }}"
+
+    - name: Restart Cassandra to apply configuration
+      service:
+        name: cassandra
+        state: restarted
+
+    - name: Set password for Cassandra user
+      community.cassandra.cassandra_user:
+        name: "{{ cassandra_user }}"
+        password: "{{ cassandra_password }}"
+        permissions: "ALL"
+        superuser: yes
+      become: no

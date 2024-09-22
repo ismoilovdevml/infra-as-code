@@ -1,21 +1,8 @@
-- name: Install and Configure Zabbix Server
+---
+- name: Install Zabbix Server
   hosts: zabbix_server
-  become: true
+  become: yes
   vars_files:
     - vars.yml
-  tasks:
-    - name: Install Zabbix server
-      community.zabbix.zabbix_server:
-        zabbix_version: "{{ zabbix_version }}"
-        database_type: "mysql"
-        zabbix_server_database: "{{ zabbix_db_name }}"
-        zabbix_server_db_user: "{{ zabbix_db_user }}"
-        zabbix_server_db_password: "{{ zabbix_db_password }}"
-        zabbix_server_db_host: "{{ zabbix_db_host }}"
-        zabbix_server_db_port: "{{ zabbix_db_port }}"
-
-    - name: Start Zabbix server service
-      ansible.builtin.service:
-        name: zabbix-server
-        state: started
-        enabled: true
+  roles:
+    - role: community.zabbix.zabbix_server

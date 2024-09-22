@@ -1,0 +1,21 @@
+---
+- name: Install Cassandra on target hosts
+  hosts: cassandra_nodes
+  become: yes
+
+  collections:
+    - community.cassandra
+
+  roles:
+    - cassandra_repository
+    - cassandra_install
+
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Ensure required firewall ports are open
+      include_role:
+        name: cassandra_firewall
+      vars:
+        cassandra_firewall_ports: "{{ firewall_ports }}"

@@ -1,0 +1,17 @@
+---
+# Variables used for Cassandra installation and configuration
+
+cassandra_user: cassandra
+cassandra_password: DL3sdf@jdxsw
+listen_address: 0.0.0.0
+rpc_address: 0.0.0.0
+broadcast_address: "{{ ansible_default_ipv4.address }}"
+authenticator: PasswordAuthenticator
+authorizer: CassandraAuthorizer
+cassandra_version: "4.1"  # Specify the desired version
+firewall_ports:
+  - "7000"
+  - "7001"
+  - "7199"
+  - "9042"
+  - "9160"
