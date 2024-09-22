@@ -1,0 +1,18 @@
+- name: Install and Configure Zabbix Agents
+  hosts: zabbix_agents
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Install Zabbix agent
+      community.zabbix.zabbix_agent:
+        zabbix_agent_server: "{{ zabbix_server_ip }}"
+        zabbix_agent_listenport: "{{ zabbix_agent_listenport }}"
+        zabbix_agent_tlsconnect: "{{ zabbix_agent_tlsconnect }}"
+        zabbix_agent_tlsaccept: "{{ zabbix_agent_tlsaccept }}"
+
+    - name: Start Zabbix agent service
+      ansible.builtin.service:
+        name: zabbix-agent
+        state: started
+        enabled: true

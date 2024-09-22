@@ -1,0 +1,9 @@
+- name: Zabbix Templates Management
+  hosts: localhost
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Link Zabbix template
+      community.zabbix.zabbix_host:
+        host_name: "{{ inventory_hostname }}"
+        link_templates: "Linux by Zabbix agent"

@@ -1,0 +1,20 @@
+- name: Zabbix Hosts Management
+  hosts: localhost
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Create host groups
+      community.zabbix.zabbix_group:
+        host_group: "Production Servers"
+
+    - name: Create hosts in Zabbix
+      community.zabbix.zabbix_host:
+        host_name: "{{ inventory_hostname }}"
+        host_groups: "Production Servers"
+        interfaces:
+          - type: 1
+            main: 1
+            useip: true
+            ip: "{{ ansible_host }}"
+            dns: ""
+            port: 10050

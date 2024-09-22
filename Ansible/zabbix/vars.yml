@@ -1,0 +1,18 @@
+# Zabbix Server Variables
+zabbix_version: "6.0"
+zabbix_server_ip: "167.172.139.139"
+zabbix_db_user: "zabbix_admin"
+zabbix_db_password: "ldkfj340fwed"
+zabbix_db_name: "zabbix"
+zabbix_db_host: "localhost"
+zabbix_db_port: 3306
+
+# Zabbix Agent Variables
+zabbix_agent_listenport: 10050
+zabbix_agent_tlsconnect: "unencrypted"
+zabbix_agent_tlsaccept: "unencrypted"
+
+# Zabbix API Variables
+zabbix_api_user: "Admin"
+zabbix_api_pass: "zabbix"
+zabbix_url: "http://167.172.139.139/zabbix/api_jsonrpc.php"
