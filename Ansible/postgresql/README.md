@@ -23,7 +23,7 @@ ansible-galaxy role install galaxyproject.postgresql
 The install_postgresql.yml playbook installs PostgreSQL on the target servers.
 
 ```bash
-ansible-playbook -i inventory.ini install_postgresql.yml
+ansible-playbook -i inventory.ini install.yml
 ```
 ### Configure PostgreSQL
 The `configure_postgresql.yml` playbook configures PostgreSQL with custom users, roles, and authentication settings.

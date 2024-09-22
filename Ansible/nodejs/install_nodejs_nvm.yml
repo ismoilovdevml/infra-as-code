@@ -1,0 +1,65 @@
+---
+- hosts: nodejs_servers
+  become: yes
+  vars:
+    nodejs_version: "21.0.0"
+    nvm_version: "v0.39.3"
+
+  tasks:
+    - name: Install dependencies required by nvm
+      apt:
+        name: 
+          - curl
+          - build-essential
+          - libssl-dev
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install dependencies required by nvm
+      yum:
+        name:
+          - curl
+          - gcc-c++
+          - make
+          - openssl-devel
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Download and install nvm
+      shell: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh | bash
+      args:
+        creates: /root/.nvm/nvm.sh
+
+    - name: Unset NPM_CONFIG_PREFIX environment variable (Debian/Ubuntu only)
+      shell: |
+        unset NPM_CONFIG_PREFIX
+        echo 'unset NPM_CONFIG_PREFIX' >> /etc/profile.d/nvm.sh
+      when: ansible_os_family == "Debian" or ansible_os_family == "Ubuntu"
+
+    - name: Load nvm and install Node.js
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+        nvm install {{ nodejs_version }}
+      args:
+        executable: /bin/bash
+
+    - name: Set default Node.js version
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+        nvm alias default {{ nodejs_version }}
+      args:
+        executable: /bin/bash
+
+    - name: Verify Node.js installation
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+        node -v
+      register: node_version
+
+    - name: Display Node.js version
+      debug:
+        msg: "Installed Node.js version is {{ node_version.stdout }}"
