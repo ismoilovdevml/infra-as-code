@@ -8,7 +8,7 @@ rpc_address: 0.0.0.0
 broadcast_address: "{{ ansible_default_ipv4.address }}"
 authenticator: PasswordAuthenticator
 authorizer: CassandraAuthorizer
-cassandra_version: "4.1"  # Specify the desired version
+cassandra_version: "41x"  # Specify the desired version
 firewall_ports:
   - "7000"
   - "7001"

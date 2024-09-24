@@ -2,24 +2,20 @@
 - name: Configure Cassandra for external access and authentication
   hosts: cassandra_nodes
   become: yes
-
-  collections:
-    - community.cassandra
-
   vars_files:
     - vars.yml
 
-  roles:
-    - cassandra_linux
-
   tasks:
-    - name: Configure Cassandra for external access
-      include_role:
-        name: cassandra_linux
-      vars:
-        cassandra_listen_address: "{{ listen_address }}"
-        cassandra_rpc_address: "{{ rpc_address }}"
-        cassandra_broadcast_address: "{{ broadcast_address }}"
+    - name: Ensure Cassandra is configured to listen on 0.0.0.0
+      lineinfile:
+        path: /etc/cassandra/cassandra.yaml
+        regexp: '^(listen_address|rpc_address|broadcast_address):.*'
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "listen_address: 0.0.0.0"
+        - "rpc_address: 0.0.0.0"
+        - "broadcast_address: {{ broadcast_address }}"
 
     - name: Enable Cassandra authentication and authorization
       lineinfile:
@@ -28,18 +24,36 @@
         line: "{{ item }}"
         state: present
       loop:
-        - "authenticator: {{ authenticator }}"
-        - "authorizer: {{ authorizer }}"
+        - "authenticator: PasswordAuthenticator"
+        - "authorizer: CassandraAuthorizer"
 
     - name: Restart Cassandra to apply configuration
       service:
         name: cassandra
         state: restarted
 
-    - name: Set password for Cassandra user
-      community.cassandra.cassandra_user:
+    - name: Set password for Cassandra user and enable external access
+      community.cassandra.cassandra_role:
         name: "{{ cassandra_user }}"
         password: "{{ cassandra_password }}"
-        permissions: "ALL"
-        superuser: yes
-      become: no
+        super_user: yes
+        state: present
+        login_host: "{{ ansible_host }}"
+        login_password: "{{ cassandra_password }}"
+
+    - name: Open firewall for external access to Cassandra ports
+      firewalld:
+        port: "{{ item }}/tcp"
+        permanent: yes
+        state: enabled
+      loop:
+        - 9042  # CQL native transport port
+        - 7000  # Internode communication
+        - 7001  # SSL internode communication
+        - 7199  # JMX monitoring port
+
+    - name: Reload firewall to apply changes
+      firewalld:
+        immediate: yes
+        permanent: yes
+        state: reloaded
