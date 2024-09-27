@@ -1,0 +1,9 @@
+project      = "labaratoriya"
+region       = "us-central1"
+vm_names     = ["config-server1", "config-server2", "config-server3"]
+machine_types = ["e2-medium", "e2-medium", "e2-medium"]
+disk_size    = [50, 50, 50]
+zone         = "us-central1-a"
+subnetwork   = "projects/labaratoriya/regions/us-central1/subnetworks/default"
+ssh_keys     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOsX4I3rwJr+/NL3aPA7rIS/4/XtlnJRIpn/0C9T3os0 ismoilovdev@vivobook"
+os_image     = "projects/ubuntu-os-cloud/global/images/ubuntu-2004-focal-v20240830"
