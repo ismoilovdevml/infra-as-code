@@ -1,0 +1,11 @@
+project_id      = "labaratoriya"
+region          = "us-central1"
+zone            = "us-central1-a"
+network_name    = "default"
+allowed_ports   = ["8080", "443"]    # Allowed ports for firewall rules
+ssh_ports       = ["22"]
+source_ranges   = ["0.0.0.0/0"]      # Allow from all sources
+# instance_name   = "custom-vm"
+# instance_type   = "n1-standard-1"
+# os_image        = "ubuntu-os-cloud/ubuntu-2004-lts"
+# instance_tags   = ["web-server", "ssh-access"]
