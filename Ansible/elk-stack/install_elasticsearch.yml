@@ -1,0 +1,8 @@
+---
+- name: Install and configure Elasticsearch
+  hosts: elasticsearch
+  become: true
+  vars_files:
+    - vars.yml
+  roles:
+    - role: garutilorenzo.ansible_collection_elk.elasticsearch
