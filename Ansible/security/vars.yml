@@ -1,0 +1,32 @@
+---
+# SSH security configurations
+security_ssh_port: 22
+security_ssh_password_authentication: "no"
+security_ssh_permit_root_login: "no"
+security_ssh_usedns: "no"
+security_ssh_permit_empty_password: "no"
+security_ssh_challenge_response_auth: "no"
+security_ssh_gss_api_authentication: "no"
+security_ssh_x11_forwarding: "no"
+security_ssh_allowed_users:
+  - johndoe
+  - adminuser
+security_ssh_allowed_groups:
+  - admin
+  - devops
+
+# Sudoers configuration
+security_sudoers_passworded:
+  - johndoe
+  - deployacct
+
+# Automatic updates configuration
+security_autoupdate_enabled: true
+security_autoupdate_conf_path: "{{ '/etc/apt/apt.conf.d/50unattended-upgrades' if ansible_facts['os_family'] == 'Debian' else '/etc/yum/yum-cron.conf' }}"
+security_autoupdate_reboot: true
+security_autoupdate_reboot_time: "03:00"
+security_autoupdate_mail_to: "admin@example.com"
+security_autoupdate_mail_on_error: true
+
+# Fail2ban configuration
+security_fail2ban_enabled: true

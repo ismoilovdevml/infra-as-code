@@ -1,0 +1,98 @@
+---
+- hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: Install EPEL repository on RedHat-based systems
+      ansible.builtin.yum:
+        name: epel-release
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+  roles:
+    - geerlingguy.security
+
+  tasks:
+    - name: Set SSH port
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Port'
+        line: 'Port {{ security_ssh_port }}'
+        state: present
+      notify: Restart SSH
+
+    - name: Disable SSH password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication {{ security_ssh_password_authentication }}'
+        state: present
+      notify: Restart SSH
+
+    - name: Configure allowed SSH users
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^AllowUsers'
+        line: 'AllowUsers {{ security_ssh_allowed_users | join(" ") }}'
+        state: present
+      when: security_ssh_allowed_users | length > 0
+      notify: Restart SSH
+
+    - name: Configure allowed SSH groups
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^AllowGroups'
+        line: 'AllowGroups {{ security_ssh_allowed_groups | join(" ") }}'
+        state: present
+      when: security_ssh_allowed_groups | length > 0
+      notify: Restart SSH
+
+    - name: Install unattended-upgrades or yum-cron
+      ansible.builtin.package:
+        name: "{{ 'unattended-upgrades' if ansible_facts['os_family'] == 'Debian' else 'yum-cron' }}"
+        state: present
+      when: security_autoupdate_enabled
+
+    - name: Ensure unattended-upgrades or yum-cron is configured (Debian/Ubuntu)
+      ansible.builtin.lineinfile:
+        path: "{{ security_autoupdate_conf_path }}"
+        regexp: '^Unattended-Upgrade::Automatic-Reboot'
+        line: 'Unattended-Upgrade::Automatic-Reboot "{{ security_autoupdate_reboot }}";'
+        state: present
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Enable and configure yum-cron (RedHat/CentOS)
+      ansible.builtin.lineinfile:
+        path: "{{ security_autoupdate_conf_path }}"
+        regexp: '^apply_updates'
+        line: 'apply_updates = yes'
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Start and enable yum-cron
+      ansible.builtin.service:
+        name: yum-cron
+        state: started
+        enabled: yes
+      when: ansible_facts['os_family'] == "RedHat" and security_autoupdate_enabled
+
+    - name: Ensure fail2ban is installed and enabled
+      ansible.builtin.package:
+        name: fail2ban
+        state: present
+      when: security_fail2ban_enabled
+
+    - name: Start and enable fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: yes
+      when: security_fail2ban_enabled
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
