@@ -1,0 +1,43 @@
+---
+- name: Clean up Portainer installation
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Check if Portainer container exists
+      shell: docker ps -a --format '{{"{{.Names}}"}}' | grep -w portainer || true
+      register: portainer_exists
+      changed_when: false
+
+    - name: Remove Portainer container
+      command: docker rm -f portainer
+      when: portainer_exists.stdout != ""
+      ignore_errors: yes
+
+    - name: Check if Portainer volume exists
+      shell: docker volume ls --format '{{"{{.Name}}"}}' | grep -w portainer_data || true
+      register: volume_exists
+      changed_when: false
+
+    - name: Remove Portainer Docker volume
+      command: docker volume rm portainer_data
+      when: volume_exists.stdout != ""
+      ignore_errors: yes
+
+    - name: Check if Portainer CE image exists
+      shell: docker images --format '{{"{{.Repository}}:{{.Tag}}"}}' | grep -w 'portainer/portainer-ce:2.21.2' || true
+      register: ce_image_exists
+      changed_when: false
+
+    - name: Remove Portainer CE image
+      command: docker rmi portainer/portainer-ce:2.21.2
+      when: ce_image_exists.stdout != ""
+
+    - name: Check if Portainer BE image exists
+      shell: docker images --format '{{"{{.Repository}}:{{.Tag}}"}}' | grep -w 'portainer/portainer-ee:2.21.2' || true
+      register: be_image_exists
+      changed_when: false
+
+    - name: Remove Portainer BE image
+      command: docker rmi portainer/portainer-ee:2.21.2
+      when: be_image_exists.stdout != ""

@@ -1,0 +1,19 @@
+---
+- name: Install Portainer Business Edition
+  hosts: portainer_ee
+  become: yes
+
+  tasks:
+    - name: Create Docker volume for Portainer data
+      command: docker volume create portainer_data
+
+    - name: Run Portainer BE container
+      command: docker run -d -p 8000:8000 -p 9443:9443 --name portainer --restart=always -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ee:2.21.2
+
+    - name: Display Docker containers
+      command: docker ps
+      register: result
+
+    - name: Show Docker container output
+      debug:
+        var: result.stdout
