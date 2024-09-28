@@ -8,7 +8,7 @@ This Ansible playbook automates the installation of NGINX and the configuration 
 
 1. Install the required Ansible role for NGINX:
    ```bash
-   ansible-galaxy role install geerlingguy.nginx
+   ansible-galaxy role install nginxinc.nginx
    ```
 2. Run the playbook to install NGINX:
    ```bash
@@ -70,12 +70,12 @@ The playbook has been tested on the following OS versions:
 
 ## Playbook Explanation
 
-* **Role used:** [geerlingguy.nginx](https://github.com/geerlingguy/ansible-role-nginx)
+* **Role used:** [nginxinc.nginx](https://github.com/nginxinc/ansible-role-nginx)
 * This role simplifies the Go installation by downloading the appropriate Go tarball for your system's platform and architecture.
 
 > Note: Ensure you run the playbook with sufficient privileges, such as using become: yes or executing as root.
 
 ## Resources
 
-* [Ansible Galaxy - geerlingguy.nginx Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/nginx/documentation/)
-* [GitHub - geerlingguy/ansible-role-nginx](https://github.com/geerlingguy/ansible-role-nginx)
+* [Ansible Galaxy - nginxinc.nginx Role](https://galaxy.ansible.com/ui/standalone/roles/nginxinc/nginx/documentation/)
+* [GitHub - nginxinc/ansible-role-nginx](https://github.com/nginxinc/ansible-role-nginx)
