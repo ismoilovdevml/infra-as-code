@@ -1,0 +1,46 @@
+---
+- name: Configure MetalLB IP Address Pool
+  hosts: all
+  become: yes
+  vars:
+    metallb_namespace: "metallb-system"
+    ip_pool_start: "10.116.0.20"
+    ip_pool_end: "10.116.0.40"
+    ip_pool_name: "first-pool"
+
+  tasks:
+    - name: Create directory for MetalLB configuration
+      ansible.builtin.file:
+        path: /tmp/metallb
+        state: directory
+
+    - name: Create MetalLB address pool configuration
+      ansible.builtin.copy:
+        dest: /tmp/metallb/address-pool.yaml
+        content: |
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: {{ ip_pool_name }}
+            namespace: {{ metallb_namespace }}
+          spec:
+            addresses:
+            - {{ ip_pool_start }}-{{ ip_pool_end }}
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: {{ ip_pool_name }}
+            namespace: {{ metallb_namespace }}
+          spec:
+            ipAddressPools:
+            - {{ ip_pool_name }}
+
+    - name: Apply MetalLB address pool configuration
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/metallb/address-pool.yaml
+      register: config_apply_output
+
+    - name: Show MetalLB config apply output
+      debug:
+        var: config_apply_output.stdout

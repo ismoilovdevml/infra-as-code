@@ -1,0 +1,26 @@
+---
+- name: Install HAProxy
+  hosts: haproxy_servers
+  become: yes
+  tasks:
+    - name: Update and upgrade apt packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install software-properties-common without recommends
+      ansible.builtin.apt:
+        name: software-properties-common
+        state: present
+        install_recommends: no
+
+    - name: Add the HAProxy PPA repository
+      ansible.builtin.apt_repository:
+        repo: ppa:vbernat/haproxy-2.8
+        state: present
+
+    - name: Install HAProxy version 2.8
+      ansible.builtin.apt:
+        name: haproxy=2.8.*
+        state: present
+        update_cache: yes

@@ -1,0 +1,59 @@
+---
+- name: Install MetalLB
+  hosts: all
+  become: yes
+  vars:
+    metallb_namespace: "metallb-system"
+
+  tasks:
+    - name: Set strictARP to true in kube-proxy config
+      ansible.builtin.shell: |
+        kubectl get configmap kube-proxy -n kube-system -o yaml | \
+        sed -e "s/strictARP: false/strictARP: true/" | \
+        kubectl apply -f - -n kube-system
+      register: kube_proxy_output
+      changed_when: "'strictARP: true' in kube_proxy_output.stdout"
+
+    - name: Add MetalLB Helm repo
+      ansible.builtin.command:
+        cmd: helm repo add metallb https://metallb.github.io/metallb
+      register: helm_repo_add
+
+    - name: Update Helm repo
+      ansible.builtin.command:
+        cmd: helm repo update
+
+    - name: Check if MetalLB is already installed
+      ansible.builtin.command:
+        cmd: helm list -n {{ metallb_namespace }}
+      register: helm_list_output
+      ignore_errors: yes
+
+    - name: Install MetalLB using Helm if not installed
+      ansible.builtin.command:
+        cmd: helm install metallb metallb/metallb --namespace {{ metallb_namespace }} --create-namespace
+      when: "'metallb' not in helm_list_output.stdout"
+      register: helm_install
+
+    - name: Show Helm install output
+      debug:
+        var: helm_install.stdout
+      when: "'metallb' not in helm_list_output.stdout"
+
+    - name: Skip MetalLB installation as it is already installed
+      debug:
+        msg: "MetalLB is already installed, skipping installation."
+      when: "'metallb' in helm_list_output.stdout"
+
+    - name: Wait for 1 minute for MetalLB pods to start
+      ansible.builtin.pause:
+        minutes: 1
+
+    - name: Verify MetalLB pods
+      ansible.builtin.command:
+        cmd: kubectl get pods -n {{ metallb_namespace }}
+      register: pods_output
+
+    - name: Show MetalLB pods output
+      debug:
+        var: pods_output.stdout

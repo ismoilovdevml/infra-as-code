@@ -1,0 +1,60 @@
+---
+- name: Install NGINX Ingress using Helm
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Add ingress-nginx Helm repo
+      ansible.builtin.command:
+        cmd: helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+
+    - name: Update Helm repo
+      ansible.builtin.command:
+        cmd: helm repo update
+
+    - name: Install ingress-nginx using Helm
+      ansible.builtin.command:
+        cmd: helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
+      register: helm_install
+
+    - name: Wait for 1 minute to let services and pods start
+      ansible.builtin.pause:
+        minutes: 1
+
+    - name: Check NGINX service
+      ansible.builtin.command:
+        cmd: kubectl get svc -n ingress-nginx
+      register: nginx_svc_output
+
+    - name: Show NGINX service output
+      debug:
+        var: nginx_svc_output.stdout
+
+    - name: Check NGINX pods
+      ansible.builtin.command:
+        cmd: kubectl get pods -n ingress-nginx
+      register: nginx_pods_output
+
+    - name: Show NGINX pods output
+      debug:
+        var: nginx_pods_output.stdout
+
+    - name: Upgrade NGINX with Prometheus annotations
+      ansible.builtin.command:
+        cmd: >
+          helm upgrade ingress-nginx ingress-nginx
+          --repo https://kubernetes.github.io/ingress-nginx
+          --namespace ingress-nginx
+          --set controller.metrics.enabled=true
+          --set-string controller.podAnnotations."prometheus\.io/scrape"="true"
+          --set-string controller.podAnnotations."prometheus\.io/port"="10254"
+      register: helm_upgrade
+
+    - name: Get Helm values for ingress-nginx
+      ansible.builtin.command:
+        cmd: helm get values ingress-nginx --namespace ingress-nginx
+      register: helm_values
+
+    - name: Show Helm values output
+      debug:
+        var: helm_values.stdout

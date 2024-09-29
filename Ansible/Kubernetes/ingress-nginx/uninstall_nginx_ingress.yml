@@ -1,0 +1,32 @@
+---
+- name: Uninstall NGINX Ingress and clean up
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Uninstall ingress-nginx Helm release
+      ansible.builtin.command:
+        cmd: helm uninstall ingress-nginx --namespace ingress-nginx
+      register: helm_uninstall
+
+    - name: Show Helm uninstall output
+      debug:
+        var: helm_uninstall.stdout
+
+    - name: Delete ingress-nginx namespace
+      ansible.builtin.command:
+        cmd: kubectl delete namespace ingress-nginx
+      register: delete_namespace
+
+    - name: Show namespace deletion output
+      debug:
+        var: delete_namespace.stdout
+
+    - name: Clean up Helm repository
+      ansible.builtin.command:
+        cmd: helm repo remove ingress-nginx
+      register: helm_repo_remove
+
+    - name: Show Helm repo remove output
+      debug:
+        var: helm_repo_remove.stdout

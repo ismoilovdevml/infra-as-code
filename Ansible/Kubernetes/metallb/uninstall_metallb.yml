@@ -1,0 +1,25 @@
+---
+- name: Uninstall MetalLB and clean up
+  hosts: all
+  become: yes
+  vars:
+    metallb_namespace: "metallb-system"
+
+  tasks:
+    - name: Uninstall MetalLB using Helm
+      ansible.builtin.command:
+        cmd: helm uninstall metallb --namespace {{ metallb_namespace }}
+      register: helm_uninstall
+
+    - name: Show Helm uninstall output
+      debug:
+        var: helm_uninstall.stdout
+
+    - name: Delete MetalLB namespace
+      ansible.builtin.command:
+        cmd: kubectl delete namespace {{ metallb_namespace }}
+      register: delete_namespace
+
+    - name: Show namespace deletion output
+      debug:
+        var: delete_namespace.stdout
