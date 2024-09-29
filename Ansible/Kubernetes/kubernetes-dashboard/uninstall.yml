@@ -1,0 +1,26 @@
+---
+- name: Uninstall Kubernetes Dashboard
+  hosts: all
+  become: yes
+  vars:
+    dashboard_namespace: "kubernetes-dashboard"  # Namespace for Kubernetes dashboard
+    helm_release_name: "kubernetes-dashboard"  # Helm release name
+
+  tasks:
+    - name: Uninstall the Kubernetes Dashboard using Helm
+      ansible.builtin.command:
+        cmd: helm uninstall {{ helm_release_name }} --namespace {{ dashboard_namespace }}
+      register: helm_uninstall_output
+
+    - name: Show Helm uninstall output
+      debug:
+        var: helm_uninstall_output.stdout
+
+    - name: Delete the Kubernetes Dashboard namespace
+      ansible.builtin.command:
+        cmd: kubectl delete namespace {{ dashboard_namespace }}
+      register: delete_namespace_output
+
+    - name: Show namespace deletion output
+      debug:
+        var: delete_namespace_output.stdout

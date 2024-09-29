@@ -1,0 +1,70 @@
+---
+- name: Expose Kubernetes Dashboard with Ingress
+  hosts: all
+  become: yes
+  vars:
+    dashboard_namespace: "kubernetes-dashboard"  # Namespace for Kubernetes dashboard
+    ingress_name: "k8s-dashboard-ingress"
+    host_name: "dashboard.helm.uz"  # Hostname for the dashboard
+    tls_secret_name: "k8s-dashboard-tls"
+    cluster_issuer_name: "letsencrypt-prod"
+
+  tasks:
+    - name: Create Ingress configuration file
+      ansible.builtin.copy:
+        dest: /tmp/dashboard-ingress.yaml
+        content: |
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: {{ ingress_name }}
+            namespace: {{ dashboard_namespace }}
+            annotations:
+              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+              nginx.org/ssl-services: "kubernetes-dashboard"
+              cert-manager.io/cluster-issuer: "{{ cluster_issuer_name }}"
+          spec:
+            ingressClassName: "nginx"
+            rules:
+            - host: {{ host_name }}
+              http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: kubernetes-dashboard-kong-manager  # Expose this service
+                      port:
+                        number: 8443  # NodePort or HTTPS port
+            tls:
+            - hosts:
+              - {{ host_name }}
+              secretName: {{ tls_secret_name }}
+
+    - name: Apply Ingress configuration
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/dashboard-ingress.yaml
+      register: ingress_apply_output
+
+    - name: Show Ingress apply output
+      debug:
+        var: ingress_apply_output.stdout
+
+    - name: Get Kubernetes Dashboard services
+      ansible.builtin.command:
+        cmd: kubectl get svc -n {{ dashboard_namespace }}
+      register: svc_output
+
+    - name: Show Kubernetes Dashboard service output
+      debug:
+        var: svc_output.stdout
+
+    - name: Generate token for admin-user
+      ansible.builtin.command:
+        cmd: kubectl -n {{ dashboard_namespace }} create token admin-user
+      register: admin_token
+
+    - name: Show admin-user token
+      debug:
+        var: admin_token.stdout

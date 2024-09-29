@@ -1,0 +1,35 @@
+---
+- name: Uninstall Cert-Manager and clean up
+  hosts: all
+  become: yes
+  vars:
+    version: "v1.15.3"  # Cert-manager version
+    namespace: "cert-manager"  # Cert-manager namespace
+
+  tasks:
+    - name: Uninstall cert-manager Helm release
+      ansible.builtin.command:
+        cmd: helm uninstall cert-manager --namespace {{ namespace }}
+      register: helm_uninstall_output
+
+    - name: Show Helm uninstall output
+      debug:
+        var: helm_uninstall_output.stdout
+
+    - name: Delete cert-manager namespace
+      ansible.builtin.command:
+        cmd: kubectl delete namespace {{ namespace }}
+      register: delete_namespace_output
+
+    - name: Show namespace deletion output
+      debug:
+        var: delete_namespace_output.stdout
+
+    - name: Remove cert-manager CRDs
+      ansible.builtin.command:
+        cmd: kubectl delete -f https://github.com/cert-manager/cert-manager/releases/download/{{ version }}/cert-manager.crds.yaml
+      register: remove_crds_output
+
+    - name: Show CRDs removal output
+      debug:
+        var: remove_crds_output.stdout

@@ -1,0 +1,46 @@
+---
+- name: Configure Cert-Manager with Let's Encrypt ClusterIssuer
+  hosts: all
+  become: yes
+  vars:
+    email: "teshmat@gmail.com"  # Use your real email address here!
+    cert_manager_namespace: "cert-manager"
+    version: "v1.15.3"  # Cert-manager version
+
+  tasks:
+    - name: Create clusterissuer configuration file
+      ansible.builtin.copy:
+        dest: /tmp/clusterissuer.yaml
+        content: |
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              server: https://acme-v02.api.letsencrypt.org/directory
+              email: {{ email }}
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+              - http01:
+                  ingress:
+                    class: nginx
+
+    - name: Apply ClusterIssuer configuration
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/clusterissuer.yaml
+      register: clusterissuer_apply_output
+
+    - name: Show ClusterIssuer apply output
+      debug:
+        var: clusterissuer_apply_output.stdout
+
+    - name: Get secrets in cert-manager namespace
+      ansible.builtin.command:
+        cmd: kubectl get secret -n {{ cert_manager_namespace }}
+      register: cert_manager_secrets
+
+    - name: Show cert-manager secrets
+      debug:
+        var: cert_manager_secrets.stdout
