@@ -3,12 +3,7 @@
   hosts: target_servers
   become: yes
   vars:
-    domen: "nginx.helm.uz"  # Define the domain variable here
-
-  roles:
-    - role: nginxinc.nginx
-      vars:
-        nginx_http_template_enable: false  # Disable inline HTTP template
+    domen: "nginx.helm.uz"
 
   tasks:
     - name: Create NGINX configuration in sites-available
@@ -20,7 +15,7 @@
               server_name {{ domen }} www.{{ domen }};
               
               location / {
-                  proxy_pass http://localhost:3001;
+                  proxy_pass http://localhost:3000;
                   proxy_set_header Host $host;
                   proxy_set_header X-Real-IP $remote_addr;
                   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
