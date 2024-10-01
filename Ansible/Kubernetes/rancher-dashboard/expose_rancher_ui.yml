@@ -1,0 +1,53 @@
+---
+- name: Expose Rancher UI
+  hosts: all
+  become: yes
+  vars:
+    rancher_namespace: "cattle-system"
+    ingress_name: "rancher-ingress"
+    ingress_host: "rancher.helm.uz"  # Replace with your Rancher hostname
+    tls_secret_name: "rancher-tls"
+    cluster_issuer: "letsencrypt-prod"
+    service_name: "rancher"
+    service_port: 80  # Internal Rancher service port
+
+  tasks:
+    - name: Create Rancher Ingress configuration file
+      ansible.builtin.copy:
+        dest: /tmp/rancher-ingress.yaml
+        content: |
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: {{ ingress_name }}
+            namespace: {{ rancher_namespace }}
+            annotations:
+              cert-manager.io/cluster-issuer: "{{ cluster_issuer }}"
+              nginx.ingress.kubernetes.io/ssl-redirect: "true"
+              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          spec:
+            ingressClassName: "nginx"
+            rules:
+            - host: {{ ingress_host }}
+              http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: {{ service_name }}
+                      port:
+                        number: {{ service_port }}  # ClusterIP port for Rancher
+            tls:
+            - hosts:
+              - {{ ingress_host }}
+              secretName: {{ tls_secret_name }}
+
+    - name: Apply Rancher Ingress configuration
+      ansible.builtin.command:
+        cmd: kubectl apply -f /tmp/rancher-ingress.yaml
+      register: ingress_apply_output
+
+    - name: Show Ingress apply output
+      debug:
+        var: ingress_apply_output.stdout

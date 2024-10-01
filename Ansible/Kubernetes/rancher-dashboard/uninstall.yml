@@ -1,0 +1,74 @@
+---
+- name: Uninstall Rancher and clean up resources
+  hosts: all
+  become: yes
+  vars:
+    rancher_namespace: "cattle-system"
+    fleet_namespace_local: "cattle-fleet-local-system"
+    fleet_namespace: "cattle-fleet-system"
+    capi_namespace: "cattle-provisioning-capi-system"
+
+  tasks:
+    - name: Uninstall Rancher using Helm
+      ansible.builtin.command:
+        cmd: helm uninstall rancher --namespace {{ rancher_namespace }}
+      ignore_errors: yes
+      register: helm_uninstall_output
+
+    - name: Show Helm uninstall output
+      debug:
+        var: helm_uninstall_output.stdout
+
+    - name: Delete Rancher-related namespaces
+      ansible.builtin.command:
+        cmd: kubectl delete namespace {{ rancher_namespace }} {{ fleet_namespace_local }} {{ fleet_namespace }} {{ capi_namespace }}
+      ignore_errors: yes
+      register: delete_namespace_output
+
+    - name: Show namespace deletion output
+      debug:
+        var: delete_namespace_output.stdout
+
+    - name: Show CRD cleanup output for cert-manager
+      debug:
+        var: delete_crd_output_cert_manager.stdout
+
+    - name: Delete remaining resources in cattle-system
+      ansible.builtin.command:
+        cmd: kubectl delete crd --all --namespace {{ rancher_namespace }}
+      ignore_errors: yes
+      register: delete_crd_output_rancher
+
+    - name: Show CRD cleanup output for cattle-system
+      debug:
+        var: delete_crd_output_rancher.stdout
+
+    - name: Delete remaining resources in cattle-fleet-local-system
+      ansible.builtin.command:
+        cmd: kubectl delete crd --all --namespace {{ fleet_namespace_local }}
+      ignore_errors: yes
+      register: delete_crd_output_fleet_local
+
+    - name: Show CRD cleanup output for cattle-fleet-local-system
+      debug:
+        var: delete_crd_output_fleet_local.stdout
+
+    - name: Delete remaining resources in cattle-fleet-system
+      ansible.builtin.command:
+        cmd: kubectl delete crd --all --namespace {{ fleet_namespace }}
+      ignore_errors: yes
+      register: delete_crd_output_fleet
+
+    - name: Show CRD cleanup output for cattle-fleet-system
+      debug:
+        var: delete_crd_output_fleet.stdout
+
+    - name: Delete remaining resources in cattle-provisioning-capi-system
+      ansible.builtin.command:
+        cmd: kubectl delete crd --all --namespace {{ capi_namespace }}
+      ignore_errors: yes
+      register: delete_crd_output_capi
+
+    - name: Show CRD cleanup output for cattle-provisioning-capi-system
+      debug:
+        var: delete_crd_output_capi.stdout

@@ -1,0 +1,68 @@
+---
+- name: Uninstall Kubesphere
+  hosts: all
+  become: yes
+  tasks:
+    - name: Remove Kubesphere installer
+      command: kubectl delete -f https://github.com/kubesphere/ks-installer/releases/download/v3.3.2/kubesphere-installer.yaml
+      ignore_errors: true
+
+    - name: Delete Kubesphere-specific resources in kubesphere-controls-system namespace
+      command: kubectl delete all --all -n kubesphere-controls-system
+      ignore_errors: true
+
+    - name: Delete remaining PVCs in kubesphere-controls-system namespace
+      command: kubectl delete pvc --all -n kubesphere-controls-system
+      ignore_errors: true
+
+    - name: Delete remaining StatefulSets in kubesphere-controls-system namespace
+      command: kubectl delete statefulsets --all -n kubesphere-controls-system
+      ignore_errors: true
+
+    - name: Delete Kubesphere controls namespace
+      command: kubectl delete namespace kubesphere-controls-system
+      ignore_errors: true
+
+    - name: Delete Kubesphere-specific resources in kubesphere-monitoring-system namespace
+      command: kubectl delete all --all -n kubesphere-monitoring-system
+      ignore_errors: true
+
+    - name: Delete remaining PVCs in kubesphere-monitoring-system namespace
+      command: kubectl delete pvc --all -n kubesphere-monitoring-system
+      ignore_errors: true
+
+    - name: Delete remaining StatefulSets in kubesphere-monitoring-system namespace
+      command: kubectl delete statefulsets --all -n kubesphere-monitoring-system
+      ignore_errors: true
+
+    - name: Delete Kubesphere monitoring system namespace
+      command: kubectl delete namespace kubesphere-monitoring-system
+      ignore_errors: true
+
+    - name: Delete Kubesphere-specific resources in kubesphere-monitoring-federated namespace
+      command: kubectl delete all --all -n kubesphere-monitoring-federated
+      ignore_errors: true
+
+    - name: Delete remaining PVCs in kubesphere-monitoring-federated namespace
+      command: kubectl delete pvc --all -n kubesphere-monitoring-federated
+      ignore_errors: true
+
+    - name: Delete Kubesphere federated monitoring namespace
+      command: kubectl delete namespace kubesphere-monitoring-federated
+      ignore_errors: true
+
+    - name: Remove ValidatingWebhookConfigurations for Kubesphere
+      command: kubectl delete validatingwebhookconfiguration network.kubesphere.io resourcesquotas.quota.kubesphere.io storageclass-accessor.storage.kubesphere.io users.iam.kubesphere.io
+      ignore_errors: true
+
+    - name: Delete remaining resources in kubesphere-system namespace
+      command: kubectl delete all --all -n kubesphere-system
+      ignore_errors: true
+
+    - name: Delete remaining PVCs in kubesphere-system namespace
+      command: kubectl delete pvc --all -n kubesphere-system
+      ignore_errors: true
+
+    - name: Delete Kubesphere system namespace
+      command: kubectl delete namespace kubesphere-system
+      ignore_errors: true

@@ -72,3 +72,5 @@
     - name: Show admin-user token
       debug:
         var: admin_token.stdout
+
+        

@@ -1,0 +1,65 @@
+---
+- name: Install Rancher on Kubernetes
+  hosts: all
+  become: yes
+  vars:
+    rancher_repo: "rancher-latest"
+    rancher_namespace: "cattle-system"
+    rancher_hostname: "rancher.helm.uz"
+    rancher_bootstrap_password: "admin"
+    rancher_email: "me@example.org"
+    ingress_class: "nginx"
+
+  tasks:
+    - name: Add Rancher Helm repository
+      ansible.builtin.command:
+        cmd: helm repo add {{ rancher_repo }} https://releases.rancher.com/server-charts/latest
+      register: helm_repo_output
+
+    - name: Show Helm repo add output
+      debug:
+        var: helm_repo_output.stdout
+
+    - name: Create Cattle-system namespace
+      ansible.builtin.command:
+        cmd: kubectl create namespace {{ rancher_namespace }}
+      ignore_errors: yes
+      register: namespace_output
+
+    - name: Show namespace creation output
+      debug:
+        var: namespace_output.stdout
+
+    - name: Install Rancher using Helm
+      ansible.builtin.command:
+        cmd: >
+          helm install rancher {{ rancher_repo }}/rancher
+          --namespace {{ rancher_namespace }}
+          --set hostname={{ rancher_hostname }}
+          --set bootstrapPassword={{ rancher_bootstrap_password }}
+          --set ingress.tls.source=letsEncrypt
+          --set letsEncrypt.email={{ rancher_email }}
+          --set letsEncrypt.ingress.class={{ ingress_class }}
+      register: helm_install_output
+
+    - name: Show Rancher Helm install output
+      debug:
+        var: helm_install_output.stdout
+
+    - name: Wait for Rancher deployment to be ready
+      ansible.builtin.command:
+        cmd: kubectl -n {{ rancher_namespace }} rollout status deploy/rancher
+      register: rollout_status_output
+
+    - name: Show rollout status output
+      debug:
+        var: rollout_status_output.stdout
+
+    - name: Get Rancher deployment status
+      ansible.builtin.command:
+        cmd: kubectl -n {{ rancher_namespace }} get deploy rancher
+      register: deployment_status_output
+
+    - name: Show deployment status
+      debug:
+        var: deployment_status_output.stdout

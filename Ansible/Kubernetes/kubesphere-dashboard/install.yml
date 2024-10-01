@@ -1,0 +1,18 @@
+---
+- name: Install Kubesphere
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install Kubesphere installer
+      command: kubectl apply -f https://github.com/kubesphere/ks-installer/releases/download/v3.3.2/kubesphere-installer.yaml
+
+    - name: Apply Kubesphere cluster configuration
+      command: kubectl apply -f https://github.com/kubesphere/ks-installer/releases/download/v3.3.2/cluster-configuration.yaml
+
+    - name: Wait for 3 minutes before proceeding
+      wait_for:
+        timeout: 180  # 3 minutes (180 seconds)
+
+    - name: Delete ks-apiserver pod in kubesphere-system namespace
+      command: kubectl delete pod -n kubesphere-system -l app=ks-apiserver
+      ignore_errors: yes
