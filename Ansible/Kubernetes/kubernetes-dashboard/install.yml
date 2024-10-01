@@ -5,31 +5,29 @@
   vars:
     dashboard_namespace: "kubernetes-dashboard"  # Namespace for Kubernetes dashboard
     helm_release_name: "kubernetes-dashboard"  # Helm release name
+    dashboard_version: "7.5.0"  # Update to the latest stable version
+    metrics_scraper_enabled: true  # Enable metrics scraper
 
   tasks:
     - name: Add kubernetes-dashboard Helm repository
       ansible.builtin.command:
         cmd: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
-    
+
     - name: Update Helm repositories
       ansible.builtin.command:
         cmd: helm repo update
 
-    - name: Install or upgrade Kubernetes Dashboard
+    - name: Install or upgrade Kubernetes Dashboard with metrics
       ansible.builtin.command:
-        cmd: helm upgrade --install {{ helm_release_name }} kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace {{ dashboard_namespace }}
+        cmd: helm upgrade --install {{ helm_release_name }} kubernetes-dashboard/kubernetes-dashboard --namespace {{ dashboard_namespace }} --create-namespace --version {{ dashboard_version }} --set metricsScraper.enabled={{ metrics_scraper_enabled }} --set serviceAccount.create=true --set serviceAccount.name=admin-user
       register: helm_install_output
 
     - name: Show Helm install output
       debug:
         var: helm_install_output.stdout
 
-    - name: Create directory for dashboard configuration
-      ansible.builtin.file:
-        path: /tmp/dashboard
-        state: directory
-
-    - name: Create ServiceAccount configuration file
+    # Step to create the ServiceAccount for admin-user
+    - name: Create ServiceAccount for admin-user
       ansible.builtin.copy:
         dest: /tmp/dashboard/service-account.yaml
         content: |
@@ -43,9 +41,10 @@
       ansible.builtin.command:
         cmd: kubectl apply -f /tmp/dashboard/service-account.yaml
 
-    - name: Create ClusterRoleBinding configuration file
+    # ClusterRoleBinding to bind the ServiceAccount to cluster-admin
+    - name: Create ClusterRoleBinding for admin-user
       ansible.builtin.copy:
-        dest: /tmp/dashboard/clusterrolebinding.yaml
+        dest: /tmp/clusterrolebinding.yaml
         content: |
           apiVersion: rbac.authorization.k8s.io/v1
           kind: ClusterRoleBinding
@@ -62,4 +61,14 @@
 
     - name: Apply ClusterRoleBinding
       ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/dashboard/clusterrolebinding.yaml
+        cmd: kubectl apply -f /tmp/clusterrolebinding.yaml
+
+    # Generate the token for admin-user and display it in the output
+    - name: Generate admin-user token
+      ansible.builtin.command:
+        cmd: kubectl -n {{ dashboard_namespace }} create token admin-user
+      register: admin_token
+
+    - name: Show admin-user token
+      debug:
+        var: admin_token.stdout

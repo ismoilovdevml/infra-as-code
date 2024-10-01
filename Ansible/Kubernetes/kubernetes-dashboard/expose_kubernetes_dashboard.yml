@@ -8,6 +8,8 @@
     host_name: "dashboard.helm.uz"  # Hostname for the dashboard
     tls_secret_name: "k8s-dashboard-tls"
     cluster_issuer_name: "letsencrypt-prod"
+    service_name: "kubernetes-dashboard-kong-proxy"  # Updated service name for the dashboard
+    service_port: 443  # Secure HTTPS port for the dashboard
 
   tasks:
     - name: Create Ingress configuration file
@@ -21,9 +23,8 @@
             namespace: {{ dashboard_namespace }}
             annotations:
               nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-              nginx.org/ssl-services: "kubernetes-dashboard"
               cert-manager.io/cluster-issuer: "{{ cluster_issuer_name }}"
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
           spec:
             ingressClassName: "nginx"
             rules:
@@ -34,9 +35,9 @@
                   pathType: Prefix
                   backend:
                     service:
-                      name: kubernetes-dashboard-kong-manager  # Expose this service
+                      name: {{ service_name }}
                       port:
-                        number: 8443  # NodePort or HTTPS port
+                        number: {{ service_port }}
             tls:
             - hosts:
               - {{ host_name }}
@@ -50,21 +51,3 @@
     - name: Show Ingress apply output
       debug:
         var: ingress_apply_output.stdout
-
-    - name: Get Kubernetes Dashboard services
-      ansible.builtin.command:
-        cmd: kubectl get svc -n {{ dashboard_namespace }}
-      register: svc_output
-
-    - name: Show Kubernetes Dashboard service output
-      debug:
-        var: svc_output.stdout
-
-    - name: Generate token for admin-user
-      ansible.builtin.command:
-        cmd: kubectl -n {{ dashboard_namespace }} create token admin-user
-      register: admin_token
-
-    - name: Show admin-user token
-      debug:
-        var: admin_token.stdout
