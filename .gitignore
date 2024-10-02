@@ -11,3 +11,4 @@ terraform.rc
 *.tfplan
 .terraform.lock.hcl
 .terraform.tfstate.backup
+.vscode
