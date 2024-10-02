@@ -1,0 +1,57 @@
+---
+- hosts: nfs_server
+  become: yes
+  vars:
+    nfs_export_path: /srv/nfs
+    nfs_allowed_hosts: "*"
+    nfs_service_name:
+      RedHat: nfs-server
+      Debian: nfs-kernel-server
+
+  tasks:
+    - name: Install NFS packages (RedHat)
+      yum:
+        name: nfs-utils
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install NFS packages (Debian)
+      apt:
+        name:
+          - nfs-kernel-server
+          - nfs-common
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Create NFS export directory
+      file:
+        path: "{{ nfs_export_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure NFS exports
+      copy:
+        content: "{{ nfs_export_path }} {{ nfs_allowed_hosts }}(rw,sync,no_root_squash,no_subtree_check)\n"
+        dest: /etc/exports
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Start and enable NFS service
+      systemd:
+        name: "{{ nfs_service_name[ansible_os_family] }}"
+        enabled: yes
+        state: started
+
+    - name: Export NFS directories
+      command: exportfs -ra
+      notify: restart nfs
+
+  handlers:
+    - name: restart nfs
+      systemd:
+        name: "{{ nfs_service_name[ansible_os_family] }}"
+        state: restarted
