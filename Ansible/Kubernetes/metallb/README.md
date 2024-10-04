@@ -24,7 +24,7 @@ This playbook installs MetalLB using Helm and modifies the `kube-proxy` configur
 #### Usage:
 
 ```bash
-ansible-playbook -i inventory install_metallb.yml
+ansible-playbook -i inventory.ini install_metallb.yml
 ```
 
 ### 2. Configure MetalLB
@@ -36,7 +36,7 @@ This playbook configures an IP address pool and L2 advertisement for MetalLB.
     * Applies the configuration to the Kubernetes cluster.
 ### Usage:
 ```bash
-ansible-playbook -i inventory configure_metallb.yml
+ansible-playbook -i inventory.ini configure_metallb.yml
 ```
 ### 3. Uninstall MetalLB
 This playbook uninstalls MetalLB and removes the metallb-system namespace.
@@ -48,7 +48,7 @@ This playbook uninstalls MetalLB and removes the metallb-system namespace.
 ### Usage:
 
 ```bash
-ansible-playbook -i inventory uninstall_metallb.yml
+ansible-playbook -i inventory.ini uninstall_metallb.yml
 ```
 ### Inventory Setup ⚙️
 Prepare an inventory file to specify the target Kubernetes nodes:

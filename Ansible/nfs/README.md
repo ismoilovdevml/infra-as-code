@@ -32,7 +32,7 @@ This playbook allows you to set up and configure an NFS server automatically. It
 
 2. **Run the playbook:**
     ```bash
-    ansible-playbook -i inventory nfs_setup.yml
+    ansible-playbook -i inventory.ini nfs_setup.yml
     ```
 
 3. **What the playbook does:**

@@ -25,7 +25,7 @@ This playbook performs the following actions:
 
 2. **Run the playbook**:
     ```bash
-    ansible-playbook -i inventory install_kubectl.yml
+    ansible-playbook -i inventory.ini install_kubectl.yml
     ```
 
 ## Playbook Tasks Overview 🧩

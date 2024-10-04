@@ -25,7 +25,7 @@ This playbook performs the following steps:
 
 2. **Run the playbook**:
     ```bash
-    ansible-playbook -i inventory install_helm.yml
+    ansible-playbook -i inventory.ini install_helm.yml
     ```
 
 ## Playbook Tasks Overview 🧩

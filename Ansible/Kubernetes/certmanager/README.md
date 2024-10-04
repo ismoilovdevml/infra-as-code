@@ -40,7 +40,7 @@ This playbook installs Cert-Manager using Helm and applies the necessary CRDs.
 #### Usage:
 
 ```bash
-ansible-playbook -i inventory install_certmanager.yml
+ansible-playbook -i inventory.ini install_certmanager.yml
 ```
 
 ### 2. Configure Cert-Manager with Let's Encrypt ClusterIssuer
