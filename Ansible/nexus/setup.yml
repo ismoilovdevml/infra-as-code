@@ -1,0 +1,100 @@
+---
+- name: Install and configure Nexus Repository OSS
+  hosts: nexus_servers
+  become: true
+
+  vars:
+    nexus_version: "3.72.0-04"
+    nexus_timezone: 'Asia/Tashkent'
+    nexus_installation_dir: '/opt'
+    nexus_data_dir: '/var/nexus'
+    nexus_tmp_dir: "{{ (ansible_os_family == 'RedHat') | ternary('/var/nexus-tmp', '/tmp/nexus') }}"
+    nexus_os_user_home_dir: '/home/nexus'
+    nexus_default_port: 8081
+    nexus_application_host: "0.0.0.0"
+    nexus_os_user: "nexus"
+    nexus_os_group: "nexus"
+    nexus_os_uid: 1000
+    nexus_os_gid: 1000
+    nexus_min_heap_size: "1200M"
+    nexus_max_heap_size: "1200M"
+    nexus_max_direct_memory: "2G"
+    nexus_admin_password: 'zljr4590#$R8jde'
+    httpd_default_admin_email: "admin@example.com"
+    nexus_anonymous_access: false
+    nexus_config_maven: true
+    nexus_config_pypi: true
+    nexus_config_docker: true
+    nexus_config_raw: true
+    nexus_config_rubygems: true
+    nexus_config_bower: true
+    nexus_config_npm: true
+    nexus_config_gitlfs: true
+    nexus_config_yum: true
+    nexus_config_apt: true
+    nexus_config_helm: true
+    nexus_config_r: true
+    nexus_config_p2: true
+    nexus_config_conda: true
+    nexus_config_go: true
+
+  roles:
+    - role: ansible-ThoTeam.nexus3-oss
+    
+  tasks:
+
+    - name: Install Java on RHEL-based systems
+      include_role:
+        name: geerlingguy.java
+      vars:
+        java_packages:
+          - java-11-openjdk
+          - java-11-openjdk-devel
+      when: ansible_os_family == 'RedHat'
+
+    - name: Install Java on Debian-based systems
+      include_role:
+        name: geerlingguy.java
+      vars:
+        java_packages:
+          - openjdk-17-jdk
+          - default-jdk
+          - default-jre
+      when: ansible_os_family == 'Debian'
+
+    - name: Install Java on Ubuntu systems
+      include_role:
+        name: geerlingguy.java
+      vars:
+        java_packages:
+          - openjdk-11-jdk
+      when: ansible_distribution == 'Ubuntu'
+
+    - name: Ensure Nexus service is started
+      systemd:
+        name: nexus
+        state: started
+        enabled: true
+
+    # - name: Open firewall for Nexus port 8081 on RHEL
+    #   firewalld:
+    #     port: 8081/tcp
+    #     permanent: true
+    #     state: enabled
+    #   when: ansible_os_family == "RedHat"
+
+    - name: Wait for Nexus to start on port 8081
+      wait_for:
+        port: "{{ nexus_default_port }}"
+        delay: 30  # Adjust this value if Nexus takes more time to start
+        timeout: 300
+
+    - name: Check if Nexus is running
+      uri:
+        url: "http://localhost:{{ nexus_default_port }}"
+        return_content: true
+      register: nexus_status
+
+    - debug:
+        msg: "Nexus is up and running!" 
+      when: nexus_status.status == 200

@@ -1,0 +1,36 @@
+{
+ "collection_info": {
+  "namespace": "cisco",
+  "name": "nxos",
+  "version": "8.1.0",
+  "authors": [
+   "Ansible Network Community (ansible-network)"
+  ],
+  "readme": "README.md",
+  "tags": [
+   "cisco",
+   "nxos",
+   "networking",
+   "nxapi",
+   "netconf"
+  ],
+  "description": "Ansible Network Collection for Cisco NXOS devices.",
+  "license": [],
+  "license_file": "LICENSE",
+  "dependencies": {
+   "ansible.netcommon": ">=6.1.0"
+  },
+  "repository": "https://github.com/ansible-collections/cisco.nxos",
+  "documentation": null,
+  "homepage": null,
+  "issues": "https://github.com/ansible-collections/cisco.nxos/issues"
+ },
+ "file_manifest_file": {
+  "name": "FILES.json",
+  "ftype": "file",
+  "chksum_type": "sha256",
+  "chksum_sha256": "f4cdd8422ed652986bd9713b4c82655e1a14b6757239803e9af032e10a32539b",
+  "format": 1
+ },
+ "format": 1
+}

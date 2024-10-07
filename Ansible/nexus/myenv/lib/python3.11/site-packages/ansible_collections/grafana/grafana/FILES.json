@@ -1,0 +1,2042 @@
+{
+ "files": [
+  {
+   "name": ".",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": ".config",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": ".config/molecule",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": ".config/molecule/config.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ee4a1988dea005400d660348502eda25f24fa1c76cf64f59df537b56e72fb58f",
+   "format": 1
+  },
+  {
+   "name": "tools",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tools/setup.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "56b5525e62563c65e6b5b71f27c797d60c1561e3b66578f999c65642f4ec9049",
+   "format": 1
+  },
+  {
+   "name": "tools/lint-yaml.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "51c10eabc5c1360649fc5cab528151135f13d2bbc97cbe907d0e939d6e979e03",
+   "format": 1
+  },
+  {
+   "name": "tools/includes",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tools/includes/utils.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "16a2ebce5931f01510c8e0d7597b632d017a0f10154a83f42d538926913e6eb5",
+   "format": 1
+  },
+  {
+   "name": "tools/includes/logging.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e90aa1f7b29d85263926e228f4321fa31304448f6ce2ff8d48a0e461d076474b",
+   "format": 1
+  },
+  {
+   "name": "tools/lint-shell.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2d969bd175bfdf137539a5f4d97cfc2644dd5c81c677e2c40a40082af9333e36",
+   "format": 1
+  },
+  {
+   "name": "tools/lint-text.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "0c01a1e5d52ba8a65e4417d641d1958cfe129112562cb74e11131f8846e6db95",
+   "format": 1
+  },
+  {
+   "name": "tools/lint-ansible.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "87867490595fd8cb5fcd09337f90c8b9135dce7864c0af10c72960081ca0981d",
+   "format": 1
+  },
+  {
+   "name": "tools/lint-markdown.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "6f58c8dfd68ddf75eea250ea0f44ad9e9b567deeedacc70ea357f2cd4d92037c",
+   "format": 1
+  },
+  {
+   "name": "tools/lint-editorconfig.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "4c438197ed79286cc7ea91cebcbeaaa53ccd5a0b3f04dc66e38c998ebccad271",
+   "format": 1
+  },
+  {
+   "name": ".textlintrc",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "89110cd16e278a39577eae8098d6dd2f4d6ea094b164163e012e31d021ea301e",
+   "format": 1
+  },
+  {
+   "name": "LICENSE",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8b1ba204bb69a0ade2bfcf65ef294a920f6bb361b317dba43c7ef29d96332b9b",
+   "format": 1
+  },
+  {
+   "name": "requirements.txt",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a135d423a3b683d3448f933e0ac4981cb9b53413fe13962dcef9d3cc15af5c4a",
+   "format": 1
+  },
+  {
+   "name": ".shellcheckrc",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "60a0a1e54cc805233096790628fd1ff4b629bf389eeef72d8194c331e7ae1912",
+   "format": 1
+  },
+  {
+   "name": "plugins",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "plugins/modules",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/cloud_api_key.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ad31e2ec04741910e6447d24e8b30b5e29e206651345cb6041cbe40c37033cc7",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/folder.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "44a8ab0965650f4e6faeab4f123c37f40dde8352f5d833144928da374f060962",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/alert_contact_point.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "daddbe225bee6a3d20d1877ab9de62d7486a5bd42fcc8d4a76f5a5980c25e33d",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/cloud_stack.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "0700a7232bcff5f9a179344446d2e5fb7c8a1519a24d318404fbe4402c5faf6d",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/datasource.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ff0da1a8d35ff138650b263287d584932620acf7439b4c0411dfce79051c70b2",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/dashboard.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "08f0fb71defb51b4b96d56b413c7c16343f251679e4ed82d983c12b2215bdeb9",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/cloud_plugin.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "4e0a0050d5a9fb36a6d01678885786c1e15256bb31c95454d8c416823e616329",
+   "format": 1
+  },
+  {
+   "name": "plugins/modules/alert_notification_policy.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "87b4dcb32818a17642e6a8b268f0a294b78b6853cfac0b4446be995ed26ce44a",
+   "format": 1
+  },
+  {
+   "name": "Makefile",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8be8db2081029f79bc49bca1f6d8f71a5be2ce62b8aa2e5d7c6782c60db284a4",
+   "format": 1
+  },
+  {
+   "name": "CODEOWNERS",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "986e044c4d35ce128fa8a09215bf790e75dd25f30f65651e198dd03e1543a6f6",
+   "format": 1
+  },
+  {
+   "name": ".yamllint",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8a17bf0fc69dcfd57f1c2f0ab83dd0f276d7bb29edfbf6b7433f201f6abbeece",
+   "format": 1
+  },
+  {
+   "name": "tests",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/requirements.txt",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ec72420df5dfbdce4111f715c96338df3b7cb75f58e478d2449c9720e560de8c",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/create_cloud_stack",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/create_cloud_stack/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/create_cloud_stack/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "1f7c98fab7394b31039b9df11a55837b58730bf54d45f9d6e65998340189e64a",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/datasource",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/datasource/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/datasource/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "3e19bb584c92e420fa31a417b79fe59162dcb5f9ee10c89ae8854e101a5b4cb0",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/delete_cloud_stack",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/delete_cloud_stack/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/delete_cloud_stack/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "5d44026e2c68a4714eb678ae9a40478db8576cdf1969d689bf5b00d9dc7b147b",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/alert_contact_point",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/alert_contact_point/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/alert_contact_point/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f682124f5425fbd4ff86697d9834436c874f85e03abac301302f691841b49adc",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/folder",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/folder/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/folder/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "686ea10021f56ebda73ffae5c8c1a4829642d4c9e105f6c9ca8ae327c01a7387",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/dashboard",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/dashboard/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/dashboard/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "686b506ae8c9e62a7122c0d9e957bf0aa04d7a4c766e5abc78f995fc0fbfab26",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/molecule-grafana-alternative",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/molecule-grafana-alternative/runme.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2879c89b4f2adf554de77e72bb21681933f1c3ffad0ff6097a11e40c97bd78c1",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/cloud_api_key",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/cloud_api_key/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/cloud_api_key/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "6ab83417398137412541c07bc2e4461435d1b2393b3a8108f6c7380dbee71944",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/alert_notification_policy",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/alert_notification_policy/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/alert_notification_policy/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "4dec8dcbc12ebc228cd8171a515b64dc91fe0e9f258f350201148da594b0010c",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/molecule-grafana-default",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/molecule-grafana-default/runme.sh",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2879c89b4f2adf554de77e72bb21681933f1c3ffad0ff6097a11e40c97bd78c1",
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/cloud_plugin",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/cloud_plugin/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "tests/integration/targets/cloud_plugin/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "7eb8a48e85835bc5154d9e6cc867e22e8ec0aca3dbc6b43f385bb6f2370a4486",
+   "format": 1
+  },
+  {
+   "name": "meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "meta/runtime.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "47e045205cccf3dab2959ce5a559aaea3e4283d3ed07fb1fb0392d8fb70f4be5",
+   "format": 1
+  },
+  {
+   "name": "roles",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/vars",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/vars/RedHat.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "571483e0efd8184068b5d00a99204389e56f71238ff854a09bdf15da8aa4e5eb",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/vars/Debian.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a6b3965cc246fd013a6cf3bfe5d90a91c4313e0faf0e79180c6356c7fa6157ce",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/tasks/uninstall.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e2aa7831cf7a87e7e90da0f2917a9996da8709a9c72e78cee9aa5ba06745fed0",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/tasks/deploy.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "89b7e39628bd3c0f4837b49f5537f122dd9b3dcb818e2b706611d4c08b1564db",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/tasks/setup-Debian.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b9d4bc07b290530bf5e61ac0abb65480f6dd276d3495517515aa6f71d1d81797",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "606ddf732884183a66f58e59390e2363ae381696635e06717e654bab3f03f23c",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/tasks/setup-RedHat.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "1fade302a0c20ed1a816a7138263f0f63188b4f57f8a7dc25f68e883649d59c9",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/meta/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a9533d3d849adf6bb82558951ee09fed8c9476b12a18a75943e759a5dc8eb073",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b765dc69a6a122141ab1c3301ad200ff7f46de19b5fb3a1ebb4eed5a732ca296",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/defaults/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "52dbd0a92160ffc7ed99c7fda0b78d84333cffcbb2f3f82707e8cd3011cfc063",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/templates/rules.yml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "524a654736d43d183f035daa7868594f428775a1aad7790fd970406ed44a7b64",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/templates/config.yml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "924a8ba896ae407b88cca46e193cd0a70b3ce1c6226782d4a96dafa8c07395f5",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/molecule",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/molecule/default",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/molecule/default/molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f2fb19d8e5973db9cd226780c4ecf9ae5947286626de40224c1228a6463b1114",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/molecule/default/converge.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b95320fa1dc8f93e4033f5d71f9334aef2148629837022bac6364e3e27078cdb",
+   "format": 1
+  },
+  {
+   "name": "roles/loki/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/loki/handlers/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2e53e9a9e23870436798981a928f54258315a5be3de89b2fa15aa2ce29c379bb",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/tasks/configure.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "619bbe9568d9bfe491cc6cbd81482ae470f7a22d2b4360b14f1bf6d47184fa19",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/tasks/service.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2bec7253fcd6133706e90c0a51197464d6f51f1a22db977f327bdf9b0d3c18cc",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/tasks/install.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b7495233c70957ab9c9e55964545eac9825ef298b25391daeb72e2559992998a",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "bfcb34af928fe8e68f24db9957bc22baf9979b2c4402de34b93a19f8b06397e0",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/meta/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "de3d17460f2f7473558ee9747f18246f51a1603699c4925e51401c625ab59307",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "4dc3f6680b1ebe07bb9fa20ae4327746f3768e010078789d1aab807a72869510",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/defaults/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "d9dd74d1bb76f5536908d543ef9dfac40ab6afe33f6cfaa30b656b4f69b44d6f",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/templates/otel_collector.service.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "bb0d68adc92d851b3c6b5173b5c7896a83a4d005ff87b21aace45397378b39d2",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/templates/otel_collector_config.yml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "25bfc9deadd0a49a3fa1ce78f299ddc78219b60ca1be90693ed5a211c7f16ef3",
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/opentelemetry_collector/handlers/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "3273a098e9e8605c20fe645e533c2a4f4609227340e601914e7119958652c6dd",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/vars",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/vars/.gitkeep",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/tasks/uninstall.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "5c5973ac49f202c081a633ccac9cec1cc183811ce49b9a36bbb78c7c9ba25566",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/tasks/deploy.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "0b71301d94adba7ff35afe9068a562bd0faf996849313e92411d3a6b6245a898",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/tasks/setup-Debian.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "eff282795fb43bda8db141d0ff6e9bf35e90ed703d51ba913cc445043cffe962",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "607c36ec13511951520a162f5d82f2005d9585ae38953a5c70fc289e4a9f0577",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/tasks/setup-Redhat.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "03fcced9ddeccdffe4ddb3ed2f9d48fb857aa7b7273d5992fb8369a3c5213171",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/meta/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "222aacd94d53179d52908ed830973bf2629f4a6e0e1d1ee49f159162dfee6fdd",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e3aad992a9c1a2fd4785a08080ba6bfc90fa9a049c6136f55314d9a78904b81e",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/defaults/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ce3240328c6585e1539c49185b6cfc521f2d7a7dc31336bba25e98be4da55cff",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/files",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/files/.gitkeep",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/templates/.gitkeep",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/templates/config.yml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "dff106fed815d12d0b30ba1a086b7e3bbe99dd5d8a5390a65cd8b5b75b07a8b1",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/molecule",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/molecule/default",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/molecule/default/molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "87e569bbddb1f1f702c5dc3fc9e580e48aa7a0eb262e8027cdf130da01bf13d9",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/molecule/default/tests",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/molecule/default/tests/test_default.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2b956a72585ad5b7caa162e3078db1af7ee33d266cd9890f87057875ea9746f1",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/molecule/default/converge.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "08280357d62d228a056fcf031d2dca1675c2a38aa090567838c5d812f572854c",
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/mimir/handlers/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a49c94f2932683da280c81f687145642fdaa4681e073ed9dbca4630ce5d3e70f",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/vars",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/vars/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a2bb9bea95535af377e7e3577e0ea5d91a8852019a17916b1e55e1f6bc24a206",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/tasks/configure.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "9db6ced2508eed90d6fd17041befef748c96077b3d385ac9f3c13c9591fc3b11",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/tasks/service.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "0925fcb2d9ee8ccb414216fe739ae69c0b42ff5eb7d1cdd39512735a871bad32",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/tasks/ga-started.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2e832d16a77e8cb3c25b97aed4468924367b01bdbddac9f143366c3b9644fbbf",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/tasks/install.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b98c91781cab8279bc74f5485e666f029de431f099a50ca97ae4838d0242b368",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "211284ee8181596f4cb399acf1e5acc5f323bc773efd0d07341f215da2eb7cb5",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/meta/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "eb51ee424adea159dc179cfd8610c228699a156e6ea54349035b9ce6b241bb78",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "215dc4c514165608007ab8f154a260a016c2b0dcaae3b2af9d6108bc26f54efd",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/defaults/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "cb36a9dae2ee4fbe293a1d8afb00e97723a150c7cd5ebcafb190d747a5c28f6e",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/templates/config.alloy.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8a08f43b75d655defb0d08884e978804c50847036b6b4bbffb60ed6aed713e15",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/templates/environment.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "d8956bc6bdf490ae8c45ee43d2d8e683c1c9fcfcf815ca73656e6471ad964174",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/templates/alloy.service.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b64b85647f50a374145fbe6e9796308e32847564e33542b523e7e05065c68652",
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/alloy/handlers/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ae74069e93a89ed2b90be35a8997645b074f03d73120947b682153c83392b75a",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/vars",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/vars/main.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "bb6ac30f82acdbbee2aa7e8c3f61532319bdaf3d983b6c48c82c1901a9620725",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/install",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/install/directories.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "58cac80f91405cd323266b7435e58e656a16740ad9ac27f31b7167a1e6de84dd",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/install/user-group.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "6c36f9389415ee98e51bb7727045d5f6fae4e24a31ea62a74d48922af84abfd1",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/install/download-install.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8771b974c8e7592292ee66941c5c68e49b196408ea4b5655b80b849802255770",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/install/local-install.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "73d7d9cb92f3f837ac941d160296ee510fe4598685c1c67303c9246f459268aa",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/ga-started.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "03c283e74fef8eac9f628c37cb795d87bdbdb4c804acb2f2924813fb31ce6b82",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/configure.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ade472dcf4c91db3ea6b3841b1f383045eac823c97f71c271ddccf98ac514b1c",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/main.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "bb0018dd15d6c1deb675428d0088213b3a6bbd3bbbc795e7c847a2346b05ab9d",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/install.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "aea56415837b4074ea9ec2e442bdc3eb509caf3b0574b54897c03b76b7eb190d",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/preflight.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "6518c23dabc92eb772132cd2dbb764ef381b93df8535ee59d7d5a4f0a39a24d4",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/preflight",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/preflight/download.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "5e90c5e06f97a8d2fa8398c6ab4f18857ad73553249558dfacc28f382a53502e",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/preflight/vars.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "87d1a4c7f9a02423c6cecd4927e79c89e126287d5671d26ae391a70de9a34a1a",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/preflight/systemd.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "ff9f62885f4516d0d17bc00f9be5cfb94d8fc23e18c1d3953c73e555fcb9e370",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/tasks/preflight/install.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "53c0a1d31af571b48eea830d1d53ca6f91d2e0149b98882af4240ba6a9e1e5bf",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/meta/main.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "00ec33a60eed132359ae684f2602eaafd80c67bc8dc8103d4558857b37a89df5",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "db482b9928a877cd5622797a030a67f964f1dc3bc9a6d56291e16523c0260f90",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/defaults/main.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8ae44ab181bd1825f041ec8d4048e21708d142965068ecb883793b5b696549ff",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/templates/EnvironmentFile.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "9ddfc40e42ee8ffecff13ee5a7c995d4c968e14927d09e0f8ac228090c506bec",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/templates/config.yaml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "4ad78718159f384c7f85dec32f39f6901ce620ea03511e2159fae26da5fc1df6",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/templates/grafana-agent.service.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "13e5dc455a1311ef9f11fb8aeeb2c2c7d990935a51cd267c7d532ddaa6a7c10a",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana_agent/handlers/main.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f04d1539911e34d8d0b41ecb1148195bb6e05f7d8a01bd7d1737b15a201a8d25",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/vars",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/vars/RedHat.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "db5d56985245d8ea6ccb5a9764db98fb9691534c093fdbb48a8f408d27c482e8",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/vars/Debian.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a0be6505c934ad843d8e6a5e18cf930f6d4e0b86a19a4395873e8e0b630b2235",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks/uninstall.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "10ee65ba2bc07067ad2dab3cd4d2ca1c61a683f2bea5d443083c8bb864c31f09",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks/deploy.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "71d53e0a8375978364e5317b2214dae2c850e2a5254221884f0e1681e2e4c1f0",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks/setup-Debian.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "c7e439a199b159b97cd8ea220a69ad225fcb1e9f5745a53b7dc9cc33b016b113",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks/acl_configuration.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "9c6917d51e9f3b5483a3d0395f286f80921952e07fc618141d4fd7c5862fb810",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a932e0639b89fc0029394f55ffe0a15140266bae2b42258c241e33c072895add",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/tasks/setup-RedHat.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "c3085dc8e0679de7c6e59b4213f8658f5f6ca2df15009497ff7fdc93a709a661",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/meta/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f554dff3877cb2ff20aa904cd7673960b2a6020542545990d40be2e50d9119a6",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "d4edd64963bea6aefe3f6b255361d0be4b0a85a19403fb0cfa6845a3b4ba1704",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/defaults/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "56b22f9fd9854a56621c794f7b2b0be384105c73b0524bd8f16f131853f4cd32",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/templates/promtail.service.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8417ab8f8c0400a8255599d7299f4ac9b2a93afcfd9012d300831a4bb9acdfe1",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/templates/config.yml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "7a60b181374ac3404f41dd2c81fba86f95d007db5980fb5416d0939e311a5b10",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/templates/promtail_acl.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a337a0e3744d0482abf95ee2100a97c457c06fda93a0104f909c8aa366035580",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/molecule",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/molecule/default",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/molecule/default/molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f2fb19d8e5973db9cd226780c4ecf9ae5947286626de40224c1228a6463b1114",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/molecule/default/converge.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "10c9a514befc870545238b9f4b79ef344d6e0903c728c2cfbf8b5df7f43911d6",
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/promtail/handlers/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b847d2d889b4579a7990dca5ddf6ed8cd8e2686f4d7cd6fce68ec2cfa7683287",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/vars",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/vars/distro",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/vars/distro/redhat.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "54082a7385b630fb01d158412031ccdb3ab724ec0920d2b938fc2abfe5f231b1",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/vars/distro/suse.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "9e0de4f35a28fba9722ec6b2e85448a9d17a446228d2c2ecac419510e1c0489f",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/vars/distro/debian.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b944353cfe0087673039b76c46305669d5f53f5402df8cd6637bf603dd5ba822",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/preflight.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "5fbef6a34f1edb47ecaf806d00395fb1be2f9546901e832885c9f019ff08dc05",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/configure.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "35e6680ced488f4de5995ff84e5a11b678ee3aa3dcea651b2bc0dd9427edc0ed",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/dashboards.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "85fb407ca2c9921343617debdd439a733bdea188df3b973019a2d616449a13ce",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/notifications.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "c9e18e896767159426fd75600ab6fa0e24bb746841ac0f363abc93a1732e0118",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/api_keys.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8ba965a54f41626728596d124b55e8ad7e437ac4342766bc7b95233b17a6a355",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/plugins.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "eb3dffd3395c8b6d8d363e98ba09c6f5add1ac667ffaa6239c93492b3732e347",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/datasources.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "341a5026400f862da67a598712171bb0f17020c53abd8256ebbba59dd5c4d3ff",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/install.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "de51e53b700558c75377e6dbeed087508e1362ee2793d084eea89125a42c6481",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/tasks/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "580c6f1da407217e65bbabb0ccd355f0bc8ce1ddda3b18206a0a97d380b7e0dc",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/test-requirements.txt",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "bd70637dd6307a21c6084e83828c1ae13ac7818001bb9cffef2f8c0ea4e18b7b",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/meta",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/meta/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "5d423f87d9e19d5e6891f793447b323055110a24390a884e98b8b2175515b08f",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "331cff16e8a04c5a06d377a7a7f78ccd45c5840653be545278b7ba9ea61b1c99",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/defaults",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/defaults/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "660fc42c4b796141f772b0f9e3007bbeac9af4df6d2fdb1d89227db5debb5ee2",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/templates",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/templates/grafana.ini.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "9f470f6a807b9e775e014ca4865da31cfc95a72758d9f0f2bc24cbcd399357e1",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/templates/ldap.toml.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8eaf66b16c9bbb51b8365b86e17a6bfc4776f58a4a0cb3804702707281c99abd",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/templates/tmpfiles.j2",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "e2bf1d4dce1cab326b862898d787a16957b203ad3795012f4cbc3d11eb2315b9",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/alternative",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/alternative/molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f52d711103d50a437830c6fbcd04fb4bab49a0f82f6d26d1c791c6e8488dd090",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/alternative/tests",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/alternative/tests/test_alternative.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "38cb4a0397ae36a77d8db4471e725be59d74a15350ccf42cffac3b5e7c399898",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/alternative/converge.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f502dc095236346e31330a7975e4fd0799d80fa8eb5e8c549ec56bf05ee49553",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/default",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/default/molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f52d711103d50a437830c6fbcd04fb4bab49a0f82f6d26d1c791c6e8488dd090",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/default/tests",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/default/tests/test_default.py",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "1f2d9786e6b222db39baa9259d1b420b46489595c74dec50804462ef3b1976a0",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/molecule/default/converge.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "7d479b595ef871e3f545ee7b294d352978f572e581fca90694dcac81cf9e7948",
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/handlers",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "roles/grafana/handlers/main.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "fad32614d3bba77836db3fb79632a2f5336c4ca09ef6b0ff60c14793496c8799",
+   "format": 1
+  },
+  {
+   "name": ".editorconfig",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f1c0a5b9b3d1b8330cb6b4f2efc2df0be1bfb76faf1f4d67c9f1b65decc97c22",
+   "format": 1
+  },
+  {
+   "name": "changelogs",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "changelogs/config.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "c3589ee373e4787fad20ff37228dfb90696a54ee0023c5f61ff5bf3abcf4b720",
+   "format": 1
+  },
+  {
+   "name": "changelogs/.plugin-cache.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "57b26de76fb2f40aa7c75107a8100d182e670af65e61aa41bcd898ab3c49b756",
+   "format": 1
+  },
+  {
+   "name": "changelogs/changelog.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "36891ea22fe3a92d07ee2868a969fa14008488b44577f489d160df0db1b1d8bd",
+   "format": 1
+  },
+  {
+   "name": "README.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "cdb531cc97972ef31ab06917f2d79a37bbecf594696575c7ad21fe575a80315b",
+   "format": 1
+  },
+  {
+   "name": "Pipfile",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "1450eae074679953056cddca4ffa876be099f5767891d21bac5122ca80b0e6e2",
+   "format": 1
+  },
+  {
+   "name": "yarn.lock",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "f0a3e9b6d516a7de7994d9f7f54738c943c202dc79b3f56cf071a09f0f6ddc2d",
+   "format": 1
+  },
+  {
+   "name": ".ansible-lint",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "04baf7f010586545cab0fe765309cc43f22c2a2cb63361480c74e37b878d8684",
+   "format": 1
+  },
+  {
+   "name": ".gitignore",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a09430ce7bbf9c75791cc3bee42e6f47187a40b99461beaec5c1185fbd1a16b0",
+   "format": 1
+  },
+  {
+   "name": "package.json",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b2bb1491300328b7736ace99ef86cd6e7c97ffd9a36dd8303c0b76ef28cc4787",
+   "format": 1
+  },
+  {
+   "name": "examples",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": "examples/monitor-multiple-instance-otel.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "0b655cc01142478e478cbc266f376e718b8e209e59aac98a09bcde43bda3e09d",
+   "format": 1
+  },
+  {
+   "name": "examples/loki-local-filesystem-with-retention-and-alert.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "8ccad2dcd5b8c5753135e2bbd6bcd32898e3ba44fb28b6f5160483cefa73cad8",
+   "format": 1
+  },
+  {
+   "name": "examples/loki-basic-no-options.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "66ca6d2b2ce29a6057c60041fe4b694d071752b74a90ef61dcde8faa5d1bc249",
+   "format": 1
+  },
+  {
+   "name": "examples/agent-basic-no-options.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "cda05d1f95640fbfc976b77d7fcf3a319e8fb0bf9ba5e514b49bc99e04ac1c11",
+   "format": 1
+  },
+  {
+   "name": "examples/opentelemetry-collector.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "0234500a96941f52701a0cdd7e852373507cb18d9113fa22cd36c30efdf2d18a",
+   "format": 1
+  },
+  {
+   "name": "examples/monitor-multiple-instances-agent.md",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "312db8918e6f1e22bd0a6a2aefad5f5db8c0ab9bb88562c883aa047614b7b701",
+   "format": 1
+  },
+  {
+   "name": "examples/mimir-3-hosts.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "c4977212869d1d832c2a52de6ef4860349d0a1592e3e202965cb87e6f453f9a5",
+   "format": 1
+  },
+  {
+   "name": "examples/agent-send-to-grafana-cloud.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "50b70488a9b4089b5add092fe3aeb7560ac172ce0fd1a08350564c05ec77bf6a",
+   "format": 1
+  },
+  {
+   "name": "examples/ansible.cfg",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b78e2db98e14c343e41120940b0e1c5e553a30f4b61b1978515b1bd8e74aadd0",
+   "format": 1
+  },
+  {
+   "name": "examples/alloy.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "02702560039862854cb704e6fd646a5fdb2f6214445fe2d0455a4cf56041903d",
+   "format": 1
+  },
+  {
+   "name": "examples/promtail-multiple-logs.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "6fad8d05061f273414ca19ed9c671fc05a8e83ee74b1c0512f76da2dc0ccb8f0",
+   "format": 1
+  },
+  {
+   "name": "ansible.cfg",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2caa654e85c7e66be39d494d173f69f7565059c504b7201f2ee033173ab80df0",
+   "format": 1
+  },
+  {
+   "name": ".github",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": ".github/workflows",
+   "ftype": "dir",
+   "chksum_type": null,
+   "chksum_sha256": null,
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/release.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a4624ed81ee0e41e87897e436363a7f43fb54f380b705f159ecdb06bcaa5e2ad",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/full-integration-test.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "22d2553954fd81ff4e395d58122959f39d93fa9a0654c6aea6c421f49d348df3",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/roles-test.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "6da36e4715b551f98fdbdcb578cc27b06b29f58b47f1e5cd8ac979e5c682089b",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/loki-molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "a02e6776151e0fd03cd754771d80e73e1470c7088d861b514d5a7dafd47ad6b8",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/mimir-molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b26b5805598eb8735e060a636e00f9c7ee72c71c4c3e19d2b134e3d9f7e9642c",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/promtail-molecule.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "b1179c60a308fb166a8ca3839fe7480db7143394f816cbc6089af5252ae74142",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/lint.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "3355027fd55404c8c9b90118f8d3c8818c5f8eff4a2121bf7a8e5b03b7883193",
+   "format": 1
+  },
+  {
+   "name": ".github/workflows/modules-test.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "4077b0be0f8279e1cf8a34d1c0a7fae86ed91c5019a99023a36e0164ba867272",
+   "format": 1
+  },
+  {
+   "name": ".github/dependabot.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "04b7f69732d281e9a97d10e72202312b72cb45358cbd1f1514983b6e6923f5bf",
+   "format": 1
+  },
+  {
+   "name": "requirements.yml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "85c5d41624847de7aa4a49e6d8060fc60e71af5a610b21e75cff8391494ce65c",
+   "format": 1
+  },
+  {
+   "name": ".markdownlint.yaml",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "2d0b5ccb1e0c0105040a8c8fbe80b52f812951ff844f6b44ce8a8f8019debf5f",
+   "format": 1
+  },
+  {
+   "name": "CHANGELOG.rst",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "d958aa88d938df8371d7c3522f9d7fab1e415349a04df7c686ba916dd1d74fb5",
+   "format": 1
+  },
+  {
+   "name": "Pipfile.lock",
+   "ftype": "file",
+   "chksum_type": "sha256",
+   "chksum_sha256": "3f02ab17d438a048d17243e086939c95f82c0b2cf1111d1f83be7442cbad8ef2",
+   "format": 1
+  }
+ ],
+ "format": 1
+}

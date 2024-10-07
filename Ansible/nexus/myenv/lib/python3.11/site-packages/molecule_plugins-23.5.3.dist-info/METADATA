@@ -1,0 +1,77 @@
+Metadata-Version: 2.1
+Name: molecule-plugins
+Version: 23.5.3
+Summary: Molecule Plugins
+Author-email: Sorin Sbarnea <sorin.sbarnea@gmail.com>
+Maintainer-email: Sorin Sbarnea <sorin.sbarnea@gmail.com>
+License: MIT
+Project-URL: homepage, https://github.com/ansible-community/molecule-plugins
+Project-URL: documentation, https://molecule.readthedocs.io/
+Project-URL: repository, https://github.com/ansible-community/molecule-plugins
+Project-URL: changelog, https://github.com/ansible-community/molecule-plugins/releases
+Keywords: ansible,testing,molecule,plugin
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Information Technology
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: MacOS
+Classifier: Operating System :: POSIX
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python
+Classifier: Topic :: System :: Systems Administration
+Classifier: Topic :: Software Development :: Quality Assurance
+Classifier: Topic :: Software Development :: Testing
+Classifier: Topic :: Utilities
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: molecule >=6.0.0a1
+Provides-Extra: azure
+Provides-Extra: docker
+Requires-Dist: docker >=4.3.1 ; extra == 'docker'
+Requires-Dist: requests ; extra == 'docker'
+Requires-Dist: selinux ; (sys_platform == "linux") and extra == 'docker'
+Requires-Dist: selinux ; (sys_platform == "linux2") and extra == 'docker'
+Provides-Extra: ec2
+Provides-Extra: gce
+Provides-Extra: openstack
+Requires-Dist: openstacksdk >=1.1.0 ; extra == 'openstack'
+Provides-Extra: podman
+Provides-Extra: selinux
+Requires-Dist: selinux ; (sys_platform == "linux") and extra == 'selinux'
+Requires-Dist: selinux ; (sys_platform == "linux2") and extra == 'selinux'
+Provides-Extra: test
+Requires-Dist: pytest-helpers-namespace >=2019.1.8 ; extra == 'test'
+Requires-Dist: molecule[test] >=6.0.0a1 ; extra == 'test'
+Provides-Extra: vagrant
+Requires-Dist: python-vagrant ; extra == 'vagrant'
+
+# molecule-plugins
+
+This repository contains the following molecule plugins:
+
+- azure
+- containers
+- docker
+- ec2
+- gce
+- openstack
+- podman
+- vagrant
+
+
+Installing `molecule-plugins` does not install dependencies specific to each,
+plugin. To install these you need to install the extras for each plugin, like
+`pip3 install 'molecule-plugins[azure]'`.
+
+Before installing these plugins be sure that you uninstall their old standalone
+packages, like `pip3 uninstall molecule-azure`. If you fail to do so, you will
+end-up with a broken setup, as multiple plugins will have the same entry points,
+registered.

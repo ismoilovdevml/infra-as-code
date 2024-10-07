@@ -1,0 +1,86 @@
+---
+plugin_routing:
+  modules:
+    acl_interfaces:
+      redirect: cisco.ios.ios_acl_interfaces
+    acls:
+      redirect: cisco.ios.ios_acls
+    banner:
+      redirect: cisco.ios.ios_banner
+    bgp_global:
+      redirect: cisco.ios.ios_bgp_global
+    command:
+      redirect: cisco.ios.ios_command
+    config:
+      redirect: cisco.ios.ios_config
+    evpn_global:
+      redirect: cisco.ios.ios_evpn_global
+    evpn_evi:
+      redirect: cisco.ios.ios_evpn_evi
+    facts:
+      redirect: cisco.ios.ios_facts
+    hostname:
+      redirect: cisco.ios.ios_hostname
+    interfaces:
+      redirect: cisco.ios.ios_interfaces
+    ios_linkagg:
+      deprecation:
+        removal_date: "2024-06-01"
+        warning_text: See the plugin documentation for more details
+    ios_lldp:
+      deprecation:
+        removal_date: "2024-06-01"
+        warning_text: See the plugin documentation for more details
+    l2_interfaces:
+      redirect: cisco.ios.ios_l2_interfaces
+    l3_interfaces:
+      redirect: cisco.ios.ios_l3_interfaces
+    lacp:
+      redirect: cisco.ios.ios_lacp
+    lacp_interfaces:
+      redirect: cisco.ios.ios_lacp_interfaces
+    lag_interfaces:
+      redirect: cisco.ios.ios_lag_interfaces
+    linkagg:
+      deprecation:
+        removal_date: "2024-06-01"
+        warning_text: See the plugin documentation for more details
+      redirect: cisco.ios.ios_linkagg
+    lldp:
+      deprecation:
+        removal_date: "2024-06-01"
+        warning_text: See the plugin documentation for more details
+      redirect: cisco.ios.ios_lldp
+    lldp_global:
+      redirect: cisco.ios.ios_lldp_global
+    lldp_interfaces:
+      redirect: cisco.ios.ios_lldp_interfaces
+    logging_global:
+      redirect: cisco.ios.ios_logging_global
+    ntp_global:
+      redirect: cisco.ios.ios_ntp_global
+    ospfv2:
+      redirect: cisco.ios.ios_ospfv2
+    ping:
+      redirect: cisco.ios.ios_ping
+    prefix_lists:
+      redirect: cisco.ios.ios_prefix_lists
+    route_maps:
+      redirect: cisco.ios.ios_route_maps
+    service:
+      redirect: cisco.ios.ios_service
+    snmp_server:
+      redirect: cisco.ios.ios_snmp_server
+    static_routes:
+      redirect: cisco.ios.ios_static_routes
+    system:
+      redirect: cisco.ios.ios_system
+    user:
+      redirect: cisco.ios.ios_user
+    vlans:
+      redirect: cisco.ios.ios_vlans
+    vrf:
+      redirect: cisco.ios.ios_vrf
+    vxlan_vtep:
+      redirect: cisco.ios.ios_vxlan_vtep
+requires_ansible: ">=2.14.0"

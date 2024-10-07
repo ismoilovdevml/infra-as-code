@@ -1,0 +1,9 @@
+[molecule.driver]
+azure = molecule_plugins.azure.driver:Azure
+containers = molecule_plugins.containers.driver:Container
+docker = molecule_plugins.docker.driver:Docker
+ec2 = molecule_plugins.ec2.driver:EC2
+gce = molecule_plugins.gce.driver:GCE
+openstack = molecule_plugins.openstack.driver:Openstack
+podman = molecule_plugins.podman.driver:Podman
+vagrant = molecule_plugins.vagrant.driver:Vagrant
