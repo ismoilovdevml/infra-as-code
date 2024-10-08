@@ -12,3 +12,4 @@ terraform.rc
 .terraform.lock.hcl
 .terraform.tfstate.backup
 .vscode
+Ansible/nexus/myenv/*

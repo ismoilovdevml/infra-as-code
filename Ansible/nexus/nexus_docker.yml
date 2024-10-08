@@ -1,0 +1,45 @@
+---
+- hosts: nexus_servers
+  become: yes
+  vars:
+    nexus_image: "sonatype/nexus3:latest"
+    nexus_data_dir: "/mnt/nexus/nexus-data"
+    nexus_container_name: "nexus"
+    nexus_port: 8081
+    nexus_admin_password_file: "/nexus-data/admin.password"
+  tasks:
+    - name: Create Nexus data directory
+      file:
+        path: "{{ nexus_data_dir }}"
+        state: directory
+        owner: 200
+        recurse: yes
+
+    - name: Run Nexus container
+      docker_container:
+        name: "{{ nexus_container_name }}"
+        image: "{{ nexus_image }}"
+        state: started
+        ports:
+          - "{{ nexus_port }}:{{ nexus_port }}"
+        volumes:
+          - "{{ nexus_data_dir }}:/nexus-data"
+        restart_policy: always
+
+    - name: Wait for 2 minutes before checking Nexus status
+      pause:
+        minutes: 2
+
+    - name: Wait for Nexus to start
+      wait_for:
+        port: "{{ nexus_port }}"
+        delay: 30
+        timeout: 300
+
+    - name: Retrieve Nexus admin password
+      command: docker exec -it "{{ nexus_container_name }}" cat "{{ nexus_admin_password_file }}"
+      register: admin_password_output
+
+    - name: Show Nexus admin password
+      debug:
+        msg: "Nexus admin password is: {{ admin_password_output.stdout }}"

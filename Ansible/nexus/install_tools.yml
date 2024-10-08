@@ -1,7 +1,21 @@
 ---
-- hosts: java_servers
-  become: yes
+- name: Install necessary tools (rsync and Java)
+  hosts: nexus_servers
+  become: true
+
   tasks:
+    - name: Install rsync on Debian-based systems
+      apt:
+        name: rsync
+        state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Install rsync on RHEL-based systems
+      yum:
+        name: rsync
+        state: present
+      when: ansible_os_family == 'RedHat'
+
     - name: Install Java on RHEL-based systems
       include_role:
         name: geerlingguy.java
