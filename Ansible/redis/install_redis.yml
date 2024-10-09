@@ -1,10 +1,61 @@
 ---
-- name: Install Redis
-  hosts: redis_servers
+- name: Install Redis on multiple OS
+  hosts: all
   become: yes
+  vars:
+    debian_redis_package: "redis-server"
+    redhat_redis_package: "redis"
 
-  vars_files:
-    - vars.yml
+  tasks:
+    - name: Install required packages on Ubuntu/Debian
+      when: ansible_os_family == "Debian"
+      apt:
+        name:
+          - lsb-release
+          - curl
+          - gpg
+        update_cache: yes
+        state: present
 
-  roles:
-    - role: geerlingguy.redis
+    - name: Add Redis GPG key on Ubuntu/Debian
+      when: ansible_os_family == "Debian"
+      shell: |
+        curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+
+    - name: Set permissions on Redis GPG key on Ubuntu/Debian
+      when: ansible_os_family == "Debian"
+      file:
+        path: /usr/share/keyrings/redis-archive-keyring.gpg
+        mode: '0644'
+
+    - name: Add Redis repository on Ubuntu/Debian
+      when: ansible_os_family == "Debian"
+      shell: |
+        echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list
+
+    - name: Install Redis on Ubuntu/Debian
+      when: ansible_os_family == "Debian"
+      apt:
+        name: "{{ debian_redis_package }}"
+        update_cache: yes
+        state: present
+
+    - name: Install Redis on RedHat/Rocky
+      when: ansible_os_family == "RedHat"
+      yum:
+        name: "{{ redhat_redis_package }}"
+        state: present
+
+    - name: Enable and start Redis on Debian-based systems
+      when: ansible_os_family == "Debian"
+      systemd:
+        name: redis-server
+        enabled: yes
+        state: started
+
+    - name: Enable and start Redis on RedHat-based systems
+      when: ansible_os_family == "RedHat"
+      systemd:
+        name: redis
+        enabled: yes
+        state: started
