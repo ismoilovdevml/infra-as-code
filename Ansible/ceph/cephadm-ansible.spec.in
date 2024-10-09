@@ -1,0 +1,47 @@
+%global commit @COMMIT@
+%global shortcommit %(c=%{commit}; echo ${c:0:7})
+
+Name:           cephadm-ansible
+Version:        @VERSION@
+Release:        @RELEASE@%{?dist}
+Summary:        ansible playbooks to be used with cephadm
+License:        ASL 2.0
+URL:            https://github.com/ceph/cephadm-ansible
+Source0:        %{name}-%{version}-%{shortcommit}.tar.gz
+Epoch:          1
+
+BuildArch:      noarch
+
+BuildRequires: ansible-core >= 2.9
+BuildRequires: ansible-collection-ansible-posix
+BuildRequires: ansible-collection-community-general
+Requires: ansible-core >= 2.9
+Requires: ansible-collection-ansible-posix
+Requires: ansible-collection-community-general
+
+%description
+cephadm-ansible is a collection of Ansible playbooks to simplify workflows that are not covered by cephadm.
+
+%prep
+%autosetup -p1
+
+%build
+
+%install
+mkdir -p %{buildroot}%{_datarootdir}/cephadm-ansible
+
+for f in ansible.cfg *.yml ceph_defaults library module_utils validate; do
+  cp -a $f %{buildroot}%{_datarootdir}/cephadm-ansible
+done
+
+%check
+ansible-playbook -i tests/functional/hosts cephadm-preflight.yml --syntax-check
+ansible-playbook -i tests/functional/hosts cephadm-purge-cluster.yml -e fsid=%(uuidgen) --syntax-check
+
+%files
+%doc README.md
+%license LICENSE
+%{_datarootdir}/cephadm-ansible
+
+%changelog
+

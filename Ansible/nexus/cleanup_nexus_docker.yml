@@ -1,0 +1,44 @@
+---
+- hosts: nexus_servers
+  become: yes
+  vars:
+    nexus_container_name: "nexus"
+    nexus_image: "sonatype/nexus3:latest"
+    nexus_data_dir: "/mnt/nexus/nexus-data"
+  tasks:
+    - name: Stop Nexus container if exists
+      docker_container:
+        name: "{{ nexus_container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Nexus container if exists
+      docker_container:
+        name: "{{ nexus_container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Nexus Docker image if exists
+      docker_image:
+        name: "{{ nexus_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Nexus data directory if exists
+      file:
+        path: "{{ nexus_data_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Nexus parent directory if exists
+      file:
+        path: "/mnt/nexus"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false

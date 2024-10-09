@@ -1,0 +1,5 @@
+pytest-testinfra
+pytest-xdist
+pytest
+ansible>4,<9
+Jinja2
