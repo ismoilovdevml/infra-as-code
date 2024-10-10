@@ -2,29 +2,36 @@
 - name: Configure Redis
   hosts: redis_servers
   become: yes
-
-  vars_files:
-    - vars.yml
-
+  vars:
+    redis_protected_mode: "no"
+    redis_bind: "0.0.0.0"
+    debian_redis_package: "redis-server"
+    redhat_redis_package: "redis"
   tasks:
-    - name: Disable protected mode
+    - name: Modify 'protected-mode' in redis.conf
       lineinfile:
         path: /etc/redis/redis.conf
         regexp: '^protected-mode'
         line: "protected-mode {{ redis_protected_mode }}"
         state: present
-      notify: Restart Redis
+        backrefs: yes
 
-    - name: Set bind address to 0.0.0.0
+    - name: Modify 'bind' in redis.conf
       lineinfile:
         path: /etc/redis/redis.conf
         regexp: '^bind'
-        line: "bind {{ redis_bind_interface }}"
+        line: "bind {{ redis_bind }}"
         state: present
-      notify: Restart Redis
+        backrefs: yes
 
-  handlers:
-    - name: Restart Redis
+    - name: Restart Redis service on Debian-based systems
       service:
-        name: "{{ ansible_os_family == 'RedHat' | ternary('redis', 'redis-server') }}"
+        name: "{{ debian_redis_package }}"
         state: restarted
+      when: ansible_os_family == "Debian"
+
+    - name: Restart Redis service on RedHat-based systems
+      service:
+        name: "{{ redhat_redis_package }}"
+        state: restarted
+      when: ansible_os_family == "RedHat"

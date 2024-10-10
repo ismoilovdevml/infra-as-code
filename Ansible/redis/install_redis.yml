@@ -17,6 +17,22 @@
         update_cache: yes
         state: present
 
+    - name: Ensure Redis user exists (Debian/Ubuntu)
+      when: ansible_os_family == "Debian"
+      user:
+        name: "redis"
+        system: yes
+        shell: /bin/false
+        createhome: no
+
+    - name: Ensure Redis user exists (RedHat/Rocky)
+      when: ansible_os_family == "RedHat"
+      user:
+        name: "redis"
+        system: yes
+        shell: /bin/false
+        createhome: no
+        
     - name: Add Redis GPG key on Ubuntu/Debian
       when: ansible_os_family == "Debian"
       shell: |
