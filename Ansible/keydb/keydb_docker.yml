@@ -1,0 +1,51 @@
+---
+- name: Install and run KeyDB using Docker
+  hosts: all
+  become: yes
+
+  vars:
+    keydb_image: "eqalpha/keydb"
+    keydb_container_name: "keydb"
+    keydb_port: "6379"
+    keydb_data_dir: "/opt/keydb/data"
+    docker_installed: false
+
+  tasks:
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Set docker_installed variable if Docker is installed
+      set_fact:
+        docker_installed: true
+      when: docker_check.rc == 0
+
+    - name: Stop playbook if Docker is not installed
+      fail:
+        msg: "Docker is not installed. Please install Docker before running this playbook."
+      when: not docker_installed
+
+    - name: Create KeyDB data directory if it doesn't exist
+      file:
+        path: "{{ keydb_data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Pull the KeyDB Docker image
+      docker_image:
+        name: "{{ keydb_image }}"
+        source: pull
+
+    - name: Run the KeyDB container
+      docker_container:
+        name: "{{ keydb_container_name }}"
+        image: "{{ keydb_image }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "{{ keydb_port }}:{{ keydb_port }}"
+        volumes:
+          - "{{ keydb_data_dir }}:/data"
+        command: keydb-server /etc/keydb/keydb.conf --appendonly yes

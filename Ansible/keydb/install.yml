@@ -1,0 +1,93 @@
+---
+- name: Install KeyDB on Multiple OS
+  hosts: all
+  become: yes
+  vars:
+    keydb_repo_deb: "deb https://download.keydb.dev/open-source-dist {{ ansible_lsb.codename }} main"
+    keydb_gpg_deb: "https://download.keydb.dev/open-source-dist/keyring.gpg"
+    keydb_gpg_rpm: "https://download.keydb.dev/pkg/open_source/rpm/RPM-GPG-KEY-keydb"
+    keydb_rpm_url: "https://download.keydb.dev/pkg/open_source/rpm"
+    keydb_pidfile: "/var/run/keydb/keydb-server.pid"
+  tasks:
+    - name: Ensure dependencies are installed (Debian/Ubuntu)
+      apt:
+        name:
+          - wget
+          - gnupg
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Add KeyDB GPG key (Debian/Ubuntu)
+      apt_key:
+        url: "{{ keydb_gpg_deb }}"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Add KeyDB APT repository (Debian/Ubuntu)
+      apt_repository:
+        repo: "{{ keydb_repo_deb }}"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install KeyDB (Debian/Ubuntu)
+      apt:
+        name: keydb
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Create KeyDB PID directory and set permissions (Debian/Ubuntu)
+      file:
+        path: /var/run/keydb
+        state: directory
+        owner: keydb
+        group: keydb
+        mode: '0755'
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure KeyDB configuration points to the correct PID file (Debian/Ubuntu)
+      lineinfile:
+        path: /etc/keydb/keydb.conf
+        regexp: '^pidfile'
+        line: "pidfile {{ keydb_pidfile }}"
+      when: ansible_os_family == "Debian"
+
+    - name: Reload systemd manager configuration (Debian/Ubuntu)
+      command: systemctl daemon-reload
+      when: ansible_os_family == "Debian"
+
+    - name: Import KeyDB RPM GPG key (RHEL/CentOS)
+      rpm_key:
+        state: present
+        key: "{{ keydb_gpg_rpm }}"
+      when: ansible_os_family == "RedHat"
+
+    - name: Check RHEL/CentOS version and skip if not supported
+      debug:
+        msg: "KeyDB is not supported on RedHat/CentOS versions other than 7 and 8."
+      when: ansible_distribution_major_version not in ['7', '8'] and ansible_os_family == "RedHat"
+
+    - name: Download KeyDB RPM package (RHEL/CentOS 7/8)
+      get_url:
+        url: "{{ keydb_rpm_url }}/centos{{ ansible_distribution_major_version }}/{{ ansible_architecture }}/keydb-latest-1.el{{ ansible_distribution_major_version }}.{{ ansible_architecture }}.rpm"
+        dest: "/tmp/keydb.rpm"
+      when: ansible_distribution_major_version in ['7', '8']
+
+    - name: Install KeyDB (RHEL/CentOS 7/8)
+      yum:
+        name: /tmp/keydb.rpm
+        state: present
+      when: ansible_distribution_major_version in ['7', '8']
+
+    - name: Enable and start KeyDB service (Debian/Ubuntu)
+      systemd:
+        name: keydb-server
+        enabled: yes
+        state: started
+      when: ansible_os_family == "Debian"
+
+    - name: Enable and start KeyDB service (RHEL/CentOS)
+      systemd:
+        name: keydb
+        enabled: yes
+        state: started
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version in ['7', '8']
