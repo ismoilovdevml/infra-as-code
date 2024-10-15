@@ -1,0 +1,33 @@
+---
+- name: Install Trivy using installation script
+  hosts: trivy_servers
+  become: yes
+  tasks:
+
+    - name: Install curl if not installed (Debian/Ubuntu)
+      apt:
+        name: curl
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install curl if not installed (RHEL/CentOS)
+      yum:
+        name: curl
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Download and run Trivy installation script
+      ansible.builtin.shell: |
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.18.3
+      args:
+        creates: /usr/local/bin/trivy
+
+    - name: Verify Trivy installation
+      ansible.builtin.command: trivy --version
+      register: trivy_version
+      changed_when: false
+
+    - name: Print Trivy version
+      ansible.builtin.debug:
+        msg: "Trivy version installed: {{ trivy_version.stdout }}"

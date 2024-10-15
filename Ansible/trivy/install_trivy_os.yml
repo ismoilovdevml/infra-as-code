@@ -1,0 +1,82 @@
+---
+- name: Install Trivy on multiple OS
+  hosts: trivy_servers
+  become: yes
+  tasks:
+
+    - name: Check the OS family
+      ansible.builtin.set_fact:
+        os_family: "{{ ansible_facts['os_family'] }}"
+
+    - name: Install dependencies for Debian/Ubuntu
+      apt:
+        name:
+          - wget
+          - apt-transport-https
+          - gnupg
+          - lsb-release
+        state: present
+      when: os_family == "Debian"
+
+    - name: Add Trivy repository for Debian/Ubuntu
+      ansible.builtin.apt_key:
+        url: https://aquasecurity.github.io/trivy-repo/deb/public.key
+        state: present
+      when: os_family == "Debian"
+
+    - name: Add Trivy repository to sources.list for Debian/Ubuntu
+      ansible.builtin.apt_repository:
+        repo: "deb https://aquasecurity.github.io/trivy-repo/deb {{ ansible_facts['lsb']['codename'] }} main"
+        state: present
+      when: os_family == "Debian"
+
+    - name: Install Trivy for Debian/Ubuntu
+      apt:
+        name: trivy
+        state: present
+        update_cache: yes
+      register: apt_result
+      when: os_family == "Debian"
+
+    - name: Create trivy.repo for RHEL/CentOS
+      ansible.builtin.copy:
+        dest: /etc/yum.repos.d/trivy.repo
+        content: |
+          [trivy]
+          name=Trivy repository
+          baseurl=https://aquasecurity.github.io/trivy-repo/rpm/releases/$releasever/$basearch/
+          gpgcheck=0
+          enabled=1
+      when: os_family == "RedHat"
+
+    - name: Update repository cache for RHEL/CentOS
+      yum:
+        name: '*'
+        state: latest
+      when: os_family == "RedHat"
+
+    - name: Install Trivy for RHEL/CentOS
+      yum:
+        name: trivy
+        state: present
+      register: yum_result
+      when: os_family == "RedHat"
+
+    - name: Install Trivy via direct rpm for RHEL/CentOS (if repo fails)
+      ansible.builtin.command: >
+        rpm -ivh https://github.com/aquasecurity/trivy/releases/download/v0.18.3/trivy_0.18.3_Linux-64bit.rpm
+      when: (os_family == "RedHat") and (yum_result is failed)
+
+    - name: Install Trivy via direct deb for Debian/Ubuntu (if repo fails)
+      ansible.builtin.command: >
+        wget https://github.com/aquasecurity/trivy/releases/download/v0.18.3/trivy_0.18.3_Linux-64bit.deb && dpkg -i trivy_0.18.3_Linux-64bit.deb
+      when: (os_family == "Debian") and (apt_result is failed)
+
+    - name: Verify Trivy installation
+      ansible.builtin.command: trivy --version
+      register: trivy_version
+      changed_when: false
+
+    - name: Print Trivy version
+      ansible.builtin.debug:
+        msg: "Trivy version installed: {{ trivy_version.stdout }}"

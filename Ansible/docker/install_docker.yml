@@ -7,7 +7,11 @@
       ansible.builtin.setup:
         filter: ansible_distribution*
 
-    - name: Remove old Docker versions (Ubuntu/Debian)
+    - name: Show system distribution
+      debug:
+        msg: "Installing Docker on {{ ansible_distribution }}"
+
+    - name: Remove old Docker versions (Debian/Ubuntu based)
       ansible.builtin.package:
         name:
           - docker.io
@@ -19,8 +23,9 @@
           - runc
         state: absent
       when: ansible_distribution in ['Ubuntu', 'Debian']
+      tags: debian_ubuntu
 
-    - name: Remove old Docker versions (CentOS/RHEL/Fedora/Rocky)
+    - name: Remove old Docker versions (RHEL/CentOS/Rocky/Fedora based)
       ansible.builtin.shell: |
         sudo {{ ansible_pkg_mgr }} remove -y docker \
                                         docker-client \
@@ -31,8 +36,9 @@
                                         docker-logrotate \
                                         docker-engine
       when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
+      tags: rhel_centos_rocky
 
-    - name: Install Docker on Ubuntu/Debian
+    - name: Install Docker on Debian/Ubuntu based systems
       block:
         - name: Install dependencies
           ansible.builtin.apt:
@@ -64,8 +70,9 @@
               - docker-compose-plugin
             state: present
       when: ansible_distribution in ['Ubuntu', 'Debian']
+      tags: debian_ubuntu
 
-    - name: Install Docker on CentOS/RHEL/Rocky
+    - name: Install Docker on CentOS/RHEL/Rocky based systems
       block:
         - name: Install dependencies
           ansible.builtin.yum:
@@ -85,8 +92,9 @@
               - docker-compose-plugin
             state: present
       when: ansible_distribution in ['RedHat', 'CentOS', 'Rocky']
+      tags: rhel_centos_rocky
 
-    - name: Install Docker on Fedora
+    - name: Install Docker on Fedora based systems
       block:
         - name: Install dnf-plugins-core
           ansible.builtin.dnf:
@@ -106,6 +114,7 @@
               - docker-compose-plugin
             state: present
       when: ansible_distribution == 'Fedora'
+      tags: fedora
 
     - name: Start and enable Docker
       ansible.builtin.systemd:
@@ -125,3 +134,11 @@
         owner: "{{ ansible_user_id }}"
         group: docker
         mode: '0666'
+
+    - name: Print Docker version
+      ansible.builtin.shell: docker --version
+      register: docker_version_output
+
+    - name: Show Docker version
+      debug:
+        msg: "Installed Docker version: {{ docker_version_output.stdout }}"

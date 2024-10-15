@@ -1,0 +1,52 @@
+---
+- name: Install Trivy using Helm
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Check if Helm is installed
+      ansible.builtin.command: which helm
+      register: helm_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Show info message if Helm is not installed
+      ansible.builtin.debug:
+        msg: "Helm is not installed, skipping the installation of Trivy."
+      when: helm_installed.rc != 0
+
+    - name: Skip tasks if Helm is not installed
+      ansible.builtin.meta: end_play
+      when: helm_installed.rc != 0
+
+    - name: Add the AquaSecurity Helm repository
+      ansible.builtin.command:
+        cmd: helm repo add aquasecurity https://aquasecurity.github.io/helm-charts/
+      register: helm_repo_add
+      changed_when: "'Repository 'aquasecurity' has been added' in helm_repo_add.stdout"
+
+    - name: Update the Helm repository
+      ansible.builtin.command:
+        cmd: helm repo update
+      register: helm_repo_update
+      changed_when: "'Update Complete' in helm_repo_update.stdout"
+
+    - name: Search for Trivy in the Helm repository
+      ansible.builtin.command:
+        cmd: helm search repo trivy
+      register: helm_search_trivy
+      changed_when: false
+
+    - name: Print the Helm search result for Trivy
+      debug:
+        msg: "{{ helm_search_trivy.stdout }}"
+
+    - name: Install Trivy using Helm
+      ansible.builtin.command:
+        cmd: helm install my-trivy aquasecurity/trivy
+      register: helm_install_trivy
+      changed_when: "'STATUS: deployed' in helm_install_trivy.stdout"
+
+    - name: Print the Trivy installation result
+      debug:
+        msg: "{{ helm_install_trivy.stdout }}"
