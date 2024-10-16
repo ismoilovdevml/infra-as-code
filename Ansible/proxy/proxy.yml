@@ -1,0 +1,220 @@
+---
+- name: Configure proxy for multiple tools
+  hosts: all
+  become: yes
+  vars:
+    http_proxy: "http://proxy.example.com:3128"
+    https_proxy: "https://proxy.example.com:3129"
+    no_proxy: "localhost,127.0.0.1,docker-registry.example.com,.corp"
+    configure_git: true        # Configure proxy for Git
+    configure_curl: true       # Configure proxy for Curl
+    configure_wget: true       # Configure proxy for Wget
+    configure_zypper: true     # Configure proxy for Zypper (SUSE only)
+    configure_pip: true        # Configure proxy for Python pip
+    configure_npm: true        # Configure proxy for NodeJS npm
+    configure_apt: true        # Configure proxy for APT
+    configure_yum: true        # Configure proxy for Yum
+    configure_dnf: true        # Configure proxy for DNF
+
+  tasks:
+    - name: Configure Git proxy if installed
+      when: configure_git
+      block:
+        - name: Check if Git is installed
+          command: git --version
+          register: git_installed
+          changed_when: false
+          ignore_errors: no
+          failed_when: git_installed.rc != 0
+
+        - name: Set Git proxy
+          when: git_installed.rc == 0
+          block:
+            - name: Configure Git HTTP proxy
+              command: git config --global http.proxy "{{ http_proxy }}"
+
+            - name: Configure Git HTTPS proxy
+              command: git config --global https.proxy "{{ https_proxy }}"
+
+        - name: Skip Git proxy configuration
+          when: git_installed.rc != 0
+          debug:
+            msg: "Git not installed. Skipping Git proxy setup."
+
+    - name: Configure Curl proxy if installed
+      when: configure_curl
+      block:
+        - name: Check if Curl is installed
+          command: curl --version
+          register: curl_installed
+          changed_when: false
+          failed_when: curl_installed.rc != 0
+
+        - name: Set Curl proxy
+          when: curl_installed.rc == 0
+          copy:
+            dest: /etc/curlrc
+            content: |
+              proxy = "{{ http_proxy }}"
+              noproxy = "{{ no_proxy }}"
+
+        - name: Skip Curl proxy configuration
+          when: curl_installed.rc != 0
+          debug:
+            msg: "Curl not installed. Skipping Curl proxy setup."
+
+    - name: Configure Wget proxy if installed
+      when: configure_wget
+      block:
+        - name: Check if Wget is installed
+          command: wget --version
+          register: wget_installed
+          changed_when: false
+          failed_when: wget_installed.rc != 0
+
+        - name: Set Wget proxy
+          when: wget_installed.rc == 0
+          copy:
+            dest: /etc/wgetrc
+            content: |
+              use_proxy = on
+              http_proxy = {{ http_proxy }}
+              https_proxy = {{ https_proxy }}
+              no_proxy = {{ no_proxy }}
+
+        - name: Skip Wget proxy configuration
+          when: wget_installed.rc != 0
+          debug:
+            msg: "Wget not installed. Skipping Wget proxy setup."
+
+    - name: Configure Zypper proxy if installed (SUSE only)
+      when: ansible_os_family == "Suse" and configure_zypper
+      block:
+        - name: Check if Zypper is installed
+          command: zypper --version
+          register: zypper_installed
+          changed_when: false
+          failed_when: zypper_installed.rc != 0
+
+        - name: Set Zypper proxy
+          when: zypper_installed.rc == 0
+          copy:
+            dest: /etc/sysconfig/proxy
+            content: |
+              PROXY_ENABLED="yes"
+              HTTP_PROXY="{{ http_proxy }}"
+              HTTPS_PROXY="{{ https_proxy }}"
+              NO_PROXY="{{ no_proxy }}"
+
+        - name: Skip Zypper proxy configuration
+          when: zypper_installed.rc != 0
+          debug:
+            msg: "Zypper not installed. Skipping Zypper proxy setup."
+
+    - name: Configure Python pip proxy if installed
+      when: configure_pip
+      block:
+        - name: Check if pip is installed
+          stat:
+            path: /usr/bin/pip
+          register: pip_installed
+
+        - name: Set pip proxy
+          when: pip_installed.stat.exists
+          copy:
+            dest: ~/.pip/pip.conf
+            content: |
+              [global]
+              proxy = {{ http_proxy }}
+
+        - name: Skip pip proxy configuration
+          when: not pip_installed.stat.exists
+          debug:
+            msg: "Pip not installed. Skipping Pip proxy setup."
+
+    - name: Configure NPM proxy if installed
+      when: configure_npm
+      block:
+        - name: Check if NPM is installed
+          stat:
+            path: /usr/bin/npm
+          register: npm_installed
+
+        - name: Set NPM proxy
+          when: npm_installed.stat.exists
+          block:
+            - name: Configure NPM HTTP proxy
+              command: npm config set proxy "{{ http_proxy }}"
+
+            - name: Configure NPM HTTPS proxy
+              command: npm config set https-proxy "{{ https_proxy }}"
+
+        - name: Skip NPM proxy configuration
+          when: not npm_installed.stat.exists
+          debug:
+            msg: "NPM not installed. Skipping NPM proxy setup."
+
+    - name: Configure APT proxy if installed (Debian-based systems)
+      when: configure_apt and ansible_os_family == "Debian"
+      block:
+        - name: Check if APT is installed (Debian-based systems)
+          stat:
+            path: /etc/apt
+          register: apt_installed
+
+        - name: Set APT proxy
+          when: apt_installed.stat.exists
+          copy:
+            dest: /etc/apt/apt.conf.d/proxy.conf
+            content: |
+              Acquire::http::Proxy "{{ http_proxy }}";
+              Acquire::https::Proxy "{{ https_proxy }}";
+
+        - name: Skip APT proxy configuration
+          when: not apt_installed.stat.exists
+          debug:
+            msg: "APT not installed. Skipping APT proxy setup."
+
+    - name: Configure Yum proxy if installed (RedHat/CentOS)
+      when: configure_yum and ansible_os_family == "RedHat"
+      block:
+        - name: Check if Yum is installed
+          command: yum --version
+          register: yum_installed
+          changed_when: false
+          failed_when: yum_installed.rc != 0
+
+        - name: Set Yum proxy
+          when: yum_installed.rc == 0
+          lineinfile:
+            path: /etc/yum.conf
+            regexp: '^proxy='
+            line: 'proxy={{ http_proxy }}'
+            create: yes
+
+        - name: Skip Yum proxy configuration
+          when: yum_installed.rc != 0
+          debug:
+            msg: "Yum not installed. Skipping Yum proxy setup."
+
+    - name: Configure DNF proxy if installed (RedHat/CentOS/Fedora)
+      when: configure_dnf and ansible_os_family == "RedHat"
+      block:
+        - name: Check if DNF is installed
+          command: dnf --version
+          register: dnf_installed
+          changed_when: false
+          failed_when: dnf_installed.rc != 0
+
+        - name: Set DNF proxy
+          when: dnf_installed.rc == 0
+          lineinfile:
+            path: /etc/dnf/dnf.conf
+            regexp: '^proxy='
+            line: 'proxy={{ http_proxy }}'
+            create: yes
+
+        - name: Skip DNF proxy configuration
+          when: dnf_installed.rc != 0
+          debug:
+            msg: "DNF not installed. Skipping DNF proxy setup."

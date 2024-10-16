@@ -1,0 +1,35 @@
+# Version and installation options
+activemq_version: "6.1.3"
+activemq_dest: "/opt/amq"
+activemq_service_user: "amq-broker"
+activemq_service_group: "amq-broker"
+activemq_offline_install: false
+
+# Service Configuration
+activemq_bind_address: "0.0.0.0"
+activemq_host: "localhost"
+activemq_http_port: 8161
+activemq_port: 61616
+activemq_persistence_enabled: true
+activemq_journal_type: "ASYNCIO"
+activemq_jvm_package: "java-17-openjdk-headless"
+
+# Security
+activemq_instance_username: "admin"
+activemq_instance_password: "rfd5429)@OIEFcmq"
+activemq_mask_password: true
+
+# Logging
+activemq_logger_level: "INFO"
+activemq_logger_rollover_files: 5
+
+# Enable clustering (if needed)
+activemq_ha_enabled: false
+activemq_cluster_enabled: false
+activemq_ha_failover_on_shutdown: true
+
+# Disable unwanted protocols
+activemq_disable_amqp_protocol: true
+activemq_disable_hornetq_protocol: true
+activemq_disable_mqtt_protocol: true
+activemq_disable_stomp_protocol: true
