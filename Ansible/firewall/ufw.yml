@@ -1,0 +1,97 @@
+---
+- name: UFW management on Debian/Ubuntu based systems
+  hosts: all
+  become: yes
+  vars:
+    install_ufw: false  # Set to true to install UFW if not installed.
+    open_ports:
+      - 80    # HTTP
+      - 443   # HTTPS
+      - 22    # SSH
+    close_ports:
+      - 8080  # Example of closing port 8080
+      - 3306  # MySQL
+
+  tasks:
+
+    - name: Gather installed packages
+      ansible.builtin.package_facts:
+
+    - name: Check if UFW is installed (only on Debian-based systems)
+      set_fact:
+        ufw_installed: "{{ 'ufw' in ansible_facts.packages }}"
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Ensure ufw_installed is defined for all OS
+      set_fact:
+        ufw_installed: false
+      when: ufw_installed is not defined
+
+    - name: Display message if UFW is not installed and install_ufw is false
+      debug:
+        msg: "UFW is not installed, install_ufw is false, skipping all tasks."
+      when: not ufw_installed and install_ufw == false and ansible_facts.os_family == "Debian"
+
+    - name: Install UFW if not installed and install_ufw is true (Debian/Ubuntu)
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+      when: not ufw_installed and install_ufw == true and ansible_facts.os_family == "Debian"
+      tags: ufw_install
+
+    - name: Skip remaining tasks if UFW is not installed on this host (Debian/Ubuntu)
+      meta: end_play
+      when: not ufw_installed and install_ufw == false and ansible_facts.os_family == "Debian"
+
+    - name: Check UFW status (Debian/Ubuntu)
+      command: ufw status
+      register: ufw_status
+      ignore_errors: yes
+      changed_when: false
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Display UFW status (Debian/Ubuntu)
+      debug:
+        msg: "{{ ufw_status.stdout }}"
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Enable UFW if not active (Debian/Ubuntu)
+      community.general.ufw:
+        state: enabled
+        policy: allow
+      when:
+        - ansible_facts.os_family == "Debian"
+        - "'inactive' in ufw_status.stdout"
+
+    - name: Open necessary ports (Debian/Ubuntu)
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ open_ports }}"
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Close unnecessary ports (Debian/Ubuntu)
+      community.general.ufw:
+        rule: deny
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ close_ports }}"
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Reload UFW configuration (Debian/Ubuntu)
+      community.general.ufw:
+        state: reloaded
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Show UFW status and opened ports (Debian/Ubuntu)
+      command: ufw status
+      register: final_ufw_status
+      changed_when: false
+      when: ansible_facts.os_family == "Debian"
+
+    - name: Display final UFW status and list of opened ports (Debian/Ubuntu)
+      debug:
+        msg: "{{ final_ufw_status.stdout }}"
+      when: ansible_facts.os_family == "Debian"

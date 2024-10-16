@@ -1,0 +1,74 @@
+---
+- name: Firewalld management on RHEL/CentOS based systems
+  hosts: all
+  become: yes
+  vars:
+    install_firewalld: false  # Set to true to install firewalld if not installed
+    open_ports:
+      - 80    # HTTP
+      - 443   # HTTPS
+      - 22    # SSH
+    close_ports:
+      - 8080  # Example of closing port 8080
+      - 3306  # MySQL
+
+  tasks:
+    - name: Check if firewalld is installed
+      ansible.builtin.package_facts:
+    
+    - name: Set fact if firewalld is installed
+      set_fact:
+        firewalld_installed: "{{ 'firewalld' in ansible_facts.packages }}"
+
+    - name: Display message if firewalld is not installed and install_firewalld is false
+      debug:
+        msg: "Firewalld is not installed, install_firewalld is false, skipping all tasks."
+      when: not firewalld_installed and install_firewalld == false
+
+    - name: Install firewalld if not installed and install_firewalld is true
+      yum:
+        name: firewalld
+        state: present
+      when: not firewalld_installed and install_firewalld == true
+      tags: firewalld_install
+
+    - name: Skip remaining tasks if firewalld is not installed
+      meta: end_play
+      when: not firewalld_installed and install_firewalld == false
+
+    - name: Ensure firewalld is started and enabled
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: true
+      when: firewalld_installed or install_firewalld == true
+
+    - name: Open ports in firewalld
+      ansible.posix.firewalld:
+        port: "{{ item }}/tcp"
+        permanent: true
+        state: enabled
+      loop: "{{ open_ports }}"
+      when: firewalld_installed or install_firewalld == true
+
+    - name: Close unnecessary ports in firewalld
+      ansible.posix.firewalld:
+        port: "{{ item }}/tcp"
+        permanent: true
+        state: disabled
+      loop: "{{ close_ports }}"
+      when: firewalld_installed or install_firewalld == true
+
+    - name: Reload firewalld to apply changes
+      command: firewall-cmd --reload
+      when: firewalld_installed or install_firewalld == true
+
+    - name: Display active firewalld rules
+      command: firewall-cmd --list-all
+      register: firewalld_status
+      when: firewalld_installed or install_firewalld == true
+
+    - name: Show firewalld status
+      debug:
+        msg: "{{ firewalld_status.stdout }}"
+      when: firewalld_installed or install_firewalld == true
