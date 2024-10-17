@@ -1,0 +1,29 @@
+---
+- hosts: zookeeper-nodes
+  become: true
+  vars:
+    zookeeper_mirror: "https://dlcdn.apache.org/zookeeper"
+    zookeeper_version: "3.9.2"
+    zookeeper_package: "apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+    zookeeper_group: "zookeeper"
+    zookeeper_user: "zookeeper"
+    zookeeper_root_dir: "/usr/share"
+    zookeeper_install_dir: "{{ zookeeper_root_dir }}/apache-zookeeper-{{zookeeper_version}}"
+    zookeeper_dir: "{{ zookeeper_root_dir }}/zookeeper"
+    zookeeper_data_dir: "/var/lib/zookeeper"
+    zookeeper_log_dir: "/var/log/zookeeper"
+    zookeeper_data_log_dir: "/var/lib/zookeeper"
+    zookeeper_client_port: 2181
+    zookeeper_leader_port: 2888
+    zookeeper_election_port: 3888
+    zookeeper_firewalld: false
+    zookeeper_config_params:
+      tickTime: 2000
+      initLimit: 10
+      syncLimit: 5
+      autopurge.snapRetainCount: 3
+      autopurge.purgeInterval: 1
+    zookeeper_servers_use_inventory_hostname: true
+
+  roles:
+    - sleighzy.zookeeper

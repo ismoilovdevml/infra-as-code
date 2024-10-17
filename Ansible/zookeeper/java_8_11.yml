@@ -1,0 +1,29 @@
+---
+- hosts: java_servers
+  become: yes
+  tasks:
+    - name: Install Java 8 or Java 11 on RHEL-based systems
+      include_role:
+        name: geerlingguy.java
+      vars:
+        java_packages:
+          - java-1.8.0-openjdk
+          - java-11-openjdk
+      when: ansible_os_family == 'RedHat'
+
+    - name: Install Java 8 or Java 11 on Debian-based systems
+      include_role:
+        name: geerlingguy.java
+      vars:
+        java_packages:
+          - openjdk-11-jdk
+      when: ansible_os_family == 'Debian'
+
+    - name: Install Java 8 or Java 11 on Ubuntu systems
+      include_role:
+        name: geerlingguy.java
+      vars:
+        java_packages:
+          - openjdk-8-jdk
+          - openjdk-11-jdk
+      when: ansible_distribution == 'Ubuntu'

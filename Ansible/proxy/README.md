@@ -1,5 +1,5 @@
 ## Proxy Configuration Playbook 🔧
-This Ansible playbook automates proxy setup for multiple tools across Linux distributions. Configure proxies with ease for Git, Curl, Wget, Zypper, Python's pip, NodeJS's npm, APT, Yum, and DNF! 🚀
+This Ansible playbook automates proxy setup for multiple tools across Linux distributions. Configure proxies with ease for Git, Curl, Wget, Zypper, Python's pip, NodeJS's npm,Docker, APT, Yum, and DNF! 🚀
 
 ### Supported Tools 🛠️
 
@@ -7,6 +7,7 @@ This Ansible playbook automates proxy setup for multiple tools across Linux dist
 | ----- | ------------ |
 |Git	|All Linux distros |
 |Curl	|All Linux distros |
+|Docker |All Linux distros |
 |Wget	|All Linux distros |
 |Zypper	|SUSE-based distros	|
 |Python pip	|All Linux distros	|
@@ -36,6 +37,8 @@ configure_npm: true        # NPM proxy
 configure_apt: true        # APT proxy
 configure_yum: true        # Yum proxy
 configure_dnf: true        # DNF proxy
+configure_docker: true     # Whether to check for Docker and configure it if installed
+configure_environment: true # Whether to configure /etc/environment
 ```
 
 ### Running the Playbook 🏃‍♂️

@@ -1,0 +1,26 @@
+---
+- hosts: kafka-nodes
+  become: true
+  vars:
+    kafka_version: "3.8.0"
+    kafka_scala_version: "2.13"
+    kafka_broker_id: 0
+    kafka_log_dir: "/var/log/kafka"
+    kafka_data_log_dirs: "/var/lib/kafka/logs"
+    kafka_num_partitions: 3
+    kafka_replication_factor: 3
+    kafka_listeners: "PLAINTEXT://:9092"
+    kafka_zookeeper_connect: "zookeeper-server:2181"
+    kafka_auto_create_topics_enable: false
+    kafka_delete_topic_enable: true
+    kafka_offsets_topic_replication_factor: 3
+    kafka_transaction_state_log_replication_factor: 3
+    kafka_transaction_state_log_min_isr: 2
+    kafka_log_retention_hours: 168
+    kafka_log_segment_bytes: 1073741824
+    kafka_log_retention_check_interval_ms: 300000
+    kafka_server_config_params:
+      inter.broker.protocol.version: "3.5"
+      log.message.format.version: "3.5"
+  roles:
+    - sleighzy.kafka

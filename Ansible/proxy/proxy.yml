@@ -15,8 +15,61 @@
     configure_apt: true        # Configure proxy for APT
     configure_yum: true        # Configure proxy for Yum
     configure_dnf: true        # Configure proxy for DNF
+    configure_docker: true     # Whether to check for Docker and configure it if installed
+    configure_environment: true # Whether to configure /etc/environment
 
   tasks:
+    - name: Optionally configure /etc/environment with proxy
+      when: configure_environment
+      block:
+        - name: Add proxy to /etc/environment
+          lineinfile:
+            path: /etc/environment
+            line: "{{ item }}"
+            create: yes
+          with_items:
+            - "HTTP_PROXY={{ http_proxy }}"
+            - "HTTPS_PROXY={{ https_proxy }}"
+            - "NO_PROXY={{ no_proxy }}"
+
+    - name: Check if Docker is installed (only if configure_docker is true)
+      when: configure_docker
+      command: docker --version
+      register: docker_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Configure Docker proxy if Docker is installed
+      when: configure_docker and docker_installed.rc == 0
+      block:
+        - name: Create Docker systemd override directory
+          file:
+            path: /etc/systemd/system/docker.service.d
+            state: directory
+            mode: '0755'
+
+        - name: Set Docker proxy configuration
+          copy:
+            dest: /etc/systemd/system/docker.service.d/http-proxy.conf
+            content: |
+              [Service]
+              Environment="HTTP_PROXY={{ http_proxy }}"
+              Environment="HTTPS_PROXY={{ https_proxy }}"
+              Environment="NO_PROXY={{ no_proxy }}"
+
+        - name: Reload systemd daemon
+          command: systemctl daemon-reload
+
+        - name: Restart Docker service
+          service:
+            name: docker
+            state: restarted
+
+    - name: Skip Docker configuration if Docker is not installed
+      when: configure_docker and docker_installed.rc != 0
+      debug:
+        msg: "Docker is not installed. Skipping Docker proxy configuration."
+
     - name: Configure Git proxy if installed
       when: configure_git
       block:
