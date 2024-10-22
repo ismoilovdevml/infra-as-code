@@ -1,16 +1,22 @@
----
 - hosts: kafka-nodes
   become: true
   vars:
+    kafka_download_base_url: "https://downloads.apache.org/kafka"
+    kafka_download_validate_certs: yes
     kafka_version: "3.8.0"
     kafka_scala_version: "2.13"
+    kafka_create_user_group: "true"
+    kafka_user: "kafka"
+    kafka_group: "kafka"
+    kafka_root_dir: "/opt"
+    kafka_dir: "{{ kafka_root_dir }}/kafka"
     kafka_broker_id: 0
     kafka_log_dir: "/var/log/kafka"
     kafka_data_log_dirs: "/var/lib/kafka/logs"
     kafka_num_partitions: 3
     kafka_replication_factor: 3
-    kafka_listeners: "PLAINTEXT://:9092"
-    kafka_zookeeper_connect: "zookeeper-server:2181"
+    kafka_listeners: PLAINTEXT://0.0.0.0:9092
+    kafka_zookeeper_connect: "137.184.143.123:2181,165.22.3.122:2181,159.223.131.6:2181"
     kafka_auto_create_topics_enable: false
     kafka_delete_topic_enable: true
     kafka_offsets_topic_replication_factor: 3

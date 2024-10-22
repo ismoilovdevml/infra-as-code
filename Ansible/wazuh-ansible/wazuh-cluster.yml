@@ -1,0 +1,59 @@
+---
+# Wazuh Manager installation
+- hosts: manager
+  become: yes
+  roles:
+    - role: wazuh-ansible/roles/ansible-wazuh-manager
+  vars:
+    wazuh_manager_config:
+      connection:
+        - type: 'secure'
+          port: '1514'
+          protocol: 'tcp'
+          queue_size: 131072
+      api:
+        https: 'yes'
+      cluster:
+        disable: 'no'
+        node_name: 'master'
+        node_type: 'master'
+        key: 'your-cluster-key'
+        nodes:
+          - "{{ hostvars.manager.private_ip }}"
+        hidden: 'no'
+
+# Wazuh Indexer (Elasticsearch) installation
+- hosts: indexer
+  become: yes
+  roles:
+    - role: wazuh-ansible/roles/wazuh-indexer
+  vars:
+    indexer_network_host: "{{ hostvars.indexer.private_ip }}"
+    indexer_cluster_nodes:
+      - "{{ hostvars.indexer.private_ip }}"
+    indexer_discovery_nodes:
+      - "{{ hostvars.indexer.private_ip }}"
+    indexer_node_master: true
+
+# Kibana installation (Dashboard)
+- hosts: dashboard
+  become: yes
+  roles:
+    - role: wazuh-ansible/roles/wazuh-dashboard
+  vars:
+    wazuh_api_credentials:
+      - id: default
+        url: https://{{ hostvars.manager.private_ip }}
+        port: 55000
+        username: your-api-user
+        password: your-api-password
+
+# Wazuh Agent installation
+- hosts: agent
+  become: yes
+  roles:
+    - role: wazuh-ansible/roles/ansible-wazuh-agent
+  vars:
+    wazuh_agent_config:
+      server:
+        - "{{ hostvars.manager.private_ip }}"
