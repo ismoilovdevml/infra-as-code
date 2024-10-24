@@ -47,8 +47,14 @@
         dest: /opt
         remote_src: yes
 
+    - name: Check if Artemis installation directory exists
+      stat:
+        path: "{{ artemis_install_dir }}"
+      register: artemis_install_dir_stat
+
     - name: Move extracted Artemis to installation directory
       command: mv /opt/apache-artemis-{{ artemis_version }} {{ artemis_install_dir }}
+      when: not artemis_install_dir_stat.stat.exists
 
     - name: Create artemis group
       group:
@@ -74,8 +80,16 @@
         - "{{ artemis_install_dir }}"
         - "{{ artemis_instance_dir }}"
 
+    - name:  Set permissions Artemis instance data directory
+      file:
+        path: /opt/artemis-instance/data
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        state: directory
+        recurse: yes
+
     - name: Create Artemis instance
-      command: "{{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }} --user admin --password {{ artemis_password }} --allow-anonymous"
+      command: "{{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }} --user admin --password {{ artemis_password }} --allow-anonymous --force"
 
     - name: Create systemd service file for Artemis
       copy:
@@ -108,17 +122,11 @@
     - name: Update bootstrap.xml to bind to 0.0.0.0
       replace:
         path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
-        regexp: '(<binding name="artemis" uri="http://)(.*)(:8161">)'
-        replace: '\1{{ ansible_default_ipv4.address }}\3'
+        regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
+        replace: '\1http://0.0.0.0\3'
 
-    - name: Update Jolokia access to allow cross-origin requests
+    - name: Update Jolokia access to allow cross-origin requests and add strict-checking
       replace:
         path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
-        regexp: '<allow-origin>.*</allow-origin>'
-        replace: '<allow-origin>*://*</allow-origin>'
-
-    - name: Ensure Jolokia CORS settings are permissive
-      replace:
-        path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
-        regexp: '<strict-checking/>'
-        replace: ''
+        regexp: '(</cors>)'
+        replace: '    <strict-checking/>\n\1'
