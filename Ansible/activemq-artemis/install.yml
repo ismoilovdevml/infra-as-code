@@ -1,6 +1,6 @@
 ---
 - name: Install ActiveMQ Artemis on multiple OS
-  hosts: all
+  hosts: artemis_servers
   become: yes
   vars:
     java_packages:
@@ -80,7 +80,24 @@
         - "{{ artemis_install_dir }}"
         - "{{ artemis_instance_dir }}"
 
-    - name:  Set permissions Artemis instance data directory
+    - name: Ensure log directory exists and permissions are set
+      file:
+        path: "{{ artemis_instance_dir }}/log"
+        state: directory
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        mode: '0755'
+
+    - name: Ensure tmp/webapps directory exists and permissions are set
+      file:
+        path: "{{ artemis_instance_dir }}/tmp/webapps"
+        state: directory
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        mode: '0755'
+        recurse: yes
+
+    - name: Set permissions Artemis instance data directory
       file:
         path: /opt/artemis-instance/data
         owner: "{{ artemis_user }}"
@@ -125,8 +142,14 @@
         regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
         replace: '\1http://0.0.0.0\3'
 
-    - name: Update Jolokia access to allow cross-origin requests and add strict-checking
+    - name: Update Jolokia access to allow all origins
       replace:
         path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
-        regexp: '(</cors>)'
-        replace: '    <strict-checking/>\n\1'
+        regexp: '<allow-origin>.*</allow-origin>'
+        replace: '<allow-origin>*://*</allow-origin>'
+
+    - name: Restart Artemis service after config changes
+      systemd:
+        name: artemis
+        state: restarted
+        enabled: yes
