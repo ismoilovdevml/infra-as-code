@@ -1,0 +1,11 @@
+---
+# Wazuh Agent installation playbook
+
+- hosts: agent
+  become: yes
+  roles:
+    - role: wazuh-ansible/roles/ansible-wazuh-agent
+  vars:
+    wazuh_agent_config:
+      server:
+        - "{{ hostvars.manager.private_ip }}"
