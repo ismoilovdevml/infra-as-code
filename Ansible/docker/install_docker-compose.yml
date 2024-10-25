@@ -1,0 +1,39 @@
+---
+- name: Install Docker Compose on Multiple OS and Architectures
+  hosts: all
+  become: true
+  vars:
+    compose_version: "2.29.7"
+    compose_architectures:
+      linux:
+        - x86_64
+        - aarch64
+        - armv7
+        - ppc64le
+        - riscv64
+        - s390x
+      windows:
+        - x86_64
+        - aarch64
+    download_url: "https://github.com/docker/compose/releases/download"
+
+  tasks:
+    - name: Set the Docker Compose binary URL based on architecture and OS
+      set_fact:
+        compose_url: "{{ download_url }}/v{{ compose_version }}/docker-compose-{{ ansible_system | lower }}-{{ ansible_architecture }}"
+
+    - name: Download Docker Compose binary
+      ansible.builtin.get_url:
+        url: "{{ compose_url }}"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+      when: ansible_architecture in compose_architectures[ansible_system | lower]
+
+    - name: Verify installation
+      ansible.builtin.command: docker-compose --version
+      register: compose_version_output
+      ignore_errors: yes
+
+    - name: Show Docker Compose version
+      ansible.builtin.debug:
+        msg: "{{ compose_version_output.stdout }}"

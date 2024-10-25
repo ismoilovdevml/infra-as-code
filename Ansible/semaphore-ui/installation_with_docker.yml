@@ -1,0 +1,129 @@
+---
+- name: Check Docker and Docker Compose installation and start services
+  hosts: all
+  become: yes
+  vars:
+    db_type: "mysql" # Choose 'postgres' or 'mysql'
+    docker_compose_path: "/tmp/docker-compose.yml"
+    
+    # Database environment variables
+    postgres_user: "semaphore"
+    postgres_password: "semaphore"
+    postgres_db: "semaphore"
+    mysql_random_root_password: "yes"
+    mysql_database: "semaphore"
+    mysql_user: "semaphore"
+    mysql_password: "semaphore"
+    
+    # Semaphore environment variables
+    semaphore_port: 3000
+    semaphore_image: "semaphoreui/semaphore:latest"
+    semaphore_admin_password: "flvwqqregrqw"
+    semaphore_admin_name: "admin"
+    semaphore_admin_email: "admin@localhost"
+    semaphore_db: "semaphore"
+    semaphore_playbook_path: "/tmp/semaphore/"
+    semaphore_access_key_encryption: "gs72mPntFATGJs9qK0pQ0rKtfidlexiMjYCH9gWKhTU="
+    semaphore_ldap_activated: "no"
+    semaphore_ldap_host: "dc01.local.example.com"
+    semaphore_ldap_port: "636"
+    semaphore_ldap_needtls: "yes"
+    semaphore_ldap_dn_bind: "uid=bind_user,cn=users,cn=accounts,dc=local,dc=shiftsystems,dc=net"
+    semaphore_ldap_password: "ldap_bind_account_password"
+    semaphore_ldap_dn_search: "dc=local,dc=example,dc=com"
+    semaphore_ldap_search_filter: "(&uid=%s)(memberOf=cn=ipausers,cn=groups,cn=accounts,dc=local,dc=example,dc=com)"
+    timezone: "UTC"
+
+  tasks:
+    - name: Check if Docker binary exists
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check if Docker Compose binary exists
+      shell: "command -v docker-compose"
+      register: docker_compose_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Display message if Docker Compose is not installed
+      debug:
+        msg: "Docker Compose is not installed on this host."
+      when: docker_compose_check.rc != 0
+
+    - name: Skip host if either Docker or Docker Compose is missing
+      meta: end_host
+      when: docker_check.rc != 0 or docker_compose_check.rc != 0
+
+    - name: Generate Docker Compose configuration
+      copy:
+        dest: "{{ docker_compose_path }}"
+        content: |
+          version: '3'
+          services:
+            {% if db_type == 'postgres' %}
+            postgres:
+              image: postgres:14
+              restart: unless-stopped
+              hostname: postgres
+              volumes:
+                - semaphore-postgres:/var/lib/postgresql/data
+              environment:
+                POSTGRES_USER: "{{ postgres_user }}"
+                POSTGRES_PASSWORD: "{{ postgres_password }}"
+                POSTGRES_DB: "{{ postgres_db }}"
+            {% else %}
+            mysql:
+              image: mysql:8.0
+              restart: unless-stopped
+              hostname: mysql
+              volumes:
+                - semaphore-mysql:/var/lib/mysql
+              environment:
+                MYSQL_RANDOM_ROOT_PASSWORD: "{{ mysql_random_root_password }}"
+                MYSQL_DATABASE: "{{ mysql_database }}"
+                MYSQL_USER: "{{ mysql_user }}"
+                MYSQL_PASSWORD: "{{ mysql_password }}"
+            {% endif %}
+            semaphore:
+              image: "{{ semaphore_image }}"
+              restart: unless-stopped
+              ports:
+                - "{{ semaphore_port }}:{{ semaphore_port }}"
+              environment:
+                SEMAPHORE_DB_USER: "{{ mysql_user if db_type == 'mysql' else postgres_user }}"
+                SEMAPHORE_DB_PASS: "{{ mysql_password if db_type == 'mysql' else postgres_password }}"
+                SEMAPHORE_DB_HOST: "{{ db_type }}"
+                SEMAPHORE_DB_PORT: "{{ '5432' if db_type == 'postgres' else '3306' }}"
+                SEMAPHORE_DB_DIALECT: "{{ db_type }}"
+                SEMAPHORE_DB: "{{ semaphore_db }}"
+                SEMAPHORE_PLAYBOOK_PATH: "{{ semaphore_playbook_path }}"
+                SEMAPHORE_ADMIN_PASSWORD: "{{ semaphore_admin_password }}"
+                SEMAPHORE_ADMIN_NAME: "{{ semaphore_admin_name }}"
+                SEMAPHORE_ADMIN_EMAIL: "{{ semaphore_admin_email }}"
+                SEMAPHORE_ADMIN: "{{ semaphore_admin_name }}"
+                SEMAPHORE_ACCESS_KEY_ENCRYPTION: "{{ semaphore_access_key_encryption }}"
+                SEMAPHORE_LDAP_ACTIVATED: "{{ semaphore_ldap_activated }}"
+                SEMAPHORE_LDAP_HOST: "{{ semaphore_ldap_host }}"
+                SEMAPHORE_LDAP_PORT: "{{ semaphore_ldap_port }}"
+                SEMAPHORE_LDAP_NEEDTLS: "{{ semaphore_ldap_needtls }}"
+                SEMAPHORE_LDAP_DN_BIND: "{{ semaphore_ldap_dn_bind }}"
+                SEMAPHORE_LDAP_PASSWORD: "{{ semaphore_ldap_password }}"
+                SEMAPHORE_LDAP_DN_SEARCH: "{{ semaphore_ldap_dn_search }}"
+                SEMAPHORE_LDAP_SEARCH_FILTER: "{{ semaphore_ldap_search_filter }}"
+                TZ: "{{ timezone }}"
+              depends_on:
+                - "{{ db_type }}"
+          volumes:
+            semaphore-mysql:
+            semaphore-postgres:
+
+    - name: Start Docker Compose services
+      command: "docker-compose -f {{ docker_compose_path }} up -d"
+      when: not (docker_check.rc != 0 or docker_compose_check.rc != 0)

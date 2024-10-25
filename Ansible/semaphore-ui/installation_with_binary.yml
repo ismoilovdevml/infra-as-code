@@ -1,0 +1,113 @@
+---
+- name: Install Semaphore and configure as a systemd service
+  hosts: all
+  become: yes
+  vars:
+    semaphore_version: "2.10.33"
+    semaphore_install_dir: "/opt/semaphore"
+    semaphore_config_file: "/opt/semaphore/config.json"
+    semaphore_service_file: "/etc/systemd/system/semaphore.service"
+
+    # Semaphore download URLs for each architecture
+    semaphore_url_x64: "https://github.com/semaphoreui/semaphore/releases/download/v{{ semaphore_version }}/semaphore_{{ semaphore_version }}_linux_amd64.tar.gz"
+    semaphore_url_arm64: "https://github.com/semaphoreui/semaphore/releases/download/v{{ semaphore_version }}/semaphore_{{ semaphore_version }}_linux_arm64.tar.gz"
+    semaphore_url_ppc64le: "https://github.com/semaphoreui/semaphore/releases/download/v{{ semaphore_version }}/semaphore_{{ semaphore_version }}_linux_ppc64le.tar.gz"
+    semaphore_url_386: "https://github.com/semaphoreui/semaphore/releases/download/v{{ semaphore_version }}/semaphore_{{ semaphore_version }}_linux_386.tar.gz"
+
+  tasks:
+    - name: Ensure required packages are installed
+      package:
+        name:
+          - wget
+          - tar
+          - python3
+          - git
+        state: present
+
+    - name: Determine system architecture
+      ansible.builtin.setup:
+        filter: ansible_architecture
+      register: system_arch
+
+    - name: Set Semaphore download URL based on architecture
+      set_fact:
+        semaphore_download_url: >
+          {% if system_arch.ansible_facts.ansible_architecture == 'x86_64' %}
+            {{ semaphore_url_x64 }}
+          {% elif system_arch.ansible_facts.ansible_architecture == 'aarch64' %}
+            {{ semaphore_url_arm64 }}
+          {% elif system_arch.ansible_facts.ansible_architecture == 'ppc64le' %}
+            {{ semaphore_url_ppc64le }}
+          {% elif system_arch.ansible_facts.ansible_architecture == 'i386' %}
+            {{ semaphore_url_386 }}
+          {% else %}
+            "Unsupported architecture"
+          {% endif %}
+
+    - name: Fail if unsupported architecture is detected
+      fail:
+        msg: "Unsupported architecture: {{ system_arch.ansible_facts.ansible_architecture }}"
+      when: semaphore_download_url == "Unsupported architecture"
+
+    - name: Create installation directory
+      file:
+        path: "{{ semaphore_install_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download Semaphore binary
+      get_url:
+        url: "{{ semaphore_download_url }}"
+        dest: "{{ semaphore_install_dir }}/semaphore.tar.gz"
+        mode: '0755'
+
+    - name: Extract Semaphore binary
+      ansible.builtin.unarchive:
+        src: "{{ semaphore_install_dir }}/semaphore.tar.gz"
+        dest: "{{ semaphore_install_dir }}"
+        remote_src: yes
+
+    - name: Run Semaphore setup
+      command: "./semaphore setup"
+      args:
+        chdir: "{{ semaphore_install_dir }}"
+      register: setup_output
+      changed_when: "'Setup complete' in setup_output.stdout"
+
+    - name: Create systemd service file for Semaphore
+      copy:
+        dest: "{{ semaphore_service_file }}"
+        content: |
+          [Unit]
+          Description=Semaphore Ansible
+          Documentation=https://github.com/semaphoreui/semaphore
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          ExecReload=/bin/kill -HUP $MAINPID
+          ExecStart={{ semaphore_install_dir }}/semaphore server --config={{ semaphore_config_file }}
+          SyslogIdentifier=semaphore
+          Restart=always
+          RestartSec=10s
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd daemon
+      command: "systemctl daemon-reload"
+
+    - name: Start Semaphore service
+      command: "systemctl start semaphore"
+
+    - name: Enable Semaphore service to start at boot
+      command: "systemctl enable semaphore"
+
+    - name: Check Semaphore service status
+      command: "systemctl status semaphore"
+      register: service_status
+
+    - name: Display Semaphore service status
+      debug:
+        var: service_status.stdout
