@@ -1,0 +1,64 @@
+---
+- hosts: all
+  become: yes
+  vars:
+    sonarqube_container_name: "sonarqube"
+    sonarqube_image: "sonarqube:10.7-community"
+    sonarqube_data_dir: "/opt/sonarqube/data"
+    sonarqube_logs_dir: "/opt/sonarqube/logs"
+    sonarqube_extensions_dir: "/opt/sonarqube/extensions"
+    sonarqube_parent_dir: "/opt/sonarqube"
+
+  tasks:
+    - name: Stop SonarQube container if it exists
+      docker_container:
+        name: "{{ sonarqube_container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove SonarQube container if it exists
+      docker_container:
+        name: "{{ sonarqube_container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove SonarQube Docker image if it exists
+      docker_image:
+        name: "{{ sonarqube_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove SonarQube data directory if it exists
+      file:
+        path: "{{ sonarqube_data_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove SonarQube logs directory if it exists
+      file:
+        path: "{{ sonarqube_logs_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove SonarQube extensions directory if it exists
+      file:
+        path: "{{ sonarqube_extensions_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove SonarQube parent directory if it exists
+      file:
+        path: "{{ sonarqube_parent_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false

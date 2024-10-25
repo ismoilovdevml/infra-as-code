@@ -1,0 +1,55 @@
+---
+- name: Check and install SonarQube if Docker is present
+  hosts: all
+  become: true
+
+  vars:
+    sonarqube_image: "sonarqube:10.7-community"
+    sonarqube_container_name: "sonarqube"
+    sonarqube_port: "9000"
+    sonarqube_volumes:
+      - "sonarqube_data:/opt/sonarqube/data"
+      - "sonarqube_logs:/opt/sonarqube/logs"
+      - "sonarqube_extensions:/opt/sonarqube/extensions"
+    sonarqube_env:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    restart_policy: "always"
+
+  tasks:
+    - name: Check if Docker binary exists
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Pull SonarQube image
+      ansible.builtin.docker_image:
+        name: "{{ sonarqube_image }}"
+        source: pull
+
+    - name: Run SonarQube container
+      ansible.builtin.docker_container:
+        name: "{{ sonarqube_container_name }}"
+        image: "{{ sonarqube_image }}"
+        ports:
+          - "{{ sonarqube_port }}:9000"
+        volumes: "{{ sonarqube_volumes }}"
+        restart_policy: "{{ restart_policy }}"
+        env: "{{ sonarqube_env }}"
+
+    - name: Display SonarQube container info
+      shell: "docker ps --filter 'name={{ sonarqube_container_name }}'"
+      register: docker_sonarqube_info
+
+    - name: Show SonarQube container info
+      debug:
+        msg: "{{ docker_sonarqube_info.stdout }}"
