@@ -1,0 +1,29 @@
+---
+- name: Cleanup Dozzle in Docker
+  hosts: all
+  become: yes
+  vars:
+    container_name: "dozzle"
+    dozzle_image: "amir20/dozzle:latest"
+
+  tasks:
+    - name: Stop Dozzle container if it exists
+      docker_container:
+        name: "{{ container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Dozzle container if it exists
+      docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Dozzle Docker image if it exists
+      docker_image:
+        name: "{{ dozzle_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false

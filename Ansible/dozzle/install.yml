@@ -1,0 +1,41 @@
+---
+- name: Install Dozzle in Docker
+  hosts: all
+  become: yes
+  vars:
+    dozzle_image: "amir20/dozzle:latest"
+    container_name: "dozzle"
+    host_port: 8081
+    docker_sock_path: "/var/run/docker.sock"
+
+  tasks:
+    - name: Check if Docker binary exists
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Pull Dozzle image
+      ansible.builtin.docker_image:
+        name: "{{ dozzle_image }}"
+        source: pull
+
+    - name: Run Dozzle container
+      ansible.builtin.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ dozzle_image }}"
+        state: started
+        restart_policy: always
+        volumes:
+          - "{{ docker_sock_path }}:/var/run/docker.sock"
+        published_ports:
+          - "{{ host_port }}:8080"

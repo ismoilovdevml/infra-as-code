@@ -1,0 +1,111 @@
+---
+- name: Dozzle Server and Agent Setup with Authentication
+  hosts: dozzle_servers
+  become: true
+  vars:
+    dozzle_version: "latest"
+    dozzle_port: 8081
+    agent_port: 7008
+    auth_provider: "simple"
+    auth_ttl: "48h"
+    dozzle_data_path: "/path/to/dozzle/data"
+    users_file_path: "{{ dozzle_data_path }}/users.yml"
+    admin_username: "admin"
+    admin_password: "oqw0f3092l"
+    admin_email: "admin@example.com"
+    admin_name: "Admin"
+
+  tasks:
+    - name: Check if Docker binary exists
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create Dozzle data directory
+      ansible.builtin.file:
+        path: "{{ dozzle_data_path }}"
+        state: directory
+        owner: root
+        mode: '0755'
+
+    - name: Generate Dozzle admin user credentials
+      ansible.builtin.shell: |
+        docker run --rm amir20/dozzle generate {{ admin_username }} --password '{{ admin_password }}' --email '{{ admin_email }}' --name '{{ admin_name }}' > {{ users_file_path }}
+      args:
+        creates: "{{ users_file_path }}"
+
+    - name: Run Dozzle server container with authentication
+      community.docker.docker_container:
+        name: dozzle_server
+        image: "amir20/dozzle:{{ dozzle_version }}"
+        ports:
+          - "{{ dozzle_port }}:8080"
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock"
+          - "{{ dozzle_data_path }}:/data"
+        env:
+          DOZZLE_AUTH_PROVIDER: "{{ auth_provider }}"
+          DOZZLE_AUTH_TTL: "{{ auth_ttl }}"
+        state: started
+        restart_policy: always
+
+- name: Dozzle Agent Setup
+  hosts: dozzle_agents
+  become: true
+  vars:
+    dozzle_version: "latest"
+    agent_port: 7007
+    dozzle_data_path: "/path/to/dozzle/data"
+    agent_hostname: "dozzle_agent"
+
+  tasks:
+    - name: Check if Docker binary exists
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Run Dozzle agent container
+      community.docker.docker_container:
+        name: dozzle_agent
+        image: "amir20/dozzle:{{ dozzle_version }}"
+        command: "agent"
+        ports:
+          - "{{ agent_port }}:7007"
+        volumes:
+          - "/var/run/docker.sock:/var/run/docker.sock"
+        env:
+          DOZZLE_HOSTNAME: "{{ agent_hostname }}"
+        state: started
+        restart_policy: always

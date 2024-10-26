@@ -1,0 +1,9 @@
+users:
+  admin:
+    email: admin@local.domain
+    name: Admin User
+    password: "123"
+  user1:
+    email: ismoilovdev@gmail.com
+    name: Otabek ismoilov
+    password: "123"
