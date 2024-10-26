@@ -2,18 +2,9 @@
 - name: Dozzle Server and Agent Setup with Authentication
   hosts: all
   become: true
+  vars_files:
+    - vars.yml
   vars:
-    dozzle_version: "latest"
-    dozzle_port: 8081
-    agent_port: 7007
-    auth_provider: "simple"
-    auth_ttl: "48h"
-    dozzle_data_path: "/data/dozzle"
-    users_file_path: "{{ dozzle_data_path }}/users.yml"
-    admin_username: "admin"
-    admin_password: "oqw0f3092l"
-    admin_email: "admin@example.com"
-    admin_name: "Admin"
     agent_hosts: "{{ groups['dozzle_agents'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', '\\1:' + agent_port | string) | join(',') }}"
 
   tasks:
@@ -57,13 +48,9 @@
 - name: Dozzle Server Setup
   hosts: dozzle_servers
   become: true
+  vars_files:
+    - vars.yml
   vars:
-    dozzle_version: "latest"
-    dozzle_port: 8081
-    agent_port: 7007
-    auth_provider: "simple"
-    auth_ttl: "48h"
-    dozzle_data_path: "/data/dozzle"
     agent_hosts: "{{ groups['dozzle_agents'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', '\\1:' + agent_port | string) | join(',') }}"
   
   tasks:
@@ -102,11 +89,10 @@
 - name: Dozzle Agent Setup
   hosts: dozzle_agents
   become: true
+  vars_files:
+    - vars.yml
   vars:
-    dozzle_version: "latest"
-    agent_port: 7007
-    dozzle_data_path: "/data/dozzle"
-    agent_hostname: "dozzle_agent"
+    agent_hostname: "{{ inventory_hostname }}"
 
   tasks:
     - name: Display debug information for Dozzle agent environment variables

@@ -1,0 +1,12 @@
+# vars.yml
+dozzle_version: "latest"
+dozzle_port: 8081
+agent_port: 7007
+auth_provider: "simple"
+auth_ttl: "48h"
+dozzle_data_path: "/data/dozzle"
+users_file_path: "{{ dozzle_data_path }}/users.yml"
+admin_username: "admin"
+admin_password: "oqw0f3092l"
+admin_email: "admin@example.com"
+admin_name: "Admin"
