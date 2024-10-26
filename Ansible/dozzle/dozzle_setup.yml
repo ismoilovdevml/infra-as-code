@@ -1,21 +1,26 @@
 ---
 - name: Dozzle Server and Agent Setup with Authentication
-  hosts: dozzle_servers
+  hosts: all
   become: true
   vars:
     dozzle_version: "latest"
     dozzle_port: 8081
-    agent_port: 7008
+    agent_port: 7007
     auth_provider: "simple"
     auth_ttl: "48h"
-    dozzle_data_path: "/path/to/dozzle/data"
+    dozzle_data_path: "/data/dozzle"
     users_file_path: "{{ dozzle_data_path }}/users.yml"
     admin_username: "admin"
     admin_password: "oqw0f3092l"
     admin_email: "admin@example.com"
     admin_name: "Admin"
+    agent_hosts: "{{ groups['dozzle_agents'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', '\\1:' + agent_port | string) | join(',') }}"
 
   tasks:
+    - name: Display debug information for agent_hosts
+      debug:
+        msg: "Agent Hosts: {{ agent_hosts }}"
+
     - name: Check if Docker binary exists
       shell: "command -v docker"
       register: docker_check
@@ -30,12 +35,6 @@
     - name: Skip host if Docker is missing
       meta: end_host
       when: docker_check.rc != 0
-
-    - name: Start Docker service
-      ansible.builtin.systemd:
-        name: docker
-        state: started
-        enabled: true
 
     - name: Create Dozzle data directory
       ansible.builtin.file:
@@ -50,7 +49,32 @@
       args:
         creates: "{{ users_file_path }}"
 
-    - name: Run Dozzle server container with authentication
+    - name: Display generated user credentials file
+      debug:
+        msg: "Generated user credentials file path: {{ users_file_path }}"
+      when: docker_check.rc == 0
+
+- name: Dozzle Server Setup
+  hosts: dozzle_servers
+  become: true
+  vars:
+    dozzle_version: "latest"
+    dozzle_port: 8081
+    agent_port: 7007
+    auth_provider: "simple"
+    auth_ttl: "48h"
+    dozzle_data_path: "/data/dozzle"
+    agent_hosts: "{{ groups['dozzle_agents'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '^(.*)$', '\\1:' + agent_port | string) | join(',') }}"
+  
+  tasks:
+    - name: Display debug information for Dozzle server environment variables
+      debug:
+        msg:
+          - "DOZZLE_AUTH_PROVIDER: {{ auth_provider }}"
+          - "DOZZLE_AUTH_TTL: {{ auth_ttl }}"
+          - "DOZZLE_REMOTE_AGENT: {{ agent_hosts }}"
+
+    - name: Run Dozzle server container with authentication and agent connections
       community.docker.docker_container:
         name: dozzle_server
         image: "amir20/dozzle:{{ dozzle_version }}"
@@ -62,8 +86,18 @@
         env:
           DOZZLE_AUTH_PROVIDER: "{{ auth_provider }}"
           DOZZLE_AUTH_TTL: "{{ auth_ttl }}"
+          DOZZLE_REMOTE_AGENT: "{{ agent_hosts }}"
         state: started
         restart_policy: always
+
+    - name: Verify if Dozzle server is running
+      shell: "docker ps | grep dozzle_server"
+      register: server_running
+      failed_when: server_running.rc != 0
+
+    - name: Display Dozzle server container status
+      debug:
+        msg: "Dozzle server container is running."
 
 - name: Dozzle Agent Setup
   hosts: dozzle_agents
@@ -71,30 +105,15 @@
   vars:
     dozzle_version: "latest"
     agent_port: 7007
-    dozzle_data_path: "/path/to/dozzle/data"
+    dozzle_data_path: "/data/dozzle"
     agent_hostname: "dozzle_agent"
 
   tasks:
-    - name: Check if Docker binary exists
-      shell: "command -v docker"
-      register: docker_check
-      changed_when: false
-      failed_when: false
-
-    - name: Display message if Docker is not installed
+    - name: Display debug information for Dozzle agent environment variables
       debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
-
-    - name: Skip host if Docker is missing
-      meta: end_host
-      when: docker_check.rc != 0
-
-    - name: Start Docker service
-      ansible.builtin.systemd:
-        name: docker
-        state: started
-        enabled: true
+        msg:
+          - "DOZZLE_HOSTNAME: {{ agent_hostname }}"
+          - "Agent Port: {{ agent_port }}"
 
     - name: Run Dozzle agent container
       community.docker.docker_container:
@@ -109,3 +128,12 @@
           DOZZLE_HOSTNAME: "{{ agent_hostname }}"
         state: started
         restart_policy: always
+
+    - name: Verify if Dozzle agent is running
+      shell: "docker ps | grep dozzle_agent"
+      register: agent_running
+      failed_when: agent_running.rc != 0
+
+    - name: Display Dozzle agent container status
+      debug:
+        msg: "Dozzle agent container is running on {{ inventory_hostname }}."

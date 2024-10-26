@@ -1,0 +1,58 @@
+---
+- name: Cleanup Dozzle Server
+  hosts: dozzle_servers
+  become: yes
+  vars:
+    container_name: "dozzle_server"
+    dozzle_image: "amir20/dozzle:latest"
+
+  tasks:
+    - name: Stop Dozzle server container if it exists
+      docker_container:
+        name: "{{ container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Dozzle server container if it exists
+      docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Dozzle Docker image if it exists
+      docker_image:
+        name: "{{ dozzle_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+- name: Cleanup Dozzle Agent
+  hosts: dozzle_agents
+  become: yes
+  vars:
+    container_name: "dozzle_agent"
+    dozzle_image: "amir20/dozzle:latest"
+
+  tasks:
+    - name: Stop Dozzle agent container if it exists
+      docker_container:
+        name: "{{ container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Dozzle agent container if it exists
+      docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Dozzle Docker image if it exists
+      docker_image:
+        name: "{{ dozzle_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
