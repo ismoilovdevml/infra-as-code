@@ -1,0 +1,101 @@
+---
+# Ceph repository configurations
+ceph_origin: community  # Specify the source: community, ibm, rhcs, etc.
+ceph_dev_branch: main  # Main branch of Ceph
+ceph_dev_sha1: latest  # Version commit SHA1 (use "latest" for the newest)
+ceph_rhcs_version: 5  # Red Hat Ceph Storage version
+ceph_ibm_version: 5  # IBM Ceph version
+ceph_mirror: https://download.ceph.com  # Ceph download URL
+ceph_stable_key: https://download.ceph.com/keys/release.asc  # Public key URL
+ceph_community_repo_baseurl: "{{ ceph_mirror }}/rpm-{{ ceph_release }}/el{{ ansible_facts['distribution_major_version'] }}/"
+ceph_ibm_repo_baseurl: "https://public.dhe.ibm.com/ibmdl/export/pub/storage/ceph/{{ ceph_ibm_version }}/rhel{{ ansible_facts['distribution_major_version'] }}/"
+ceph_ibm_key: https://public.dhe.ibm.com/ibmdl/export/pub/storage/ceph/RPM-GPG-KEY-IBM-CEPH
+ceph_release: reef  # Ceph version (e.g., squid, nautilus, octopus)
+upgrade_ceph_packages: false  # Enable or disable package upgrades
+
+# Ceph packages
+ceph_pkgs:
+  - cephadm
+  - ceph-common
+ceph_client_pkgs:
+  - chrony
+  - ceph-common
+infra_pkgs:
+  - chrony
+  - podman
+  - lvm2
+  - sos
+client_group: clients
+
+# OSD Configuration
+osd_scenario: lvm  # OSD scenario: collocated, lvm, bluestore
+devices:
+  - /dev/sda
+  - /dev/sdb
+  - /dev/sdc
+dedicated_devices: []  # Additional SSD or NVMe devices
+
+# Ceph monitoring and management configurations
+monitor_interface: eth1  # Monitor interface
+public_network: 10.116.0.0/20  # Public network
+cluster_network: 10.10.0.0/16  # Cluster network
+
+# Ceph manager and OSD configurations
+mgr_enable_prometheus: true  # Enable Prometheus monitoring
+osd_auto_discovery: true  # Automatically discover OSDs
+osd_objectstore: bluestore  # Object store: bluestore or filestore
+
+# Docker/Podman configuration
+containerized_deployment: true  # Deployment in containers
+ceph_docker_image_tag: latest
+ceph_docker_registry: "quay.io"
+ceph_docker_image: "ceph/ceph"
+
+# Time synchronization
+chrony_configure_ntp: true  # NTP configuration
+ntp_servers:
+  - "0.pool.ntp.org"
+  - "1.pool.ntp.org"
+
+# Additional settings
+firewall_enable: true  # Enable firewall
+cluster_name: ceph-cluster  # Cluster name
+fsid: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters') }}"  # Cluster UUID
+
+# Ceph Dashboard and monitoring configuration
+enable_dashboard: true  # Enable dashboard
+ceph_mgr_modules:
+  - dashboard
+  - prometheus
+  - restful
+dashboard_admin_user: "admin"  # Dashboard admin user
+dashboard_admin_password: "password123"  # Admin password (set as desired)
+ceph_grafana_admin_user: "admin"  # Grafana admin user
+ceph_grafana_admin_password: "password123"  # Grafana admin password
+grafana_dashboards: true  # Enable Grafana monitoring dashboards
+alertmanager_configure: true  # Configure Alertmanager
+
+# Logging and monitoring
+logging_level: debug  # Logging level (e.g., info, debug)
+monitoring_enabled: true  # Enable monitoring
+alertmanager_url: "http://localhost:9093"  # Alertmanager URL
+prometheus_url: "http://localhost:9090"  # Prometheus URL
+grafana_url: "http://localhost:3000"  # Grafana URL
+
+# OSD and RADOS configurations
+osd_pool_default_size: 3  # Default replica count
+osd_pool_default_min_size: 2  # Minimum replica count
+osd_pool_default_pg_num: 128  # Primary groups number
+osd_crush_chooseleaf_type: 1  # CRUSH mapping (run `ceph osd crush rule dump` in cluster for recommendations)
+
+# Additional RBD and RGW configurations
+rbd_cache_enabled: true
+rbd_cache_max_dirty: 16
+rbd_cache_target_dirty: 8
+radosgw_enable: true  # Enable RGW service (S3-compatible)
+radosgw_civetweb_port: 8080  # RGW port
+
+# Other settings
+ceph_fs: cephfs  # Ceph Filesystem name
+ceph_fs_data: cephfs_data  # Data pool name
+ceph_fs_metadata: cephfs_metadata  # Metadata pool name

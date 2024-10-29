@@ -1,0 +1,28 @@
+---
+- name: Ceph Cluster Preflight and Deployment
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Preflight Setup - Configure Ceph Repository and Prerequisites
+      ansible.builtin.include_role:
+        name: cephadm-preflight
+      vars:
+        ceph_origin: community 
+        ceph_release: squid
+
+- name: Bootstrap Ceph Cluster
+  hosts: admin
+  become: true
+  tasks:
+    - name: Initialize the Ceph cluster
+      ansible.builtin.command:
+        cmd: cephadm bootstrap --mon-ip {{ ansible_host }} --initial-dashboard-user admin --initial-dashboard-password admin_password
+      args:
+        creates: /etc/ceph/ceph.conf
+
+    - name: Add OSDs to Ceph Cluster
+      ansible.builtin.include_role:
+        name: cephadm-osds
+      vars:
+        disks: ['/dev/sda', '/dev/sdb', '/dev/sdc']
