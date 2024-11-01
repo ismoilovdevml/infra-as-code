@@ -3,61 +3,91 @@
   become: yes
   vars:
     sonarqube_container_name: "sonarqube"
-    sonarqube_image: "sonarqube:10.7-community"
-    sonarqube_data_dir: "/opt/sonarqube/data"
-    sonarqube_logs_dir: "/opt/sonarqube/logs"
-    sonarqube_extensions_dir: "/opt/sonarqube/extensions"
-    sonarqube_parent_dir: "/opt/sonarqube"
+    postgresql_container_name: "postgresql"
+    sonarqube_image: "sonarqube:community"
+    postgresql_image: "postgres:15"
+    sonarqube_dirs:
+      - "/mnt/sonarqube/sonarqube_data"
+      - "/mnt/sonarqube/sonarqube_logs"
+      - "/mnt/sonarqube/sonarqube_extensions"
+      - "/mnt/sonarqube/sonarqube_temp"
+    postgresql_dirs:
+      - "/mnt/sonarqube/postgresql"
+      - "/mnt/sonarqube/postgresql_data"
+    sonarqube_network: "sonarqube_network"
+    sonarqube_root_dir: "/mnt/sonarqube"
 
   tasks:
     - name: Stop SonarQube container if it exists
-      docker_container:
+      ansible.builtin.docker_container:
         name: "{{ sonarqube_container_name }}"
         state: stopped
       ignore_errors: yes
       failed_when: false
 
+    - name: Stop PostgreSQL container if it exists
+      ansible.builtin.docker_container:
+        name: "{{ postgresql_container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
     - name: Remove SonarQube container if it exists
-      docker_container:
+      ansible.builtin.docker_container:
         name: "{{ sonarqube_container_name }}"
         state: absent
       ignore_errors: yes
       failed_when: false
 
+    - name: Remove PostgreSQL container if it exists
+      ansible.builtin.docker_container:
+        name: "{{ postgresql_container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
     - name: Remove SonarQube Docker image if it exists
-      docker_image:
+      ansible.builtin.docker_image:
         name: "{{ sonarqube_image }}"
         state: absent
       ignore_errors: yes
       failed_when: false
 
-    - name: Remove SonarQube data directory if it exists
-      file:
-        path: "{{ sonarqube_data_dir }}"
+    - name: Remove PostgreSQL Docker image if it exists
+      ansible.builtin.docker_image:
+        name: "{{ postgresql_image }}"
         state: absent
-        force: yes
       ignore_errors: yes
       failed_when: false
 
-    - name: Remove SonarQube logs directory if it exists
+    - name: Remove SonarQube data, logs, extensions, and temp directories
       file:
-        path: "{{ sonarqube_logs_dir }}"
+        path: "{{ item }}"
         state: absent
         force: yes
+      loop: "{{ sonarqube_dirs }}"
       ignore_errors: yes
       failed_when: false
 
-    - name: Remove SonarQube extensions directory if it exists
+    - name: Remove PostgreSQL data directories
       file:
-        path: "{{ sonarqube_extensions_dir }}"
+        path: "{{ item }}"
         state: absent
         force: yes
+      loop: "{{ postgresql_dirs }}"
       ignore_errors: yes
       failed_when: false
 
-    - name: Remove SonarQube parent directory if it exists
+    - name: Remove Docker network for SonarQube and PostgreSQL if it exists
+      ansible.builtin.docker_network:
+        name: "{{ sonarqube_network }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove root SonarQube directory if it exists
       file:
-        path: "{{ sonarqube_parent_dir }}"
+        path: "{{ sonarqube_root_dir }}"
         state: absent
         force: yes
       ignore_errors: yes
