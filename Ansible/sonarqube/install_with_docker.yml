@@ -1,19 +1,22 @@
----
-- name: Check and install SonarQube if Docker is present
+- name: Install and configure SonarQube
   hosts: all
   become: true
 
   vars:
-    sonarqube_image: "sonarqube:10.7-community"
+    sonarqube_image: "sonarqube:community"
     sonarqube_container_name: "sonarqube"
+    postgresql_image: "postgres:15"
+    postgresql_container_name: "postgresql"
     sonarqube_port: "9000"
-    sonarqube_volumes:
-      - "sonarqube_data:/opt/sonarqube/data"
-      - "sonarqube_logs:/opt/sonarqube/logs"
-      - "sonarqube_extensions:/opt/sonarqube/extensions"
-    sonarqube_env:
-      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
     restart_policy: "always"
+    sonarqube_env:
+      SONAR_JDBC_URL: "jdbc:postgresql://db:5432/sonar"
+      SONAR_JDBC_USERNAME: "sonar"
+      SONAR_JDBC_PASSWORD: "sonar"
+    postgresql_env:
+      POSTGRES_USER: "sonar"
+      POSTGRES_PASSWORD: "sonar"
+      POSTGRES_DB: "sonar"
 
   tasks:
     - name: Check if Docker binary exists
@@ -22,19 +25,70 @@
       changed_when: false
       failed_when: false
 
+    - name: Check if Docker Compose binary exists
+      shell: "command -v docker-compose"
+      register: docker_compose_check
+      changed_when: false
+      failed_when: false
+
     - name: Display message if Docker is not installed
       debug:
         msg: "Docker is not installed on this host."
       when: docker_check.rc != 0
 
-    - name: Skip host if Docker is missing
-      meta: end_host
-      when: docker_check.rc != 0
+    - name: Display message if Docker Compose is not installed
+      debug:
+        msg: "Docker Compose is not installed on this host."
+      when: docker_check.rc == 0 and docker_compose_check.rc != 0
 
-    - name: Pull SonarQube image
+    - name: Skip host if either Docker or Docker Compose is missing
+      meta: end_host
+      when: docker_check.rc != 0 or docker_compose_check.rc != 0
+
+    - name: Set system parameters for SonarQube
+      command: "{{ item }}"
+      with_items:
+        - sysctl -w vm.max_map_count=524288
+        - sysctl -w fs.file-max=131072
+        - ulimit -n 131072
+        - ulimit -u 8192
+
+    - name: Create directories for SonarQube persistence
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0777'
+      loop:
+        - /mnt/sonarqube
+        - /mnt/sonarqube/sonarqube_data
+        - /mnt/sonarqube/sonarqube_logs
+        - /mnt/sonarqube/sonarqube_extensions
+        - /mnt/sonarqube/sonarqube_temp
+        - /mnt/sonarqube/postgresql
+        - /mnt/sonarqube/postgresql_data
+
+    - name: Pull SonarQube and PostgreSQL images
       ansible.builtin.docker_image:
-        name: "{{ sonarqube_image }}"
+        name: "{{ item }}"
         source: pull
+      loop:
+        - "{{ sonarqube_image }}"
+        - "{{ postgresql_image }}"
+
+    - name: Run PostgreSQL container
+      ansible.builtin.docker_container:
+        name: "{{ postgresql_container_name }}"
+        image: "{{ postgresql_image }}"
+        env: "{{ postgresql_env }}"
+        volumes:
+          - "/mnt/sonarqube/postgresql:/var/lib/postgresql"
+          - "/mnt/sonarqube/postgresql_data:/var/lib/postgresql/data"
+        restart_policy: "{{ restart_policy }}"
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
 
     - name: Run SonarQube container
       ansible.builtin.docker_container:
@@ -42,14 +96,22 @@
         image: "{{ sonarqube_image }}"
         ports:
           - "{{ sonarqube_port }}:9000"
-        volumes: "{{ sonarqube_volumes }}"
+        volumes:
+          - "/mnt/sonarqube/sonarqube_data:/opt/sonarqube/data"
+          - "/mnt/sonarqube/sonarqube_extensions:/opt/sonarqube/extensions"
+          - "/mnt/sonarqube/sonarqube_logs:/opt/sonarqube/logs"
+          - "/mnt/sonarqube/sonarqube_temp:/opt/sonarqube/temp"
         restart_policy: "{{ restart_policy }}"
         env: "{{ sonarqube_env }}"
 
-    - name: Display SonarQube container info
-      shell: "docker ps --filter 'name={{ sonarqube_container_name }}'"
-      register: docker_sonarqube_info
+    - name: Display SonarQube and PostgreSQL containers info
+      shell: "docker ps --filter 'name={{ sonarqube_container_name }}' --filter 'name={{ postgresql_container_name }}'"
+      register: docker_containers_info
 
-    - name: Show SonarQube container info
+    - name: Show SonarQube and PostgreSQL container info
       debug:
-        msg: "{{ docker_sonarqube_info.stdout }}"
+        msg: "{{ docker_containers_info.stdout }}"
+
+    - name: Display SonarQube access information
+      debug:
+        msg: "Visit SonarQube at http://{{ ansible_default_ipv4.address }}:{{ sonarqube_port }} with default credentials: user=admin, password=admin"
