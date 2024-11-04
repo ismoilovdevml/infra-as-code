@@ -1,0 +1,10 @@
+harbor_version: "v2.11.1"
+harbor_hostname: "harbor.helm.uz"
+harbor_admin_password: "Harbor12345"
+harbor_db_password: "root123"
+ssl_option: "certbot"  # "certbot" yoki "self_signed" qiymatlarini olishi mumkin
+certbot_cert_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/fullchain.pem"
+certbot_key_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/privkey.pem"
+self_signed_cert_path: "/path/to/selfsigned/fullchain.pem"  # Self-signed sertifikat uchun to'liq path
+self_signed_key_path: "/path/to/selfsigned/privkey.pem"      # Self-signed kalit uchun to'liq path
+harbor_download_url: "https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-offline-installer-{{ harbor_version }}.tgz"

@@ -1,29 +1,15 @@
----
 - name: Deploy Harbor Container Registry
   hosts: all
   become: yes
-  vars_prompt:
-    - name: "self_signed_cert_path"
-      prompt: "Please provide the full path to the self-signed certificate file (e.g., fullchain.pem)"
-      private: no
-      when: ssl_option == "self_signed"
-      
-    - name: "self_signed_key_path"
-      prompt: "Please provide the full path to the self-signed key file (e.g., privkey.pem)"
-      private: no
-      when: ssl_option == "self_signed"
-
-  vars:
-    harbor_version: "v2.11.1"
-    harbor_hostname: "harbor.helm.uz"  # domen nomi
-    harbor_admin_password: "Harbor12345"
-    harbor_db_password: "root123"
-    ssl_option: "certbot"  # "certbot" or "self_signed"
-    certbot_cert_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/fullchain.pem"
-    certbot_key_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/privkey.pem"
-    harbor_download_url: "https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-offline-installer-{{ harbor_version }}.tgz"
+  vars_files:
+    - vars.yml  # vars.yml faylidan o'zgaruvchilarni yuklash
 
   tasks:
+    - name: Set default certificate paths based on ssl_option
+      set_fact:
+        cert_path: "{{ certbot_cert_path if ssl_option == 'certbot' else self_signed_cert_path }}"
+        key_path: "{{ certbot_key_path if ssl_option == 'certbot' else self_signed_key_path }}"
+
     - name: Check if Docker is installed
       shell: "command -v docker"
       register: docker_check
@@ -61,6 +47,18 @@
         state: present
       when: ansible_os_family == "Debian" and ssl_option == "certbot"
 
+    - name: Update package lists (RedHat-based)
+      yum:
+        name: epel-release
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install certbot for SSL (RedHat-based)
+      yum:
+        name: certbot
+        state: present
+      when: ansible_os_family == "RedHat" and ssl_option == "certbot"
+
     - name: Obtain SSL certificate using certbot (non-interactive)
       shell: "certbot certonly --standalone -d {{ harbor_hostname }} --non-interactive --agree-tos -m admin@{{ harbor_hostname }}"
       when: ssl_option == "certbot"
@@ -80,6 +78,7 @@
       copy:
         src: "/opt/harbor/harbor.yml.tmpl"
         dest: "/opt/harbor/harbor.yml"
+        remote_src: yes
 
     - name: Configure Harbor settings
       lineinfile:
@@ -90,8 +89,8 @@
         - { regexp: '^hostname:.*$', line: "hostname: {{ harbor_hostname }}" }
         - { regexp: '^harbor_admin_password:.*$', line: "harbor_admin_password: {{ harbor_admin_password }}" }
         - { regexp: '^  password:.*$', line: "  password: {{ harbor_db_password }}" }
-        - { regexp: '^  certificate:.*$', line: "  certificate: {{ certbot_cert_path if ssl_option == 'certbot' else self_signed_cert_path }}" }
-        - { regexp: '^  private_key:.*$', line: "  private_key: {{ certbot_key_path if ssl_option == 'certbot' else self_signed_key_path }}" }
+        - { regexp: '^  certificate:.*$', line: "  certificate: {{ cert_path }}" }
+        - { regexp: '^  private_key:.*$', line: "  private_key: {{ key_path }}" }
 
     - name: Install Harbor
       command: "/opt/harbor/install.sh"

@@ -1,0 +1,72 @@
+---
+- name: Cleanup Harbor Installation
+  hosts: all
+  become: yes
+  vars_files:
+    - vars.yml
+
+  vars:
+    harbor_version: "v2.11.1"
+    harbor_containers:
+      - nginx
+      - harbor-jobservice
+      - harbor-core
+      - redis
+      - registry
+      - harbor-db
+      - registryctl
+      - harbor-portal
+      - harbor-log
+    harbor_images:
+      - "goharbor/nginx-photon:{{ harbor_version }}"
+      - "goharbor/harbor-jobservice:{{ harbor_version }}"
+      - "goharbor/harbor-core:{{ harbor_version }}"
+      - "goharbor/redis-photon:{{ harbor_version }}"
+      - "goharbor/registry-photon:{{ harbor_version }}"
+      - "goharbor/harbor-db:{{ harbor_version }}"
+      - "goharbor/harbor-registryctl:{{ harbor_version }}"
+      - "goharbor/harbor-portal:{{ harbor_version }}"
+      - "goharbor/harbor-log:{{ harbor_version }}"
+    harbor_data_dir: "/data/harbor"
+    harbor_install_dir: "/opt/harbor"
+
+  tasks:
+    - name: Stop and remove Harbor containers if they exist
+      docker_container:
+        name: "{{ item }}"
+        state: absent
+      with_items: "{{ harbor_containers }}"
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Harbor Docker images if they exist
+      docker_image:
+        name: "{{ item }}"
+        state: absent
+      with_items: "{{ harbor_images }}"
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Harbor data directory if exists
+      file:
+        path: "{{ harbor_data_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Harbor installation directory if exists
+      file:
+        path: "{{ harbor_install_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove Harbor temporary download if exists
+      file:
+        path: "/tmp/harbor-offline-installer-{{ harbor_version }}.tgz"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
