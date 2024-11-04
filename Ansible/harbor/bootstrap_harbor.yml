@@ -1,0 +1,99 @@
+---
+- name: Deploy Harbor Container Registry
+  hosts: all
+  become: yes
+  vars_prompt:
+    - name: "self_signed_cert_path"
+      prompt: "Please provide the full path to the self-signed certificate file (e.g., fullchain.pem)"
+      private: no
+      when: ssl_option == "self_signed"
+      
+    - name: "self_signed_key_path"
+      prompt: "Please provide the full path to the self-signed key file (e.g., privkey.pem)"
+      private: no
+      when: ssl_option == "self_signed"
+
+  vars:
+    harbor_version: "v2.11.1"
+    harbor_hostname: "harbor.helm.uz"  # domen nomi
+    harbor_admin_password: "Harbor12345"
+    harbor_db_password: "root123"
+    ssl_option: "certbot"  # "certbot" or "self_signed"
+    certbot_cert_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/fullchain.pem"
+    certbot_key_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/privkey.pem"
+    harbor_download_url: "https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-offline-installer-{{ harbor_version }}.tgz"
+
+  tasks:
+    - name: Check if Docker is installed
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check if Docker Compose is installed
+      shell: "command -v docker-compose"
+      register: docker_compose_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Display message if Docker Compose is not installed
+      debug:
+        msg: "Docker Compose is not installed on this host."
+      when: docker_check.rc == 0 and docker_compose_check.rc != 0
+
+    - name: Skip host if either Docker or Docker Compose is missing
+      meta: end_host
+      when: docker_check.rc != 0 or docker_compose_check.rc != 0
+
+    - name: Update package lists (Debian-based)
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install certbot for SSL (Debian-based)
+      apt:
+        name: certbot
+        state: present
+      when: ansible_os_family == "Debian" and ssl_option == "certbot"
+
+    - name: Obtain SSL certificate using certbot (non-interactive)
+      shell: "certbot certonly --standalone -d {{ harbor_hostname }} --non-interactive --agree-tos -m admin@{{ harbor_hostname }}"
+      when: ssl_option == "certbot"
+
+    - name: Download Harbor offline installer
+      get_url:
+        url: "{{ harbor_download_url }}"
+        dest: "/tmp/harbor-offline-installer-{{ harbor_version }}.tgz"
+
+    - name: Extract Harbor installer
+      unarchive:
+        src: "/tmp/harbor-offline-installer-{{ harbor_version }}.tgz"
+        dest: "/opt/"
+        remote_src: yes
+
+    - name: Copy Harbor configuration template
+      copy:
+        src: "/opt/harbor/harbor.yml.tmpl"
+        dest: "/opt/harbor/harbor.yml"
+
+    - name: Configure Harbor settings
+      lineinfile:
+        path: "/opt/harbor/harbor.yml"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      with_items:
+        - { regexp: '^hostname:.*$', line: "hostname: {{ harbor_hostname }}" }
+        - { regexp: '^harbor_admin_password:.*$', line: "harbor_admin_password: {{ harbor_admin_password }}" }
+        - { regexp: '^  password:.*$', line: "  password: {{ harbor_db_password }}" }
+        - { regexp: '^  certificate:.*$', line: "  certificate: {{ certbot_cert_path if ssl_option == 'certbot' else self_signed_cert_path }}" }
+        - { regexp: '^  private_key:.*$', line: "  private_key: {{ certbot_key_path if ssl_option == 'certbot' else self_signed_key_path }}" }
+
+    - name: Install Harbor
+      command: "/opt/harbor/install.sh"
+      args:
+        chdir: "/opt/harbor/"
