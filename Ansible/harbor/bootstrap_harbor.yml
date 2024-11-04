@@ -4,6 +4,11 @@
   vars_files:
     - vars.yml  # vars.yml faylidan o'zgaruvchilarni yuklash
 
+  pre_tasks:
+    - name: Record start time
+      set_fact:
+        start_time: "{{ ansible_date_time.epoch }}"
+        
   tasks:
     - name: Set default certificate paths based on ssl_option
       set_fact:
@@ -96,3 +101,21 @@
       command: "/opt/harbor/install.sh"
       args:
         chdir: "/opt/harbor/"
+
+  post_tasks:
+    - name: Record end time
+      set_fact:
+        end_time: "{{ ansible_date_time.epoch }}"
+
+    - name: Calculate total duration
+      set_fact:
+        duration: "{{ end_time | int - start_time | int }}"
+
+    - name: Display summary of Harbor deployment
+      debug:
+        msg:
+          - "Harbor deployment completed successfully!"
+          - "Total time taken: {{ duration }} seconds."
+          - "Harbor version: {{ harbor_version }}"
+          - "Certificate used: {{ 'Certbot' if ssl_option == 'certbot' else 'Self-signed' }}"
+          - "Hostname: {{ harbor_hostname }}"
