@@ -1,6 +1,6 @@
 # 🚀 PostgreSQL Setup with Ansible
 
-This repository contains Ansible playbooks for installing and configuring PostgreSQL using the [galaxyproject.postgresql](https://galaxy.ansible.com/galaxyproject/postgresql) role. The setup is divided into two stages:
+This repository contains Ansible playbooks for installing and configuring PostgreSQL using the [ANXS.postgresql](https://galaxy.ansible.com/ui/standalone/roles/ANXS/postgresql/documentation/) role. The setup is divided into two stages:
 1. **Installation**: Install PostgreSQL on the target servers.
 2. **Configuration**: Set up PostgreSQL users, databases, and other settings.
 
@@ -24,7 +24,7 @@ ansible-galaxy role install ANXS.postgresql,v1.16.0
 The install_postgresql.yml playbook installs PostgreSQL on the target servers.
 
 ```bash
-ansible-playbook -i inventory.ini install.yml
+ansible-playbook -i inventory.ini install_postgresql.yml
 ```
 ### Configure PostgreSQL
 The `configure_postgresql.yml` playbook configures PostgreSQL with custom users, roles, and authentication settings.
