@@ -29,11 +29,6 @@
       - "goharbor/harbor-log:{{ harbor_version }}"
     harbor_data_dir: "/data/harbor"
     harbor_install_dir: "/opt/harbor"
-
-  pre_tasks:
-    - name: Record start time
-      set_fact:
-        start_time: "{{ ansible_date_time.epoch }}"
         
   tasks:
     - name: Stop and remove Harbor containers if they exist
@@ -75,21 +70,3 @@
         force: yes
       ignore_errors: yes
       failed_when: false
-
-  post_tasks:
-    - name: Record end time
-      set_fact:
-        end_time: "{{ ansible_date_time.epoch }}"
-
-    - name: Calculate total duration
-      set_fact:
-        duration: "{{ end_time | int - start_time | int }}"
-
-    - name: Display summary of cleanup task
-      debug:
-        msg:
-          - "Harbor cleanup completed successfully!"
-          - "Total time taken: {{ duration }} seconds."
-          - "Containers removed: {{ harbor_containers | length }}"
-          - "Images removed: {{ harbor_images | length }}"
-          - "Data directories cleaned: {{ harbor_data_dir }}, {{ harbor_install_dir }}"
