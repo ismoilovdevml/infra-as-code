@@ -1,31 +1,33 @@
 ---
 - name: Configure PostgreSQL
-  hosts: postgresql_servers
-  become: true
-  vars:
-    postgresql_listen_addresses: "*"
-    postgresql_pg_hba_conf:
-      - { type: host, database: all, user: all, address: '0.0.0.0/0', method: md5 }
-    postgresql_password: "123"
-
+  hosts: all
+  become: yes
+  vars_files:
+  - vars.yml
   tasks:
-    - name: Update PostgreSQL listen_addresses
+    - name: Update listen_addresses in postgresql.conf
       ansible.builtin.lineinfile:
-        dest: /var/lib/pgsql/data/postgresql.conf
-        regexp: '^listen_addresses\s*='
-        line: "listen_addresses = '{{ postgresql_listen_addresses }}'"
+        path: "{{ postgresql_conf_path }}"
+        regexp: "^#?listen_addresses\\s*=\\s*.*"
+        line: "listen_addresses = '*'"
       notify: Restart PostgreSQL
 
-    - name: Configure pg_hba.conf for remote connections
-      ansible.builtin.blockinfile:
-        dest: /var/lib/pgsql/data/pg_hba.conf
-        block: |
-          host    all             all             0.0.0.0/0                md5
+    - name: Add IPv4 entry to pg_hba.conf
+      ansible.builtin.lineinfile:
+        path: "{{ pg_hba_conf_path }}"
+        line: "host    all             all             0.0.0.0/0               md5"
+        state: present
       notify: Restart PostgreSQL
 
-    - name: Set PostgreSQL user password
-      become_user: postgres
-      postgresql_user:
-        name: postgres
-        password: "{{ postgresql_password }}"
-        encrypted: yes
+    - name: Add IPv6 entry to pg_hba.conf
+      ansible.builtin.lineinfile:
+        path: "{{ pg_hba_conf_path }}"
+        line: "host    all             all             ::/0                    md5"
+        state: present
+      notify: Restart PostgreSQL
+
+  handlers:
+    - name: Restart PostgreSQL
+      ansible.builtin.service:
+        name: "{{ postgresql_service_name }}"
+        state: restarted

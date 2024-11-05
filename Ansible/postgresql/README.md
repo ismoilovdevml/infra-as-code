@@ -15,7 +15,8 @@ Before running the playbooks, ensure that the following are installed and proper
 You can install the required role with the following command:
 
 ```bash
-ansible-galaxy role install galaxyproject.postgresql
+ansible-galaxy collection install community.postgresql
+ansible-galaxy role install ANXS.postgresql,v1.16.0
 ```
 
 ## 🛠️ Playbooks
