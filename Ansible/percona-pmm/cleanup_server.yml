@@ -1,0 +1,36 @@
+---
+- name: Uninstall PMM Server Docker Setup
+  hosts: pmm_servers
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop PMM Server container if exists
+      docker_container:
+        name: "{{ pmm_container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove PMM Server container if exists
+      docker_container:
+        name: "{{ pmm_container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove PMM Docker image if exists
+      docker_image:
+        name: "{{ pmm_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove PMM data directory if exists
+      file:
+        path: "{{ pmm_data_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false

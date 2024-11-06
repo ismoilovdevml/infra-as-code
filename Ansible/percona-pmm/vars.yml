@@ -4,6 +4,13 @@ pmm_data_dir: "/srv/pmm"  # Host path where PMM data will be stored
 pmm_container_name: "pmm-server"
 admin_password: "olcd230d"  # Replace with your desired admin password
 # PMM Clients variables
-
+pmm_client_docker_image: "percona/pmm-client"
+pmm_client_docker_tag: "2"
+pmm_client_container: "pmm-client"
+pmm_data_host_path: "/mnt/pmm-data"
+pmm_server_address: "34.56.26.160:443"  # Replace X.X.X.X with your actual PMM server IP
+pmm_server_username: "admin"
+pmm_server_insecure_tls: "1"
+pmm_agent_config_file: "config/pmm-agent.yaml"
 percona_deb_repo_url: "https://repo.percona.com/apt/percona-release_latest.generic_all.deb"
 percona_rpm_repo_url: "https://repo.percona.com/yum/percona-release-latest.noarch.rpm"

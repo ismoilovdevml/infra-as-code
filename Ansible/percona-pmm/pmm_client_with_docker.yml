@@ -1,0 +1,53 @@
+---
+- name: Setup PMM Client using Docker with Host Path
+  hosts: pmm_clients
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Check if Docker is installed
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if either Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Pull PMM client Docker image
+      docker_image:
+        name: "{{ pmm_client_docker_image }}"
+        tag: "{{ pmm_client_docker_tag }}"
+        source: pull
+
+    - name: Run PMM client container in setup mode with host path for persistence
+      docker_container:
+        name: "{{ pmm_client_container }}"
+        image: "{{ pmm_client_docker_image }}:{{ pmm_client_docker_tag }}"
+        env:
+          PMM_AGENT_SERVER_ADDRESS: "{{ pmm_server_address }}"
+          PMM_AGENT_SERVER_USERNAME: "{{ pmm_server_username }}"
+          PMM_AGENT_SERVER_PASSWORD: "{{ admin_password }}"
+          PMM_AGENT_SERVER_INSECURE_TLS: "{{ pmm_server_insecure_tls }}"
+          PMM_AGENT_SETUP: "1"
+          PMM_AGENT_CONFIG_FILE: "{{ pmm_agent_config_file }}"
+        volumes:
+          - "{{ pmm_data_host_path }}:/srv"
+        state: started
+        restart_policy: no
+
+    - name: Check PMM client status
+      command: docker exec "{{ pmm_client_container }}" pmm-admin status
+      register: pmm_status
+      ignore_errors: true
+
+    - name: Display PMM client status
+      debug:
+        var: pmm_status.stdout

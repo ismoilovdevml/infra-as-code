@@ -29,9 +29,8 @@
       when: ansible_os_family == "Debian"
 
     - name: Install Percona YUM repository package (Red Hat-based)
-      ansible.builtin.yum:
-        name: "{{ percona_rpm_repo_url }}"
-        state: present
+      ansible.builtin.command:
+        cmd: "yum install -y {{ percona_rpm_repo_url }}"
       when: ansible_os_family == "RedHat"
 
     - name: Install PMM client on Red Hat-based systems

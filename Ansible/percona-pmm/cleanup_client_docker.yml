@@ -1,0 +1,37 @@
+---
+- name: Cleanup PMM Client Docker Setup
+  hosts: pmm_clients
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop PMM client container if exists
+      docker_container:
+        name: "{{ pmm_client_container }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove PMM client container if exists
+      docker_container:
+        name: "{{ pmm_client_container }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove PMM client Docker image if exists
+      docker_image:
+        name: "{{ pmm_client_docker_image }}"
+        tag: "{{ pmm_client_docker_tag }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove PMM data directory if exists
+      file:
+        path: "{{ pmm_data_host_path }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false

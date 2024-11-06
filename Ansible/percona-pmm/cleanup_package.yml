@@ -1,0 +1,52 @@
+---
+- name: Cleanup and Uninstall PMM Client on multiple OS
+  hosts: pmm_clients
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove PMM client package on Debian-based systems
+      ansible.builtin.apt:
+        name: pmm2-client
+        state: absent
+        purge: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Remove Percona APT repository package file (Debian-based)
+      ansible.builtin.file:
+        path: "/tmp/percona-release_latest.generic_all.deb"
+        state: absent
+      when: ansible_os_family == "Debian"
+
+    - name: Clean APT cache (Debian-based)
+      ansible.builtin.apt:
+        autoclean: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Remove PMM client package on Red Hat-based systems
+      ansible.builtin.yum:
+        name: pmm2-client
+        state: absent
+      when: ansible_os_family == "RedHat"
+
+    - name: Remove Percona YUM repository package (Red Hat-based)
+      ansible.builtin.command:
+        cmd: "yum remove -y {{ percona_rpm_repo_url }}"
+      when: ansible_os_family == "RedHat"
+
+    - name: Clean YUM cache (Red Hat-based)
+      ansible.builtin.command:
+        cmd: "yum clean all"
+      when: ansible_os_family == "RedHat"
+
+    - name: Verify PMM Client removal
+      ansible.builtin.command:
+        cmd: "pmm-admin --version"
+      register: pmm_client_removal_check
+      failed_when: pmm_client_removal_check.rc == 0
+      changed_when: false
+
+    - name: Display PMM Client removal status
+      ansible.builtin.debug:
+        msg: "PMM Client removal check: OK - PMM Client has been removed"
