@@ -1,0 +1,51 @@
+---
+- name: Install PMM Client on multiple OS
+  hosts: pmm_clients
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Download Percona APT repository package (Debian-based)
+      ansible.builtin.get_url:
+        url: "{{ percona_deb_repo_url }}"
+        dest: "/tmp/percona-release_latest.generic_all.deb"
+      when: ansible_os_family == "Debian"
+
+    - name: Install Percona APT repository package (Debian-based)
+      ansible.builtin.command:
+        cmd: "dpkg -i /tmp/percona-release_latest.generic_all.deb"
+      when: ansible_os_family == "Debian"
+
+    - name: Update APT cache (Debian-based)
+      ansible.builtin.apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install PMM client on Debian-based systems
+      ansible.builtin.apt:
+        name: pmm2-client
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install Percona YUM repository package (Red Hat-based)
+      ansible.builtin.yum:
+        name: "{{ percona_rpm_repo_url }}"
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install PMM client on Red Hat-based systems
+      ansible.builtin.yum:
+        name: pmm2-client
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Verify PMM Client installation
+      ansible.builtin.command:
+        cmd: "pmm-admin --version"
+      register: pmm_client_version
+      changed_when: false
+
+    - name: Display PMM Client version
+      ansible.builtin.debug:
+        msg: "PMM Client version: {{ pmm_client_version.stdout }}"

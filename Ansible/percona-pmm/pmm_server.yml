@@ -1,0 +1,61 @@
+---
+- name: Deploy PMM Server with Docker
+  hosts: pmm_servers
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Check if Docker is installed
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if either Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Create PMM data directory
+      ansible.builtin.file:
+        path: "{{ pmm_data_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Pull PMM Docker image
+      ansible.builtin.command:
+        cmd: "docker pull {{ pmm_image }}"
+      register: docker_pull
+      changed_when: docker_pull.rc == 0
+
+    - name: Run PMM Server container
+      ansible.builtin.docker_container:
+        name: "{{ pmm_container_name }}"
+        image: "{{ pmm_image }}"
+        state: started
+        restart_policy: always
+        ports:
+          - "443:443"
+          - "80:80"
+        volumes:
+          - "{{ pmm_data_dir }}:/srv"
+
+    - name: Set the admin password for PMM
+      ansible.builtin.command:
+        cmd: "docker exec -t {{ pmm_container_name }} change-admin-password {{ admin_password }}"
+      when: docker_pull is changed
+
+    - name: Confirm PMM Server is running
+      ansible.builtin.uri:
+        url: "https://{{ ansible_default_ipv4.address }}:443"
+        status_code: 200
+        validate_certs: no
+      register: pmm_status
+      retries: 5
+      delay: 10
+      until: pmm_status.status == 200

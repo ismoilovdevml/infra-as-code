@@ -1,0 +1,9 @@
+# PMM Server variables
+pmm_image: "percona/pmm-server:2"
+pmm_data_dir: "/srv/pmm"  # Host path where PMM data will be stored
+pmm_container_name: "pmm-server"
+admin_password: "olcd230d"  # Replace with your desired admin password
+# PMM Clients variables
+
+percona_deb_repo_url: "https://repo.percona.com/apt/percona-release_latest.generic_all.deb"
+percona_rpm_repo_url: "https://repo.percona.com/yum/percona-release-latest.noarch.rpm"
