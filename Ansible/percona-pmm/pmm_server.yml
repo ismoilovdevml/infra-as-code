@@ -45,6 +45,11 @@
         volumes:
           - "{{ pmm_data_dir }}:/srv"
 
+    - name: Wait for 1 minute before setting the admin password
+      wait_for:
+        timeout: 60
+      when: docker_pull is changed
+
     - name: Set the admin password for PMM
       ansible.builtin.command:
         cmd: "docker exec -t {{ pmm_container_name }} change-admin-password {{ admin_password }}"

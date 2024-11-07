@@ -14,3 +14,7 @@ pmm_server_insecure_tls: "1"
 pmm_agent_config_file: "config/pmm-agent.yaml"
 percona_deb_repo_url: "https://repo.percona.com/apt/percona-release_latest.generic_all.deb"
 percona_rpm_repo_url: "https://repo.percona.com/yum/percona-release-latest.noarch.rpm"
+
+## PMM PostgreSQL
+pmm_postgresql_user: "pmm"
+pmm_postgresql_password: "lwqotq"
