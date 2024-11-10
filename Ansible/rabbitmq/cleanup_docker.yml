@@ -1,0 +1,41 @@
+# cleanup.yml
+
+- name: Cleanup RabbitMQ Docker setup
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop RabbitMQ container if it exists
+      ansible.builtin.docker_container:
+        name: "{{ container_name }}"
+        state: stopped
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove RabbitMQ container if it exists
+      ansible.builtin.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove RabbitMQ Docker image if it exists
+      ansible.builtin.docker_image:
+        name: "rabbitmq:{{ rabbitmq_image }}"
+        state: absent
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Remove RabbitMQ data directory
+      file:
+        path: "{{ host_path }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Display cleanup completion message
+      debug:
+        msg: "RabbitMQ cleanup completed successfully."

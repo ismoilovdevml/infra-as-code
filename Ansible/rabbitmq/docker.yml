@@ -32,7 +32,7 @@
     - name: Start RabbitMQ container
       docker_container:
         name: "{{ container_name }}"
-        image: "rabbitmq:{{ rabbitmq_version }}"
+        image: "rabbitmq:{{ rabbitmq_image }}"
         state: started
         ports:
           - "{{ host_port }}:5672"
