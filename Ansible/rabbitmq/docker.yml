@@ -1,0 +1,65 @@
+# docker.yml
+
+- name: Install RabbitMQ using Docker
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Check if Docker is installed
+      shell: "command -v docker"
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display message if Docker is not installed
+      debug:
+        msg: "Docker is not installed on this host."
+      when: docker_check.rc != 0
+
+    - name: Skip host if either Docker is missing
+      meta: end_host
+      when: docker_check.rc != 0
+
+    - name: Create host path directory for RabbitMQ data
+      file:
+        path: "{{ host_path }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Start RabbitMQ container
+      docker_container:
+        name: "{{ container_name }}"
+        image: "rabbitmq:{{ rabbitmq_version }}"
+        state: started
+        ports:
+          - "{{ host_port }}:5672"
+          - "{{ management_port }}:15672"
+        env:
+          RABBITMQ_DEFAULT_USER: "{{ admin_user }}"
+          RABBITMQ_DEFAULT_PASS: "{{ admin_password }}"
+        volumes:
+          - "{{ host_path }}:/var/lib/rabbitmq"
+
+    - name: Wait 30 seconds for RabbitMQ to initialize
+      pause:
+        seconds: 30
+
+    - name: Check RabbitMQ health status
+      uri:
+        url: "http://localhost:{{ management_port }}/api/healthchecks/node"
+        method: GET
+        user: "{{ admin_user }}"
+        password: "{{ admin_password }}"
+        status_code: 200
+      register: health_check
+      failed_when: health_check.status != 200
+      retries: 5
+      delay: 10
+      until: health_check.status == 200
+
+    - name: Display RabbitMQ installation completion message
+      debug:
+        msg: "RabbitMQ installation and configuration completed successfully. Management is available on port {{ management_port }}."
