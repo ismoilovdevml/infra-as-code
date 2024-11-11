@@ -1,70 +1,63 @@
 ---
-- name: Configure HashiCorp Vault
+- name: Configure and Initialize Vault
   hosts: all
-  become: yes
-  gather_facts: yes
+  become: true
   vars_files:
     - vars.yml
+
   tasks:
-    - name: Create Vault configuration directory
-      ansible.builtin.file:
-        path: "{{ vault_config_path }}"
+    - name: Create directories for Vault configuration and data
+      file:
+        path: "{{ item }}"
         state: directory
-        owner: vault
-        group: vault
         mode: '0755'
+      loop:
+        - "{{ vault_config_path }}"
+        - "{{ vault_data_path }}"
 
-    - name: Create Vault data directory
-      ansible.builtin.file:
-        path: "{{ vault_data_path }}"
-        state: directory
-        owner: vault
-        group: vault
-        mode: '0755'
-
-    - name: Create Vault configuration file
-      ansible.builtin.template:
+    - name: Deploy Vault configuration file
+      template:
         src: vault.hcl.j2
         dest: "{{ vault_config_path }}/vault.hcl"
-        owner: vault
-        group: vault
         mode: '0644'
-      notify: Restart Vault
 
-    - name: Enable and start Vault service
-      ansible.builtin.systemd:
+    - name: Start and enable Vault service
+      service:
         name: vault
-        enabled: yes
         state: started
+        enabled: true
+
+    - name: Add VAULT_ADDR to user's bashrc
+      lineinfile:
+        path: ~/.bashrc
+        line: "export VAULT_ADDR='{{ vault_api_addr }}'"
+        create: yes
+
+    - name: Source the updated bashrc
+      shell: source ~/.bashrc
+      args:
+        executable: /bin/bash
 
     - name: Check if Vault is already initialized
       command: vault status
-      register: vault_status
-      failed_when: false
+      register: vault_status_output
+      failed_when: vault_status_output.rc not in [0, 2]
       changed_when: false
-      environment:
-        VAULT_ADDR: "http://127.0.0.1:8200"
 
-    - name: Initialize Vault
+    - name: Initialize Vault if not already initialized
       command: vault operator init -format=json
-      register: vault_init
-      when: "'Initialized' not in vault_status.stdout"
-      environment:
-        VAULT_ADDR: "http://127.0.0.1:8200"
+      when: "'Initialized: true' not in vault_status_output.stdout"
+      register: vault_init_output
+      changed_when: false
 
-    - name: Display Unseal Keys and Root Token
+    - name: Display unseal keys and root token if initialization occurred
       debug:
         msg: |
-          Unseal Keys:
-          {% for key in vault_init.json.unseal_keys_b64 %}
+          Vault has been successfully initialized.
+          Access the UI at: {{ vault_api_addr }}
+          Unseal Keys (Base64):
+          {% for key in vault_init_output.stdout | from_json | json_query('unseal_keys_b64') %}
           - {{ key }}
           {% endfor %}
-          Root Token: {{ vault_init.json.root_token }}
-      when: vault_init is defined and 'unseal_keys_b64' in vault_init.json
-      failed_when: vault_init.json is not defined
-
-  handlers:
-    - name: Restart Vault
-      ansible.builtin.systemd:
-        name: vault
-        state: restarted
+          Root Token: {{ vault_init_output.stdout | from_json | json_query('root_token') }}
+      when: vault_init_output is defined
