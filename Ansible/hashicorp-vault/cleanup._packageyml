@@ -1,0 +1,66 @@
+---
+- name: Cleanup HashiCorp Vault Installation
+  hosts: all
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Remove HashiCorp GPG key for Ubuntu/Debian
+      ansible.builtin.apt_key:
+        url: https://apt.releases.hashicorp.com/gpg
+        state: absent
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Remove HashiCorp repository for Ubuntu/Debian
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_facts['lsb']['codename'] }} main"
+        state: absent
+        filename: hashicorp
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Uninstall Vault package on Ubuntu/Debian
+      ansible.builtin.apt:
+        name: vault
+        state: absent
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Remove HashiCorp repository for CentOS/RHEL
+      ansible.builtin.yum_repository:
+        name: hashicorp
+        state: absent
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Uninstall Vault package on CentOS/RHEL
+      ansible.builtin.yum:
+        name: vault
+        state: absent
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Remove HashiCorp repository for Fedora
+      ansible.builtin.dnf:
+        name: https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+        state: absent
+      when: ansible_facts['os_family'] == "Fedora"
+
+    - name: Uninstall Vault package on Fedora
+      ansible.builtin.dnf:
+        name: vault
+        state: absent
+      when: ansible_facts['os_family'] == "Fedora"
+
+    - name: Remove HashiCorp repository for Amazon Linux
+      ansible.builtin.yum_repository:
+        name: hashicorp
+        state: absent
+      when: ansible_facts['os_family'] == "Amazon"
+
+    - name: Uninstall Vault package on Amazon Linux
+      ansible.builtin.yum:
+        name: vault
+        state: absent
+      when: ansible_facts['os_family'] == "Amazon"
+
+    - name: Remove Vault data directory
+      ansible.builtin.file:
+        path: /opt/vault
+        state: absent
+      ignore_errors: yes

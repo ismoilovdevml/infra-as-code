@@ -39,13 +39,13 @@
         executable: /bin/bash
 
     - name: Check if Vault is already initialized
-      command: vault status
+      command: VAULT_ADDR={{ vault_api_addr }} vault status
       register: vault_status_output
       failed_when: vault_status_output.rc not in [0, 2]
       changed_when: false
 
     - name: Initialize Vault if not already initialized
-      command: vault operator init -format=json
+      command: VAULT_ADDR={{ vault_api_addr }} vault operator init -format=json
       when: "'Initialized: true' not in vault_status_output.stdout"
       register: vault_init_output
       changed_when: false
