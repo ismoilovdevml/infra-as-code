@@ -1,0 +1,5 @@
+---
+vault_config_path: /etc/vault.d
+vault_data_path: /opt/vault/data
+vault_listen_address: "0.0.0.0:8200"
+vault_api_addr: "http://127.0.0.1:8200"

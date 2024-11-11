@@ -1,0 +1,70 @@
+---
+- name: Configure HashiCorp Vault
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Create Vault configuration directory
+      ansible.builtin.file:
+        path: "{{ vault_config_path }}"
+        state: directory
+        owner: vault
+        group: vault
+        mode: '0755'
+
+    - name: Create Vault data directory
+      ansible.builtin.file:
+        path: "{{ vault_data_path }}"
+        state: directory
+        owner: vault
+        group: vault
+        mode: '0755'
+
+    - name: Create Vault configuration file
+      ansible.builtin.template:
+        src: vault.hcl.j2
+        dest: "{{ vault_config_path }}/vault.hcl"
+        owner: vault
+        group: vault
+        mode: '0644'
+      notify: Restart Vault
+
+    - name: Enable and start Vault service
+      ansible.builtin.systemd:
+        name: vault
+        enabled: yes
+        state: started
+
+    - name: Check if Vault is already initialized
+      command: vault status
+      register: vault_status
+      failed_when: false
+      changed_when: false
+      environment:
+        VAULT_ADDR: "http://127.0.0.1:8200"
+
+    - name: Initialize Vault
+      command: vault operator init -format=json
+      register: vault_init
+      when: "'Initialized' not in vault_status.stdout"
+      environment:
+        VAULT_ADDR: "http://127.0.0.1:8200"
+
+    - name: Display Unseal Keys and Root Token
+      debug:
+        msg: |
+          Unseal Keys:
+          {% for key in vault_init.json.unseal_keys_b64 %}
+          - {{ key }}
+          {% endfor %}
+          Root Token: {{ vault_init.json.root_token }}
+      when: vault_init is defined and 'unseal_keys_b64' in vault_init.json
+      failed_when: vault_init.json is not defined
+
+  handlers:
+    - name: Restart Vault
+      ansible.builtin.systemd:
+        name: vault
+        state: restarted

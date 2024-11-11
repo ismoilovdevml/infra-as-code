@@ -1,8 +1,10 @@
 ---
-- name: Install HashiCorp Vault on multiple operating systems
+- name: Install and Configure HashiCorp Vault
   hosts: all
   become: yes
   gather_facts: yes
+  vars_files:
+    - vars.yml
   tasks:
     - name: Add HashiCorp GPG key for Ubuntu/Debian
       ansible.builtin.apt_key:
@@ -89,12 +91,3 @@
         name: vault
         state: present
       when: ansible_facts['os_family'] == "Amazon"
-
-    - name: Verify Vault installation and display version
-      ansible.builtin.shell: "vault --version"
-      register: vault_version
-      changed_when: false
-
-    - name: Display Vault installation success message
-      ansible.builtin.debug:
-        msg: "HashiCorp Vault installation successful! Version: {{ vault_version.stdout }}"
