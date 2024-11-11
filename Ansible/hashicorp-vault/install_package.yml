@@ -1,0 +1,100 @@
+---
+- name: Install HashiCorp Vault on multiple operating systems
+  hosts: all
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Add HashiCorp GPG key for Ubuntu/Debian
+      ansible.builtin.apt_key:
+        url: https://apt.releases.hashicorp.com/gpg
+        state: present
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Add HashiCorp repository for Ubuntu/Debian
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_facts['lsb']['codename'] }} main"
+        state: present
+        filename: hashicorp
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Update package list and install Vault on Ubuntu/Debian
+      ansible.builtin.apt:
+        update_cache: yes
+        name: vault
+        state: present
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install yum-utils on CentOS/RHEL
+      ansible.builtin.yum:
+        name: yum-utils
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Add HashiCorp repository for CentOS/RHEL
+      ansible.builtin.yum_repository:
+        name: hashicorp
+        description: "HashiCorp Stable - $basearch"
+        baseurl: https://rpm.releases.hashicorp.com/RHEL/$releasever/$basearch/stable
+        gpgcheck: yes
+        repo_gpgcheck: yes
+        enabled: yes
+        gpgkey: https://rpm.releases.hashicorp.com/gpg
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Install Vault on CentOS/RHEL
+      ansible.builtin.yum:
+        name: vault
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Install dnf-plugins-core on Fedora
+      ansible.builtin.dnf:
+        name: dnf-plugins-core
+        state: present
+      when: ansible_facts['os_family'] == "Fedora"
+
+    - name: Add HashiCorp repository for Fedora
+      ansible.builtin.dnf:
+        name: https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+        state: present
+      when: ansible_facts['os_family'] == "Fedora"
+
+    - name: Install Vault on Fedora
+      ansible.builtin.dnf:
+        name: vault
+        state: present
+      when: ansible_facts['os_family'] == "Fedora"
+
+    - name: Install yum-utils and shadow-utils on Amazon Linux
+      ansible.builtin.yum:
+        name:
+          - yum-utils
+          - shadow-utils
+        state: present
+      when: ansible_facts['os_family'] == "Amazon"
+
+    - name: Add HashiCorp repository for Amazon Linux
+      ansible.builtin.yum_repository:
+        name: hashicorp
+        description: "HashiCorp Stable - $basearch"
+        baseurl: https://rpm.releases.hashicorp.com/AmazonLinux/$releasever/$basearch/stable
+        gpgcheck: yes
+        repo_gpgcheck: yes
+        enabled: yes
+        gpgkey: https://rpm.releases.hashicorp.com/gpg
+      when: ansible_facts['os_family'] == "Amazon"
+
+    - name: Install Vault on Amazon Linux
+      ansible.builtin.yum:
+        name: vault
+        state: present
+      when: ansible_facts['os_family'] == "Amazon"
+
+    - name: Verify Vault installation and display version
+      ansible.builtin.shell: "vault --version"
+      register: vault_version
+      changed_when: false
+
+    - name: Display Vault installation success message
+      ansible.builtin.debug:
+        msg: "HashiCorp Vault installation successful! Version: {{ vault_version.stdout }}"

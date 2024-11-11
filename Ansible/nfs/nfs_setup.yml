@@ -1,12 +1,8 @@
 ---
 - hosts: nfs_server
   become: yes
-  vars:
-    nfs_export_path: /srv/nfs
-    nfs_allowed_hosts: "*"
-    nfs_service_name:
-      RedHat: nfs-server
-      Debian: nfs-kernel-server
+  vars_files:
+    - vars.yml
 
   tasks:
     - name: Install NFS packages (RedHat)
