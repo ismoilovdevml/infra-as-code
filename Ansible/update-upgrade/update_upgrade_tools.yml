@@ -5,9 +5,9 @@
   tasks:
     - name: Gather OS facts
       ansible.builtin.setup:
-        filter: ansible_distribution*
+        filter: ansible_os_family
 
-    - name: Update and upgrade Ubuntu/Debian
+    - name: Update and upgrade Debian-based systems (Ubuntu, Debian)
       block:
         - name: Update package list
           ansible.builtin.apt:
@@ -17,42 +17,27 @@
         - name: Upgrade packages
           ansible.builtin.apt:
             upgrade: dist
-      when: ansible_distribution in ['Ubuntu', 'Debian']
+      when: ansible_os_family == 'Debian'
 
-    - name: Install GPG key for EPEL on RHEL/Rocky
+    - name: Install GPG key and EPEL repo on RedHat-based systems (RedHat, CentOS, Rocky)
       block:
         - name: Install GPG key for EPEL
           ansible.builtin.rpm_key:
             state: present
             key: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{ ansible_distribution_major_version }}
-      when: ansible_distribution in ['RedHat', 'Rocky']
-
-    - name: Install EPEL repository on RHEL/Rocky (manual download)
-      block:
-        - name: Download EPEL repository RPM for RHEL/Rocky
+        
+        - name: Download and install EPEL repository RPM
           ansible.builtin.get_url:
             url: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
             dest: "/tmp/epel-release.rpm"
-
-        - name: Install EPEL repository RPM for RHEL/Rocky
-          ansible.builtin.yum:
+        
+        - name: Install EPEL repository
+          ansible.builtin.dnf:
             name: "/tmp/epel-release.rpm"
             state: present
-      when: ansible_distribution in ['RedHat', 'Rocky']
+      when: ansible_os_family == 'RedHat'
 
-    - name: Update and upgrade CentOS/RHEL/Rocky
-      block:
-        - name: Update package list
-          ansible.builtin.yum:
-            update_cache: yes
-
-        - name: Upgrade packages
-          ansible.builtin.yum:
-            name: "*"
-            state: latest
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Rocky']
-
-    - name: Update and upgrade Fedora
+    - name: Update and upgrade RedHat-based systems (RedHat, CentOS, Rocky)
       block:
         - name: Update package list
           ansible.builtin.dnf:
@@ -62,9 +47,21 @@
           ansible.builtin.dnf:
             name: "*"
             state: latest
-      when: ansible_distribution == 'Fedora'
+      when: ansible_os_family == 'RedHat'
 
-    - name: Install required tools on Ubuntu/Debian
+    - name: Update and upgrade SUSE-based systems
+      block:
+        - name: Refresh package list
+          ansible.builtin.zypper:
+            update_cache: yes
+
+        - name: Upgrade packages
+          ansible.builtin.zypper:
+            name: "*"
+            state: latest
+      when: ansible_os_family == 'Suse'
+
+    - name: Install required tools on Debian-based systems
       block:
         - name: Install common tools
           ansible.builtin.apt:
@@ -78,25 +75,9 @@
               - net-tools
               - traceroute
             state: present
-      when: ansible_distribution in ['Ubuntu', 'Debian']
+      when: ansible_os_family == 'Debian'
 
-    - name: Install required tools on CentOS/RHEL/Rocky
-      block:
-        - name: Install common tools
-          ansible.builtin.yum:
-            name:
-              - git
-              - curl
-              - wget
-              - vim
-              - htop
-              - nano
-              - net-tools
-              - traceroute
-            state: present
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Rocky']
-
-    - name: Install required tools on Fedora
+    - name: Install required tools on RedHat-based systems
       block:
         - name: Install common tools
           ansible.builtin.dnf:
@@ -110,4 +91,20 @@
               - net-tools
               - traceroute
             state: present
-      when: ansible_distribution == 'Fedora'
+      when: ansible_os_family == 'RedHat'
+
+    - name: Install required tools on SUSE-based systems
+      block:
+        - name: Install common tools
+          ansible.builtin.zypper:
+            name:
+              - git
+              - curl
+              - wget
+              - vim
+              - htop
+              - nano
+              - net-tools
+              - traceroute
+            state: present
+      when: ansible_os_family == 'Suse'

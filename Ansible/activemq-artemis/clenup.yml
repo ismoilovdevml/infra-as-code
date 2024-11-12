@@ -1,0 +1,48 @@
+---
+- name: Cleanup ActiveMQ Artemis installation
+  hosts: artemis_servers
+  become: yes
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Stop and disable Artemis service
+      systemd:
+        name: artemis
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: Remove Artemis systemd service file
+      file:
+        path: /etc/systemd/system/artemis.service
+        state: absent
+
+    - name: Reload systemd daemon after service removal
+      command: systemctl daemon-reload
+
+    - name: Delete Artemis instance directory
+      file:
+        path: "{{ artemis_instance_dir }}"
+        state: absent
+
+    - name: Delete Artemis installation directory
+      file:
+        path: "{{ artemis_install_dir }}"
+        state: absent
+
+    - name: Remove temporary downloaded file
+      file:
+        path: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
+        state: absent
+
+    - name: Remove artemis user
+      user:
+        name: "{{ artemis_user }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove artemis group
+      group:
+        name: "{{ artemis_group }}"
+        state: absent
+      ignore_errors: yes
