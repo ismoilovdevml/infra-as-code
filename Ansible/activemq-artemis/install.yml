@@ -2,19 +2,8 @@
 - name: Install ActiveMQ Artemis on multiple OS
   hosts: artemis_servers
   become: yes
-  vars:
-    java_packages:
-      "Ubuntu": "openjdk-11-jdk"
-      "Debian": "openjdk-11-jdk"
-      "Rocky": "java-11-openjdk"
-      "CentOS": "java-11-openjdk"
-    artemis_version: "2.37.0"
-    artemis_url: "https://downloads.apache.org/activemq/activemq-artemis/{{ artemis_version }}/apache-artemis-{{ artemis_version }}-bin.tar.gz"
-    artemis_install_dir: "/opt/artemis"
-    artemis_instance_dir: "/opt/artemis-instance"
-    artemis_user: "artemis"
-    artemis_group: "artemis"
-    artemis_password: "329awfas"
+  vars_files:
+    - vars.yml
 
   tasks:
     - name: Ensure required packages are installed

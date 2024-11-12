@@ -91,3 +91,12 @@
         name: vault
         state: present
       when: ansible_facts['os_family'] == "Amazon"
+
+    - name: Display Vault version after successful installation
+      ansible.builtin.shell: "vault --version"
+      register: vault_version
+      changed_when: false
+
+    - name: Show installation success message with Vault version
+      ansible.builtin.debug:
+        msg: "Vault has been successfully installed. Version: {{ vault_version.stdout }}"
