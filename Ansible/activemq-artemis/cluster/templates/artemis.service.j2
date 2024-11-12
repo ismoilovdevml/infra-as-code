@@ -1,0 +1,14 @@
+[Unit]
+Description=ActiveMQ Artemis Service
+After=network.target
+
+[Service]
+Type=forking
+ExecStart={{ artemis_instance_dir }}/bin/artemis-service start
+ExecStop={{ artemis_instance_dir }}/bin/artemis-service stop
+User={{ artemis_user }}
+Group={{ artemis_group }}
+Restart=on-abort
+
+[Install]
+WantedBy=multi-user.target

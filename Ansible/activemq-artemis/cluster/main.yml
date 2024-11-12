@@ -1,0 +1,12 @@
+---
+- name: Bootstrap server
+  import_playbook: bootstrap_server.yml
+
+- name: Setup NFS
+  import_playbook: setup_nfs.yml
+
+- name: Install Artemis
+  import_playbook: install_artemis.yml
+
+# - name: Cluster Bootstrap
+#   import_playbook: cluster_bootstrap.yml

@@ -1,6 +1,6 @@
 ---
 - name: Install ActiveMQ Artemis on multiple OS
-  hosts: artemis_servers
+  hosts: master,nodes
   become: yes
   vars_files:
     - vars.yml
@@ -80,7 +80,7 @@
 
     - name: Deploy Artemis systemd service file
       template:
-        src: artemis.service.j2
+        src: templates/artemis.service.j2
         dest: /etc/systemd/system/artemis.service
         owner: root
         group: root
