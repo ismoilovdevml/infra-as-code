@@ -8,7 +8,7 @@
   tasks:
     - name: Configure master broker
       ansible.builtin.template:
-        src: "master-broker.xml.j2"
+        src: "templates/master-broker.xml.j2"
         dest: "{{ artemis_instance_dir }}/etc/broker.xml"
         owner: "{{ artemis_user }}"
         group: "{{ artemis_group }}"
@@ -21,6 +21,11 @@
         enabled: yes
       notify: "Pause before node restart"
 
+  handlers:
+    - name: Pause before node restart
+      ansible.builtin.pause:
+        minutes: 1
+
 - name: Configure ActiveMQ Artemis Nodes
   hosts: nodes
   become: true
@@ -30,7 +35,7 @@
   tasks:
     - name: Configure node broker
       ansible.builtin.template:
-        src: "node-broker.xml.j2"
+        src: "templates/node-broker.xml.j2"
         dest: "{{ artemis_instance_dir }}/etc/broker.xml"
         owner: "{{ artemis_user }}"
         group: "{{ artemis_group }}"

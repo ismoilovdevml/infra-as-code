@@ -143,33 +143,34 @@ under the License.
            if global-max-size is specified the full address mode will be specified by whatever hits it first. -->
       <global-max-messages>-1</global-max-messages>
       <!-- Cluster Configuration: Connectors and Cluster-Connections -->
-      <acceptors>
       <connectors>
-         {% for name, url in connectors.items() %}
+      {% for name, url in connectors.items() %}
          <connector name="{{ name }}">{{ url }}</connector>
-         {% endfor %}
+      {% endfor %}
       </connectors>
 
       <ha-policy>
          <shared-store>
-         <master>
-            <failover-on-shutdown>true</failover-on-shutdown>
-            <wait-for-activation>true</wait-for-activation>
-         </master>
+            <master>
+                  <failover-on-shutdown>true</failover-on-shutdown>
+                  <wait-for-activation>true</wait-for-activation>
+            </master>
          </shared-store>
       </ha-policy>
 
       <cluster-connections>
          <cluster-connection name="activemq-artemis-cluster">
-         <address>jms</address>
-         <connector-ref>master</connector-ref>
-         <static-connectors>
-            {% for name in connectors.keys() %}
-            <connector-ref>{{ name }}</connector-ref>
-            {% endfor %}
-         </static-connectors>
+            <address>jms</address>
+            <connector-ref>master</connector-ref>
+            <static-connectors>
+      {% for name in connectors.keys() %}
+                  <connector-ref>{{ name }}</connector-ref>
+      {% endfor %}
+            </static-connectors>
          </cluster-connection>
       </cluster-connections>
+
+      <acceptors>
          <!-- useEpoll means: it will use Netty epoll if you are on a system (Linux) that supports it -->
          <!-- amqpCredits: The number of credits sent to AMQP producers -->
          <!-- amqpLowCredits: The server will send the # credits specified at amqpCredits at this low mark -->

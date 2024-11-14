@@ -23,6 +23,6 @@ nfs_mount_paths:
   node2: "/mnt/artemis-cluster-node2-prod"
 
 connectors:
-  master: "tcp://10.7.38.61:61616"
-  node1: "tcp://10.1.87.60:61616"
-  node2: "tcp://10.7.87.59:61616"
+  master: "tcp://{{ hostvars['master']['ansible_host'] }}:61616"
+  node1: "tcp://{{ hostvars['node1']['ansible_host'] }}:61616"
+  node2: "tcp://{{ hostvars['node2']['ansible_host'] }}:61616"

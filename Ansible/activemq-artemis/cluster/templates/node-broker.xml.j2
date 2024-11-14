@@ -145,31 +145,33 @@ under the License.
       <!-- the maximum number of messages accepted before entering full address mode.
            if global-max-size is specified the full address mode will be specified by whatever hits it first. -->
       <global-max-messages>-1</global-max-messages>
-        <connectors>
-            {% for name, url in connectors.items() %}
-            <connector name="{{ name }}">{{ url }}</connector>
-            {% endfor %}
-        </connectors>
 
-        <ha-policy>
-        <shared-store>
+      <connectors>
+         {% for name, url in connectors.items() %}
+         <connector name="{{ name }}">{{ url }}</connector>
+         {% endfor %}
+      </connectors>
+
+      <ha-policy>
+         <shared-store>
             <slave>
-            <allow-failback>true</allow-failback>
+               <allow-failback>true</allow-failback>
             </slave>
-        </shared-store>
-        </ha-policy>
+         </shared-store>
+      </ha-policy>
 
-        <cluster-connections>
-        <cluster-connection name="activemq-artemis-cluster">
+      <cluster-connections>
+         <cluster-connection name="activemq-artemis-cluster">
             <address>jms</address>
             <connector-ref>{{ inventory_hostname }}</connector-ref>
             <static-connectors>
-            {% for name in connectors.keys() %}
-            <connector-ref>{{ name }}</connector-ref>
-            {% endfor %}
+               {% for name in connectors.keys() %}
+               <connector-ref>{{ name }}</connector-ref>
+               {% endfor %}
             </static-connectors>
-        </cluster-connection>
+         </cluster-connection>
       </cluster-connections>
+
       <acceptors>
 
          <!-- useEpoll means: it will use Netty epoll if you are on a system (Linux) that supports it -->
