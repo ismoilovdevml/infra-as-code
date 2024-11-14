@@ -1,10 +1,10 @@
 ---
 java_packages:
-  "Ubuntu": "openjdk-11-jdk"
-  "Debian": "openjdk-11-jdk"
-  "Rocky": "java-11-openjdk"
-  "CentOS": "java-11-openjdk"
-artemis_version: "2.37.0"
+  "Ubuntu": "openjdk-17-jdk"
+  "Debian": "openjdk-17-jdk"
+  "Rocky": "java-17-openjdk"
+  "CentOS": "java-17-openjdk"
+artemis_version: "2.38.0"
 artemis_url: "https://downloads.apache.org/activemq/activemq-artemis/{{ artemis_version }}/apache-artemis-{{ artemis_version }}-bin.tar.gz"
 artemis_install_dir: "/opt/artemis"
 artemis_instance_dir: "/opt/artemis-instance"
