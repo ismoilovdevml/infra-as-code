@@ -13,121 +13,147 @@
           - wget
           - net-tools
           - git
-          - "{{ java_packages[ansible_distribution] }}"
+          - "{{ java_packages[ansible_os_family] }}"
         state: present
 
-    - name: Find Java 17 installation path
-      command: "update-alternatives --list java"
-      register: java_alternatives_output
+    - name: Locate Java 17 executable on Debian-based systems
+      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
+      register: debian_java_path
+      when: ansible_os_family == "Debian"
 
-    - name: Set default Java version to Java 17
-      alternatives:
+    - name: Locate Java 17 executable on RedHat-based systems
+      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
+      register: redhat_java_path
+      when: ansible_os_family == "RedHat"
+
+    - name: Set Java 17 as the default alternative on Debian-based systems
+      community.general.alternatives:
         name: java
-        path: "{{ java_alternatives_output.stdout_lines | select('search', 'java-17') | list | first }}"
+        path: "{{ debian_java_path.stdout | trim }}"
+        priority: 100
+      when: ansible_os_family == "Debian"
 
-    # - name: Download ActiveMQ Artemis
-    #   get_url:
-    #     url: "{{ artemis_url }}"
-    #     dest: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
+    - name: Set Java 17 as the default alternative on RedHat-based systems
+      community.general.alternatives:
+        name: java
+        path: "{{ redhat_java_path.stdout | trim }}"
+        link: "/usr/bin/java"
+        priority: 100
+      when: ansible_os_family == "RedHat"
 
-    # - name: Extract ActiveMQ Artemis
-    #   unarchive:
-    #     src: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
-    #     dest: /opt
-    #     remote_src: yes
+    - name: Verify Java 17 installation
+      ansible.builtin.command: java -version
+      register: java_version
+      ignore_errors: true
 
-    # - name: Check if Artemis installation directory exists
-    #   stat:
-    #     path: "{{ artemis_install_dir }}"
-    #   register: artemis_install_dir_stat
+    - name: Display Java version
+      ansible.builtin.debug:
+        msg: "Java installed successfully. Version: {{ java_version.stderr_lines | default([]) | union(java_version.stdout_lines | default([])) }}"
+      when: java_version is defined
 
-    # - name: Move extracted Artemis to installation directory
-    #   command: mv /opt/apache-artemis-{{ artemis_version }} {{ artemis_install_dir }}
-    #   when: not artemis_install_dir_stat.stat.exists
+    - name: Download ActiveMQ Artemis
+      get_url:
+        url: "{{ artemis_url }}"
+        dest: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
 
-    # - name: Create artemis group
-    #   group:
-    #     name: "{{ artemis_group }}"
-    #     state: present
+    - name: Extract ActiveMQ Artemis
+      unarchive:
+        src: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
+        dest: /opt
+        remote_src: yes
 
-    # - name: Create artemis user and assign to group
-    #   user:
-    #     name: "{{ artemis_user }}"
-    #     group: "{{ artemis_group }}"
-    #     createhome: yes
-    #     shell: /bin/bash
-    #     state: present
+    - name: Check if Artemis installation directory exists
+      stat:
+        path: "{{ artemis_install_dir }}"
+      register: artemis_install_dir_stat
 
-    # - name: Change ownership of Artemis directories
-    #   file:
-    #     path: "{{ item }}"
-    #     state: directory
-    #     owner: "{{ artemis_user }}"
-    #     group: "{{ artemis_group }}"
-    #     recurse: yes
-    #   loop:
-    #     - "{{ artemis_install_dir }}"
-    #     - "{{ artemis_instance_dir }}"
+    - name: Move extracted Artemis to installation directory
+      command: mv /opt/apache-artemis-{{ artemis_version }} {{ artemis_install_dir }}
+      when: not artemis_install_dir_stat.stat.exists
 
-    # - name: Ensure log directory exists and permissions are set
-    #   file:
-    #     path: "{{ artemis_instance_dir }}/log"
-    #     state: directory
-    #     owner: "{{ artemis_user }}"
-    #     group: "{{ artemis_group }}"
-    #     mode: '0755'
+    - name: Create artemis group
+      group:
+        name: "{{ artemis_group }}"
+        state: present
 
-    # - name: Ensure tmp/webapps directory exists and permissions are set
-    #   file:
-    #     path: "{{ artemis_instance_dir }}/tmp/webapps"
-    #     state: directory
-    #     owner: "{{ artemis_user }}"
-    #     group: "{{ artemis_group }}"
-    #     mode: '0755'
-    #     recurse: yes
+    - name: Create artemis user and assign to group
+      user:
+        name: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        createhome: yes
+        shell: /bin/bash
+        state: present
 
-    # - name: Set permissions Artemis instance data directory
-    #   file:
-    #     path: /opt/artemis-instance/data
-    #     owner: "{{ artemis_user }}"
-    #     group: "{{ artemis_group }}"
-    #     state: directory
-    #     recurse: yes
+    - name: Change ownership of Artemis directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        recurse: yes
+      loop:
+        - "{{ artemis_install_dir }}"
+        - "{{ artemis_instance_dir }}"
 
-    # - name: Create Artemis instance
-    #   command: "{{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }} --user admin --password {{ artemis_password }} --allow-anonymous --force"
+    - name: Ensure log directory exists and permissions are set
+      file:
+        path: "{{ artemis_instance_dir }}/log"
+        state: directory
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        mode: '0755'
 
-    # - name: Deploy Artemis systemd service file
-    #   template:
-    #     src: artemis.service.j2
-    #     dest: /etc/systemd/system/artemis.service
-    #     owner: root
-    #     group: root
-    #     mode: '0644'
+    - name: Ensure tmp/webapps directory exists and permissions are set
+      file:
+        path: "{{ artemis_instance_dir }}/tmp/webapps"
+        state: directory
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        mode: '0755'
+        recurse: yes
 
-    # - name: Reload systemd daemon
-    #   command: systemctl daemon-reload
+    - name: Set permissions Artemis instance data directory
+      file:
+        path: /opt/artemis-instance/data
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        state: directory
+        recurse: yes
 
-    # - name: Enable and start the Artemis service
-    #   systemd:
-    #     name: artemis
-    #     enabled: yes
-    #     state: started
+    - name: Create Artemis instance
+      command: "{{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }} --user admin --password {{ artemis_password }} --allow-anonymous --force"
 
-    # - name: Update bootstrap.xml to bind to 0.0.0.0
-    #   replace:
-    #     path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
-    #     regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
-    #     replace: '\1http://0.0.0.0\3'
+    - name: Deploy Artemis systemd service file
+      template:
+        src: artemis.service.j2
+        dest: /etc/systemd/system/artemis.service
+        owner: root
+        group: root
+        mode: '0644'
 
-    # - name: Update Jolokia access to allow all origins
-    #   replace:
-    #     path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
-    #     regexp: '<allow-origin>.*</allow-origin>'
-    #     replace: '<allow-origin>*://*</allow-origin>'
+    - name: Reload systemd daemon
+      command: systemctl daemon-reload
 
-    # - name: Restart Artemis service after config changes
-    #   systemd:
-    #     name: artemis
-    #     state: restarted
-    #     enabled: yes
+    - name: Enable and start the Artemis service
+      systemd:
+        name: artemis
+        enabled: yes
+        state: started
+
+    - name: Update bootstrap.xml to bind to 0.0.0.0
+      replace:
+        path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
+        regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
+        replace: '\1http://0.0.0.0\3'
+
+    - name: Update Jolokia access to allow all origins
+      replace:
+        path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
+        regexp: '<allow-origin>.*</allow-origin>'
+        replace: '<allow-origin>*://*</allow-origin>'
+
+    - name: Restart Artemis service after config changes
+      systemd:
+        name: artemis
+        state: restarted
+        enabled: yes

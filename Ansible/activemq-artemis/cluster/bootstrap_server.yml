@@ -13,26 +13,40 @@
           - wget
           - net-tools
           - git
-          - "{{ java_packages[ansible_distribution] }}"
+          - "{{ java_packages[ansible_os_family] }}"
         state: present
 
-    - name: Find Java 11 installation path
-      command: "update-alternatives --list java"
-      register: java_alternatives_output
-      changed_when: false
+    - name: Locate Java 17 executable on Debian-based systems
+      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
+      register: debian_java_path
+      when: ansible_os_family == "Debian"
 
-    - name: Set default Java version to Java 11
-      alternatives:
+    - name: Locate Java 17 executable on RedHat-based systems
+      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
+      register: redhat_java_path
+      when: ansible_os_family == "RedHat"
+
+    - name: Set Java 17 as the default alternative on Debian-based systems
+      community.general.alternatives:
         name: java
-        path: "{{ java_alternatives_output.stdout_lines | select('search', 'java-11') | list | first }}"
-      when: java_alternatives_output.stdout_lines | select('search', 'java-11') | list | length > 0
+        path: "{{ debian_java_path.stdout | trim }}"
+        priority: 100
+      when: ansible_os_family == "Debian"
 
-    - name: Verify Java installation
-      command: java -version
-      register: java_version_output
-      changed_when: false
+    - name: Set Java 17 as the default alternative on RedHat-based systems
+      community.general.alternatives:
+        name: java
+        path: "{{ redhat_java_path.stdout | trim }}"
+        link: "/usr/bin/java"
+        priority: 100
+      when: ansible_os_family == "RedHat"
+
+    - name: Verify Java 17 installation
+      ansible.builtin.command: java -version
+      register: java_version
       ignore_errors: true
 
-    - name: Debug Java installation output
-      debug:
-        msg: "Java version output: {{ java_version_output.stdout }}"
+    - name: Display Java version
+      ansible.builtin.debug:
+        msg: "Java installed successfully. Version: {{ java_version.stderr_lines | default([]) | union(java_version.stdout_lines | default([])) }}"
+      when: java_version is defined

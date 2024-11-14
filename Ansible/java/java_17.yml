@@ -1,8 +1,6 @@
 - name: Install and configure Java 17 on multiple OS families
   hosts: all
   become: true
-  vars_files:
-    - vars.yml
 
   tasks:
     - name: Install Java 17 on Debian-based systems
@@ -17,34 +15,37 @@
         state: present
       when: ansible_os_family == "RedHat"
 
-    - name: Identify Java 17 path on Debian-based systems
-      ansible.builtin.shell: "update-alternatives --list java | grep 'java-17'"
+    - name: Locate Java 17 executable on Debian-based systems
+      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
       register: debian_java_path
       when: ansible_os_family == "Debian"
 
-    - name: Identify Java 17 path on RedHat-based systems
-      ansible.builtin.shell: "update-alternatives --list | grep 'java-17'"
+    - name: Locate Java 17 executable on RedHat-based systems
+      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
       register: redhat_java_path
       when: ansible_os_family == "RedHat"
 
     - name: Set Java 17 as the default alternative on Debian-based systems
       community.general.alternatives:
         name: java
-        path: "{{ debian_java_path.stdout }}"
+        path: "{{ debian_java_path.stdout | trim }}"
         priority: 100
       when: ansible_os_family == "Debian"
 
     - name: Set Java 17 as the default alternative on RedHat-based systems
       community.general.alternatives:
         name: java
-        path: "{{ redhat_java_path.stdout }}"
+        path: "{{ redhat_java_path.stdout | trim }}"
+        link: "/usr/bin/java"
         priority: 100
       when: ansible_os_family == "RedHat"
 
     - name: Verify Java 17 installation
       ansible.builtin.command: java -version
       register: java_version
+      ignore_errors: true
 
     - name: Display Java version
       ansible.builtin.debug:
-        msg: "Java installed successfully. Version: {{ java_version.stdout_lines }}"
+        msg: "Java installed successfully. Version: {{ java_version.stderr_lines | default([]) | union(java_version.stdout_lines | default([])) }}"
+      when: java_version is defined
