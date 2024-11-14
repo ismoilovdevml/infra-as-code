@@ -58,6 +58,19 @@
     - vars.yml
 
   tasks:
+    - name: Install NFS client packages on Debian/Ubuntu
+      apt:
+        name: nfs-common
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install NFS client packages on RedHat/CentOS
+      yum:
+        name: nfs-utils
+        state: present
+      when: ansible_os_family == "RedHat"
+
     - name: Ensure mount directory exists on master and nodes
       file:
         path: "{{ nfs_mount_paths[inventory_hostname] }}"

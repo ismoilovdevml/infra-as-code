@@ -1,0 +1,48 @@
+---
+- name: Configure ActiveMQ Artemis Cluster
+  hosts: master
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Configure master broker
+      ansible.builtin.template:
+        src: "master-broker.xml.j2"
+        dest: "{{ artemis_instance_dir }}/etc/broker.xml"
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        mode: '0644'
+
+    - name: Restart ActiveMQ Artemis on master
+      ansible.builtin.systemd:
+        name: artemis
+        state: restarted
+        enabled: yes
+      notify: "Pause before node restart"
+
+- name: Configure ActiveMQ Artemis Nodes
+  hosts: nodes
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Configure node broker
+      ansible.builtin.template:
+        src: "node-broker.xml.j2"
+        dest: "{{ artemis_instance_dir }}/etc/broker.xml"
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        mode: '0644'
+
+    - name: Restart ActiveMQ Artemis on nodes
+      ansible.builtin.systemd:
+        name: artemis
+        state: restarted
+        enabled: yes
+
+  handlers:
+    - name: Pause before node restart
+      ansible.builtin.pause:
+        minutes: 1

@@ -16,9 +16,13 @@ nfs_allowed_hosts: "*"
 nfs_service_name:
   RedHat: nfs-server
   Debian: nfs-kernel-server
-nfs_server_ip: "198.211.96.150"
+nfs_server_ip: "34.70.204.185"
 nfs_mount_paths:
   master: "/mnt/artemis-cluster-master-prod"
-  nodes:
-    node1: "/mnt/artemis-cluster-node1-prod"
-    node2: "/mnt/artemis-cluster-node2-prod"
+  node1: "/mnt/artemis-cluster-node1-prod"
+  node2: "/mnt/artemis-cluster-node2-prod"
+
+connectors:
+  master: "tcp://10.7.38.61:61616"
+  node1: "tcp://10.1.87.60:61616"
+  node2: "tcp://10.7.87.59:61616"
