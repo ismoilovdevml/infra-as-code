@@ -1,0 +1,35 @@
+---
+- name: Configure Keepalived on Master and Slave servers
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Ensure Keepalived is installed
+      ansible.builtin.package:
+        name: keepalived
+        state: present
+
+    - name: Generate Keepalived configuration for master
+      ansible.builtin.template:
+        src: templates/master.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: 0644
+      when: "'master' in group_names"
+
+    - name: Generate Keepalived configuration for slaves
+      ansible.builtin.template:
+        src: templates/slave.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: 0644
+      when: "'slave' in group_names"
+
+    - name: Restart Keepalived service
+      ansible.builtin.service:
+        name: keepalived
+        state: restarted

@@ -144,9 +144,9 @@ under the License.
       <global-max-messages>-1</global-max-messages>
       <!-- Cluster Configuration: Connectors and Cluster-Connections -->
       <connectors>
-      {% for name, url in connectors.items() %}
-         <connector name="{{ name }}">{{ url }}</connector>
-      {% endfor %}
+         {% for name, url in connectors.items() %}
+            <connector name="{{ name }}">{{ url }}</connector>
+         {% endfor %}
       </connectors>
 
       <ha-policy>

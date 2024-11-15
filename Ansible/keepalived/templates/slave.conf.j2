@@ -1,0 +1,14 @@
+vrrp_instance VI_1 {
+   state BACKUP
+   interface {{ interface }}
+   virtual_router_id {{ virtual_router_id }}
+   priority {{ slave_priority }}
+   advert_int {{ advert_int }}
+   authentication {
+       auth_type PASS
+       auth_pass {{ auth_pass }}
+   }
+   virtual_ipaddress {
+       {{ virtual_ipaddress }}
+   }
+}

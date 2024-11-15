@@ -1,0 +1,16 @@
+---
+- name: Install Keepalived on multiple OS families
+  hosts: all
+  become: true
+  tasks:
+    - name: Install Keepalived on Debian/Ubuntu systems
+      ansible.builtin.package:
+        name: keepalived
+        state: present
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Install Keepalived on Red Hat/CentOS systems
+      ansible.builtin.package:
+        name: keepalived
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
