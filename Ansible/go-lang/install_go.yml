@@ -1,12 +1,7 @@
 ---
 - hosts: go_servers
   become: yes
-  vars:
-    go_version: "1.23.1"
-    go_platform: linux
-    go_arch: amd64
-    go_tarball: go{{ go_version }}.{{ go_platform }}-{{ go_arch }}.tar.gz
-    go_download_url: https://dl.google.com/go/{{ go_tarball }}
-    go_checksum: "49bbb517cfa9eee677e1e7897f7cf9cfdbcf49e05f61984a2789136de359f9bd"  # Correct checksum here https://go.dev/dl/
+  vars_files:
+    - vars.yml
   roles:
     - geerlingguy.go

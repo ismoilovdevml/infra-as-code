@@ -1,0 +1,19 @@
+---
+firewalld_vars:
+  install_firewalld: false
+  open_ports:
+    - 80    # HTTP
+    - 443   # HTTPS
+    - 22    # SSH
+  close_ports:
+    - 8080  # Example of closing port 8080
+    - 3306  # MySQL
+ufw_vars:
+  install_ufw: false
+  open_ports:
+    - 80    # HTTP
+    - 443   # HTTPS
+    - 22    # SSH
+  close_ports:
+    - 8080  # Example of closing port 8080
+    - 3306  # MySQL
