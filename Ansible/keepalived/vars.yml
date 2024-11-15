@@ -1,8 +1,8 @@
-# vars.yml
-interface: eth0
+---
+interface: eth1
 virtual_router_id: 51
 auth_pass: 1111
-virtual_ipaddress: 192.168.1.100
+virtual_ipaddress: 10.116.0.68
 master_priority: 100
 slave_priority: 80
 advert_int: 1

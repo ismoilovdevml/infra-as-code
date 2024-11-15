@@ -14,3 +14,22 @@
         name: keepalived
         state: present
       when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Run keepalived --version and capture output
+      ansible.builtin.command: keepalived --version
+      register: keepalived_version
+      changed_when: false
+
+    - name: Combine stdout and stderr
+      ansible.builtin.set_fact:
+        keepalived_version_combined: >
+          {{ keepalived_version.stdout + keepalived_version.stderr }}
+
+    - name: Extract only Keepalived version
+      ansible.builtin.set_fact:
+        keepalived_version_only: >
+          {{ keepalived_version_combined | regex_search('Keepalived v[0-9.]+') | default('Unknown version') }}
+
+    - name: Display Keepalived version
+      ansible.builtin.debug:
+        msg: "Keepalived version: {{ keepalived_version_only }}"
