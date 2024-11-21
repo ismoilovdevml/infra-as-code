@@ -1,20 +1,35 @@
-# PMM Server variables
+---
+# PMM Server configuration
 pmm_image: "percona/pmm-server:2"
 pmm_data_dir: "/srv/pmm"  # Host path where PMM data will be stored
 pmm_container_name: "pmm-server"
+pmm_server_address: "34.56.26.160:443"  # Replace with actual PMM Server IP/hostname
+pmm_server_username: "admin"
 admin_password: "olcd230d"  # Replace with your desired admin password
-# PMM Clients variables
+pmm_server_insecure_tls: "1"
+
+# PMM Client configuration
 pmm_client_docker_image: "percona/pmm-client"
 pmm_client_docker_tag: "2"
 pmm_client_container: "pmm-client"
 pmm_data_host_path: "/mnt/pmm-data"
-pmm_server_address: "34.56.26.160:443"  # Replace X.X.X.X with your actual PMM server IP
-pmm_server_username: "admin"
-pmm_server_insecure_tls: "1"
 pmm_agent_config_file: "config/pmm-agent.yaml"
 percona_deb_repo_url: "https://repo.percona.com/apt/percona-release_latest.generic_all.deb"
 percona_rpm_repo_url: "https://repo.percona.com/yum/percona-release-latest.noarch.rpm"
 
-## PMM PostgreSQL
+# PostgreSQL configuration
+postgresql_version: 16
+postgresql_admin_user: "postgres"
+postgresql_admin_password: "123eefgmew"
 pmm_postgresql_user: "pmm"
 pmm_postgresql_password: "lwqotq"
+
+# PostgreSQL configuration paths
+postgresql_conf_path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
+pg_hba_conf_path: "/etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf"
+postgresql_service_name: "postgresql"
+
+# Extensions to install
+pg_extensions:
+  - pg_stat_statements
+  - pg_stat_monitor

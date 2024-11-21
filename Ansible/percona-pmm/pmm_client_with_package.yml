@@ -51,7 +51,7 @@
 
     - name: Configure PMM Client to connect to PMM Server
       ansible.builtin.command:
-        cmd: "pmm-admin config --server-insecure-tls --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} {{ inventory_hostname }}"
+        cmd: "pmm-admin config --server-insecure-tls --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} {{ inventory_hostname }} --force"
       register: pmm_config_output
       changed_when: false
 

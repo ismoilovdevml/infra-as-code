@@ -1,74 +1,64 @@
 ---
-- name: Set up PMM monitoring for PostgreSQL
-  hosts: postgres_servers
+- name: Configure PostgreSQL for PMM
+  hosts: all
   become: yes
   vars_files:
     - vars.yml
 
   tasks:
+    # Ensure PMM user is created
     - name: Create PMM user in PostgreSQL
-      postgresql_user:
-        name: "{{ pmm_user }}"
-        password: "{{ pmm_password }}"
-        role_attr_flags: "SUPERUSER"
+      community.postgresql.postgresql_user:
+        name: "{{ pmm_postgresql_user }}"
+        password: "{{ pmm_postgresql_password }}"
+        encrypted: yes
+        priv: "SUPERUSER"
+        state: present
+        login_user: "{{ postgresql_admin_user }}"
+        login_password: "{{ postgresql_admin_password }}"
+        db: postgres
+        port: 5432
       become_user: postgres
 
-    - name: Update pg_hba.conf to allow PMM local connections
-      lineinfile:
-        path: /var/lib/pgsql/data/pg_hba.conf
-        line: "local   all             {{ pmm_user }}                                md5"
+    # Update pg_hba.conf for PMM user
+    - name: Allow PMM user in pg_hba.conf
+      ansible.builtin.lineinfile:
+        path: "{{ pg_hba_conf_path }}"
+        line: "local   all             {{ pmm_postgresql_user }}                                md5"
+        state: present
       notify: Reload PostgreSQL
 
-    - name: Install postgresql-contrib package (Debian-based)
-      ansible.builtin.apt:
-        name: postgresql-contrib
+    # Update postgresql.conf for extensions
+    - name: Configure shared_preload_libraries in postgresql.conf
+      ansible.builtin.lineinfile:
+        path: "{{ postgresql_conf_path }}"
+        regexp: "^#?shared_preload_libraries\\s*=\\s*.*"
+        line: "shared_preload_libraries = '{{ ','.join(pg_extensions) }}'"
         state: present
-      when: ansible_os_family == "Debian"
+      notify: Reload PostgreSQL
 
-    - name: Install postgresql-contrib package (Red Hat-based)
-      ansible.builtin.yum:
-        name: postgresql-contrib
-        state: present
-      when: ansible_os_family == "RedHat"
-
-    - name: Enable pg_stat_statements extension
-      postgresql_query:
-        db: postgres
-        query: "CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public;"
+    # Install extensions
+    - name: Install PostgreSQL extensions
+      ansible.builtin.shell: "psql -U {{ postgresql_admin_user }} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS {{ item }};'"
+      with_items: "{{ pg_extensions }}"
       become_user: postgres
 
-    - name: Configure PostgreSQL for pg_stat_statements
-      lineinfile:
-        path: /var/lib/pgsql/data/postgresql.conf
-        line: "{{ item }}"
-      loop:
-        - "shared_preload_libraries = 'pg_stat_statements'"
-        - "track_activity_query_size = 2048"
-        - "pg_stat_statements.track = all"
-        - "track_io_timing = on"
-      notify: Restart PostgreSQL
-
-    - name: Add PostgreSQL instance to PMM server
-      command: >
-        pmm-admin add postgresql
-        --username={{ pmm_user }}
-        --password={{ pmm_password }}
-        --server-url=https://{{ pmm_server_user }}:{{ pmm_server_password }}@{{ pmm_server_address }}
-        --server-insecure-tls
-        --service-name=postgresql-{{ inventory_hostname }}
-      register: add_service_output
+    # Register PMM Client
+    - name: Configure PMM Client to connect to PMM Server
+      ansible.builtin.command:
+        cmd: "pmm-admin config --server-insecure-tls --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} {{ inventory_hostname }}"
+      register: pmm_config_output
       changed_when: false
 
-    - name: Display PMM service addition result
-      debug:
-        msg: "Service addition result: {{ add_service_output.stdout }}"
+    # Add PostgreSQL service to PMM
+    - name: Add PostgreSQL service to PMM
+      ansible.builtin.command:
+        cmd: "pmm-admin add postgresql --username={{ pmm_postgresql_user }} --password={{ pmm_postgresql_password }} --service-name={{ inventory_hostname }}-postgresql --host={{ ansible_host }} --port=5432"
+      register: pmm_add_service_output
+      changed_when: false
 
   handlers:
     - name: Reload PostgreSQL
-      command: "psql -c 'select pg_reload_conf()'"
-      become_user: postgres
-
-    - name: Restart PostgreSQL
-      service:
-        name: postgresql
-        state: restarted
+      ansible.builtin.service:
+        name: "{{ postgresql_service_name }}"
+        state: reloaded

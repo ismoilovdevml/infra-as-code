@@ -8,13 +8,15 @@ This repository contains Ansible playbooks for installing and configuring Postgr
 
 Before running the playbooks, ensure that the following are installed and properly configured:
 
-- Ansible 2.9+ 
+- Ansible 2.9+
+- python3 
 - Target servers with SSH access
 - PostgreSQL role from Ansible Galaxy
 
 You can install the required role with the following command:
 
 ```bash
+sudo yum install -y python3
 ansible-galaxy collection install community.postgresql
 ansible-galaxy role install ANXS.postgresql,v1.16.0
 ```
