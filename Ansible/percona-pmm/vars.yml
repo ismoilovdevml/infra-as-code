@@ -25,9 +25,19 @@ pmm_postgresql_user: "pmm"
 pmm_postgresql_password: "lwqotq"
 
 # PostgreSQL configuration paths
-postgresql_conf_path: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
-pg_hba_conf_path: "/etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf"
-postgresql_service_name: "postgresql"
+postgresql_conf_path_debian: "/etc/postgresql/{{ postgresql_version }}/main/postgresql.conf"
+pg_hba_conf_path_debian: "/etc/postgresql/{{ postgresql_version }}/main/pg_hba.conf"
+postgresql_service_name_debian: "postgresql"
+
+# CentOS/RedHat
+postgresql_conf_path_redhat: "/etc/postgresql/{{ postgresql_version }}/data/postgresql.conf"
+pg_hba_conf_path_redhat: "/etc/postgresql/{{ postgresql_version }}/data/pg_hba.conf"
+postgresql_service_name_redhat: "postgresql-{{ postgresql_version }}"
+
+# Path selection logic based on OS family
+postgresql_conf_path: "{{ postgresql_conf_path_debian if ansible_os_family == 'Debian' else postgresql_conf_path_redhat }}"
+pg_hba_conf_path: "{{ pg_hba_conf_path_debian if ansible_os_family == 'Debian' else pg_hba_conf_path_redhat }}"
+postgresql_service_name: "{{ postgresql_service_name_debian if ansible_os_family == 'Debian' else postgresql_service_name_redhat }}"
 
 # Extensions to install
 pg_extensions:
