@@ -118,16 +118,13 @@
 
     # Add PostgreSQL service to PMM
     - name: Add PostgreSQL to PMM
-      ansible.builtin.command: >
-        pmm-admin add postgresql
-        --username={{ pmm_postgresql_user }}
-        --password={{ pmm_postgresql_password }}
-        --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
-        --server-insecure-tls
+      ansible.builtin.shell: |
+        pmm-admin add postgresql \
+        --username={{ pmm_postgresql_user }} \
+        --password={{ pmm_postgresql_password }} \
+        --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} \
+        --server-insecure-tls \
         --service-name={{ inventory_hostname }}-postgresql
-        --host={{ ansible_host }}
-        --port=5432
-        --force
       args:
         executable: /bin/bash
       register: pmm_add_service_output
