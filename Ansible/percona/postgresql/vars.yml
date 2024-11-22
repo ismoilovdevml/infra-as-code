@@ -1,0 +1,7 @@
+percona_repo_url: "https://repo.percona.com"
+percona_release_package: "percona-release_latest"
+percona_version: "17"
+debian_packages:
+  - "percona-ppg-server-17"
+redhat_packages:
+  - "percona-ppg-server17"

@@ -1,0 +1,81 @@
+---
+- name: Install Percona Distribution for PostgreSQL
+  hosts: all
+  become: yes
+  vars_files:
+    - ../vars.yml
+  tasks:
+    - name: Detect Operating System
+      ansible.builtin.set_fact:
+        is_debian: "{{ ansible_os_family == 'Debian' }}"
+        is_redhat: "{{ ansible_os_family == 'RedHat' }}"
+
+    - name: Install curl
+      ansible.builtin.package:
+        name: curl
+        state: present
+
+    # Debian/Ubuntu: Install Percona release package
+    - name: Download Percona release package (Debian/Ubuntu)
+      ansible.builtin.get_url:
+        url: "{{ percona_repo_url }}/apt/{{ percona_release_package }}.{{ ansible_lsb.codename }}_all.deb"
+        dest: "/tmp/{{ percona_release_package }}.{{ ansible_lsb.codename }}_all.deb"
+      when: is_debian
+
+    - name: Install Percona release package (Debian/Ubuntu)
+      ansible.builtin.apt:
+        deb: "/tmp/{{ percona_release_package }}.{{ ansible_lsb.codename }}_all.deb"
+        state: present
+      when: is_debian
+
+    # RedHat/CentOS: Install Percona release package
+    - name: Download Percona release package (RedHat/CentOS)
+      ansible.builtin.get_url:
+        url: "{{ percona_repo_url }}/yum/{{ percona_release_package }}.noarch.rpm"
+        dest: "/tmp/{{ percona_release_package }}.noarch.rpm"
+      when: is_redhat
+
+    - name: Install Percona release package (RedHat/CentOS)
+      ansible.builtin.yum:
+        name: "/tmp/{{ percona_release_package }}.noarch.rpm"
+        state: present
+      when: is_redhat
+
+    # Configure Percona repository
+    - name: Configure Percona repository (RedHat/CentOS)
+      ansible.builtin.command:
+        cmd: percona-release setup ppg-{{ percona_version }}
+        creates: "/etc/yum.repos.d/percona-ppg-{{ percona_version }}.repo"
+      when: is_redhat
+
+    # Update package cache
+    - name: Update package cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: yes
+      when: is_debian
+
+    - name: Update package cache (RedHat/CentOS)
+      ansible.builtin.yum:
+        name: "*"
+        state: latest
+      when: is_redhat
+
+    # Install Percona PostgreSQL packages
+    - name: Install Percona PostgreSQL packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "{{ debian_packages }}"
+        state: present
+      when: is_debian
+
+    - name: Install Percona PostgreSQL packages (RedHat/CentOS)
+      ansible.builtin.yum:
+        name: "{{ redhat_packages }}"
+        state: present
+      when: is_redhat
+
+    # Start and enable PostgreSQL service
+    - name: Start and enable PostgreSQL service
+      ansible.builtin.service:
+        name: "{{ 'postgresql' if is_debian else 'postgresql-{{ percona_version }}' }}"
+        state: started
+        enabled: yes
