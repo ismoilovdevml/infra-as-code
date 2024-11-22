@@ -6,12 +6,15 @@
     - vars.yml
 
   tasks:
-# Add Percona repository on Debian/Ubuntu
+    #Add Percona repository on Debian/Ubuntu
     - name: Add Percona repository on Debian/Ubuntu
       block:
-        - name: Install curl if not already installed
+        - name: Install required packages for Percona repository
           ansible.builtin.package:
-            name: curl
+            name: 
+              - curl
+              - gnupg2
+              - lsb-release
             state: present
 
         - name: Download Percona repository package
@@ -21,7 +24,7 @@
 
         - name: Install Percona repository package
           ansible.builtin.shell: |
-            apt install -y gnupg2 lsb-release /tmp/percona-release_latest.generic_all.deb
+            apt install -y /tmp/percona-release_latest.generic_all.deb
           args:
             executable: /bin/bash
 
@@ -73,12 +76,19 @@
       become_user: postgres
 
     # Allow PMM user in pg_hba.conf
-    - name: Allow PMM user in pg_hba.conf
+    - name: Allow PMM user in pg_hba.conf for IPv4
       ansible.builtin.lineinfile:
         path: "{{ pg_hba_conf_path }}"
-        line: "local   all             {{ pmm_postgresql_user }}                                md5"
+        line: "host    all             pmm             0.0.0.0/0               md5"
         state: present
-      notify: Reload PostgreSQL
+      notify: Restart PostgreSQL
+
+    - name: Allow PMM user in pg_hba.conf for IPv6
+      ansible.builtin.lineinfile:
+        path: "{{ pg_hba_conf_path }}"
+        line: "host    all             pmm             ::/0                    md5"
+        state: present
+      notify: Restart PostgreSQL
 
     # Configure shared_preload_libraries in postgresql.conf
     - name: Configure shared_preload_libraries
@@ -91,21 +101,35 @@
 
     # Install PostgreSQL extensions
     - name: Install PostgreSQL extensions
-      ansible.builtin.shell: "psql -U {{ postgresql_admin_user }} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS {{ item }};'"
+      ansible.builtin.shell: >
+        psql -U {{ postgresql_admin_user }} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS {{ item }};'
       with_items: "{{ pg_extensions }}"
       become_user: postgres
 
     # Configure PMM Client to connect to PMM Server
     - name: Register PMM Client with PMM Server
-      ansible.builtin.command:
-        cmd: "pmm-admin config --server-insecure-tls --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} {{ inventory_hostname }} --force"
+      ansible.builtin.command: >
+        pmm-admin config
+        --server-insecure-tls
+        --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
+        {{ inventory_hostname }} --force
       register: pmm_config_output
       changed_when: false
 
     # Add PostgreSQL service to PMM
     - name: Add PostgreSQL to PMM
-      ansible.builtin.command:
-        cmd: "pmm-admin add postgresql --username={{ pmm_postgresql_user }} --password={{ pmm_postgresql_password }} --service-name={{ inventory_hostname }}-postgresql --host={{ ansible_host }} --port=5432"
+      ansible.builtin.command: >
+        pmm-admin add postgresql
+        --username={{ pmm_postgresql_user }}
+        --password={{ pmm_postgresql_password }}
+        --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
+        --server-insecure-tls
+        --service-name={{ inventory_hostname }}-postgresql
+        --host={{ ansible_host }}
+        --port=5432
+        --force
+      args:
+        executable: /bin/bash
       register: pmm_add_service_output
       changed_when: false
 
