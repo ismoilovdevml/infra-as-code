@@ -79,14 +79,14 @@
     - name: Allow PMM user in pg_hba.conf for IPv4
       ansible.builtin.lineinfile:
         path: "{{ pg_hba_conf_path }}"
-        line: "host    all             pmm             0.0.0.0/0               md5"
+        line: "host    all             {{ pmm_postgresql_user }}             0.0.0.0/0               md5"
         state: present
       notify: Restart PostgreSQL
 
     - name: Allow PMM user in pg_hba.conf for IPv6
       ansible.builtin.lineinfile:
         path: "{{ pg_hba_conf_path }}"
-        line: "host    all             pmm             ::/0                    md5"
+        line: "host    all             {{ pmm_postgresql_user }}             ::/0                    md5"
         state: present
       notify: Restart PostgreSQL
 
@@ -101,8 +101,10 @@
 
     # Install PostgreSQL extensions
     - name: Install PostgreSQL extensions
-      ansible.builtin.shell: >
-        psql -U {{ postgresql_admin_user }} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS {{ item }};'
+      community.postgresql.postgresql_ext:
+        name: "{{ item }}"
+        db: postgres
+        state: present
       with_items: "{{ pg_extensions }}"
       become_user: postgres
 
