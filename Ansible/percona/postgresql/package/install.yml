@@ -4,6 +4,7 @@
   become: true
   vars_files:
     - ../vars.yml
+
   tasks:
 
     - name: Ensure curl is installed
@@ -14,19 +15,37 @@
     - name: Install dependencies for RPM-based systems
       when: ansible_facts['os_family'] | lower in os_family_rpm
       block:
+
         - name: Enable EPEL repository
           yum:
             name: epel-release
             state: present
 
-        - name: Enable Codeready Builder repository for RHEL 8/9 and derivatives
-          shell: >
-            dnf config-manager --set-enabled codeready-builder-for-rhel-{{ ansible_distribution_major_version }}-x86_64-rpms
-          when: "'rhel' in ansible_distribution | lower or 'rocky' in ansible_distribution | lower"
+        - name: Enable necessary repositories dynamically
+          block:
+            - name: Enable PowerTools repository for Rocky Linux 8
+              command: dnf config-manager --set-enabled powertools
+              when: ansible_facts['distribution'] | lower == 'rocky' and ansible_facts['distribution_major_version'] == '8'
+
+            - name: Enable CRB repository for Rocky Linux 9
+              command: dnf config-manager --set-enabled crb
+              when: ansible_facts['distribution'] | lower == 'rocky' and ansible_facts['distribution_major_version'] == '9'
+
+            - name: Enable CodeReady Builder repository for RHEL
+              command: dnf config-manager --set-enabled codeready-builder-for-rhel-{{ ansible_distribution_major_version }}-x86_64-rpms
+              when: ansible_facts['distribution'] | lower == 'rhel'
+
+            - name: Enable CodeReady Builder repository for Oracle Linux
+              command: dnf config-manager --set-enabled codeready-builder-for-rhel-{{ ansible_distribution_major_version }}-x86_64-rpms
+              when: ansible_facts['distribution'] | lower == 'oracle'
+
+            - name: Enable CodeReady Builder repository for CentOS
+              command: dnf config-manager --set-enabled codeready-builder-for-rhel-{{ ansible_distribution_major_version }}-x86_64-rpms
+              when: ansible_facts['distribution'] | lower == 'centos'
           ignore_errors: true
 
     - name: Add Percona repository for DEB-based systems
-      when: ansible_os_family | lower in os_family_deb
+      when: ansible_facts['os_family'] | lower in os_family_deb
       block:
         - name: Download Percona release package
           get_url:
@@ -44,7 +63,7 @@
           command: percona-release setup ppg-{{ percona_pg_version }}
 
     - name: Add Percona repository for RPM-based systems
-      when: ansible_os_family | lower in os_family_rpm
+      when: ansible_facts['os_family'] | lower in os_family_rpm
       block:
         - name: Install Percona release package
           yum:
@@ -61,7 +80,7 @@
         state: present
 
     - name: Initialize PostgreSQL database on RPM systems
-      when: ansible_os_family | lower in os_family_rpm
+      when: ansible_facts['os_family'] | lower in os_family_rpm
       command: "/usr/pgsql-{{ percona_pg_version }}/bin/postgresql-{{ percona_pg_version }}-setup initdb"
 
     - name: Start PostgreSQL service
