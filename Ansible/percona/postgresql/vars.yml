@@ -1,4 +1,4 @@
-percona_pg_version: "17"  # PostgreSQL versiyasi
+percona_pg_version: "17"
 os_family_deb:
   - "debian"
   - "ubuntu"

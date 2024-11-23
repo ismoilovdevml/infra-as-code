@@ -11,6 +11,20 @@
         name: curl
         state: present
 
+    - name: Install dependencies for RPM-based systems
+      when: ansible_facts['os_family'] | lower in os_family_rpm
+      block:
+        - name: Enable EPEL repository
+          yum:
+            name: epel-release
+            state: present
+
+        - name: Enable Codeready Builder repository for RHEL 8/9 and derivatives
+          shell: >
+            dnf config-manager --set-enabled codeready-builder-for-rhel-{{ ansible_distribution_major_version }}-x86_64-rpms
+          when: "'rhel' in ansible_distribution | lower or 'rocky' in ansible_distribution | lower"
+          ignore_errors: true
+
     - name: Add Percona repository for DEB-based systems
       when: ansible_os_family | lower in os_family_deb
       block:
@@ -41,11 +55,9 @@
           command: percona-release setup ppg{{ percona_pg_version }}
 
     - name: Install Percona PostgreSQL
-      when: ansible_os_family | lower in os_family_deb + os_family_rpm
       package:
         name: 
           - "percona-ppg-server-{{ percona_pg_version }}"
-          - "percona-postgresql-{{ percona_pg_version }}-contrib"
         state: present
 
     - name: Initialize PostgreSQL database on RPM systems
