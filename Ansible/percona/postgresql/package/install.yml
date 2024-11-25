@@ -12,6 +12,21 @@
         name: curl
         state: present
 
+    - name: Disable PostgreSQL module
+      command: dnf module disable postgresql -y
+      when: ansible_facts['os_family'] | lower in os_family_rpm
+      register: disable_postgresql
+      failed_when: disable_postgresql.rc != 0
+
+    - name: Clear and rebuild DNF cache
+      when: ansible_facts['os_family'] | lower in os_family_rpm
+      block:
+        - name: Clear DNF cache
+          command: dnf clean all
+
+        - name: Rebuild DNF cache
+          command: dnf makecache
+
     - name: Install dependencies for RPM-based systems
       when: ansible_facts['os_family'] | lower in os_family_rpm
       block:
@@ -19,6 +34,11 @@
         - name: Enable EPEL repository
           yum:
             name: epel-release
+            state: present
+        
+        - name: Install DNF plugins
+          yum:
+            name: dnf-plugins-core
             state: present
 
         - name: Enable necessary repositories dynamically
@@ -42,7 +62,10 @@
             - name: Enable CodeReady Builder repository for CentOS
               command: dnf config-manager --set-enabled codeready-builder-for-rhel-{{ ansible_distribution_major_version }}-x86_64-rpms
               when: ansible_facts['distribution'] | lower == 'centos'
-          ignore_errors: true
+
+        - name: Enable llvm-toolset module dynamically
+          command: dnf module enable llvm-toolset -y
+          when: ansible_facts['distribution'] | lower in ['rocky', 'rhel', 'centos', 'oracle']
 
     - name: Add Percona repository for DEB-based systems
       when: ansible_facts['os_family'] | lower in os_family_deb

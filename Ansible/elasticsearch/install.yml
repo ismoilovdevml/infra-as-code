@@ -1,0 +1,79 @@
+---
+- name: Install Elasticsearch dynamically based on version
+  hosts: all
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Install required packages for Debian/Ubuntu
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - apt-transport-https
+        - wget
+        - gnupg
+      when: ansible_os_family == "Debian"
+
+    - name: Download Elasticsearch GPG key
+      ansible.builtin.get_url:
+        url: "{{ elastic_gpg_key }}"
+        dest: /usr/share/keyrings/elasticsearch-keyring.gpg
+        mode: '0644'
+      when: ansible_os_family == "Debian"
+
+    - name: Add Elasticsearch APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] {{ elastic_repo_url_apt }} stable main"
+      when: ansible_os_family == "Debian"
+
+    - name: Create Elasticsearch repository file for Debian/Ubuntu
+      template:
+        src: templates/elasticsearch-apt.j2
+        dest: /etc/apt/sources.list.d/elastic-{{ elastic_version }}.x.list
+      when: ansible_os_family == "Debian"
+
+    - name: Update APT cache for Debian/Ubuntu
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install Elasticsearch for Debian/Ubuntu
+      apt:
+        name: elasticsearch
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Import Elasticsearch GPG key for RedHat/CentOS
+      rpm_key:
+        state: present
+        key: "{{ elastic_gpg_key }}"
+      when: ansible_os_family == "RedHat"
+
+    - name: Create Elasticsearch repository file for RedHat/CentOS
+      template:
+        src: templates/elasticsearch-yum.j2
+        dest: /etc/yum.repos.d/elasticsearch.repo
+      when: ansible_os_family == "RedHat"
+
+    - name: Install Elasticsearch for RedHat/CentOS
+      yum:
+        name: elasticsearch
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Enable and start Elasticsearch service
+      systemd:
+        name: elasticsearch
+        enabled: yes
+        state: started
+
+    - name: Check Elasticsearch version
+      shell: |
+        curl -s http://localhost:9200 | grep '"number"' | awk -F '"' '{print $4}'
+      register: elasticsearch_version_output
+
+    - name: Display Elasticsearch version
+      debug:
+        msg: "Installed Elasticsearch version: {{ elasticsearch_version_output.stdout }}"
