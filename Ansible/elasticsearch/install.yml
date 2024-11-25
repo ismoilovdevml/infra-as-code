@@ -15,7 +15,7 @@
         - wget
         - gnupg
       when: ansible_os_family == "Debian"
-
+      
     - name: Download and add Elasticsearch GPG key for Debian/Ubuntu
       apt_key:
         url: "{{ elastic_gpg_key }}"
@@ -63,12 +63,24 @@
         enabled: yes
         state: started
 
-    - name: Check Elasticsearch version
+    - name: Reset Elasticsearch password for 'elastic' user
       shell: |
-        curl -s http://localhost:9200 | grep '"number"' | awk -F '"' '{print $4}'
-      register: elasticsearch_version_output
+        echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic
+      register: elasticsearch_password_output
       changed_when: false
+
+    - name: Extract new 'elastic' password
+      set_fact:
+        elastic_password: "{{ elasticsearch_password_output.stdout | regex_search('New value: (.*)', '\\1') }}"
+
+    - name: Get Elasticsearch version
+      command: /usr/share/elasticsearch/bin/elasticsearch --version
+      register: elasticsearch_version
 
     - name: Display Elasticsearch version
       debug:
-        msg: "Installed Elasticsearch version: {{ elasticsearch_version_output.stdout }}"
+        msg: "Elasticsearch Version: {{ elasticsearch_version }}"
+
+    - name: Display elastic user password
+      ansible.builtin.debug:
+        msg: "Elastic user password: {{ elastic_password }}"
