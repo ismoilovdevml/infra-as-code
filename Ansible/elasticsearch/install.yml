@@ -10,28 +10,22 @@
       apt:
         name: "{{ item }}"
         state: present
-      with_items:
+      loop:
         - apt-transport-https
         - wget
         - gnupg
       when: ansible_os_family == "Debian"
 
-    - name: Download Elasticsearch GPG key
-      ansible.builtin.get_url:
+    - name: Download and add Elasticsearch GPG key for Debian/Ubuntu
+      apt_key:
         url: "{{ elastic_gpg_key }}"
-        dest: /usr/share/keyrings/elasticsearch-keyring.gpg
-        mode: '0644'
+        state: present
       when: ansible_os_family == "Debian"
 
-    - name: Add Elasticsearch APT repository
-      ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] {{ elastic_repo_url_apt }} stable main"
-      when: ansible_os_family == "Debian"
-
-    - name: Create Elasticsearch repository file for Debian/Ubuntu
-      template:
-        src: templates/elasticsearch-apt.j2
-        dest: /etc/apt/sources.list.d/elastic-{{ elastic_version }}.x.list
+    - name: Add Elasticsearch APT repository for Debian/Ubuntu
+      apt_repository:
+        repo: "deb {{ elastic_repo_url_apt }} stable main"
+        state: present
       when: ansible_os_family == "Debian"
 
     - name: Update APT cache for Debian/Ubuntu
@@ -73,6 +67,7 @@
       shell: |
         curl -s http://localhost:9200 | grep '"number"' | awk -F '"' '{print $4}'
       register: elasticsearch_version_output
+      changed_when: false
 
     - name: Display Elasticsearch version
       debug:
