@@ -45,6 +45,10 @@
         key: "{{ elastic_gpg_key }}"
       when: ansible_os_family == "RedHat"
 
+    - name: Disable SELinux temporarily
+      command: setenforce 0
+      when: ansible_os_family == "RedHat"
+      
     - name: Create Elasticsearch repository file for RedHat/CentOS
       template:
         src: templates/elasticsearch-yum.j2

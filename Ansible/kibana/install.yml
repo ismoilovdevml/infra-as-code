@@ -46,6 +46,10 @@
         key: "{{ elastic_gpg_key }}"
       when: ansible_os_family == "RedHat"
 
+    - name: Disable SELinux temporarily
+      command: setenforce 0
+      when: ansible_os_family == "RedHat"
+      
     - name: Create Kibana repository file for RedHat/CentOS
       template:
         src: templates/kibana-yum.j2

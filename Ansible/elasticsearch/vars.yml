@@ -19,7 +19,7 @@ discovery_seed_hosts:
 cluster_initial_master_nodes:
   - node-1
   - node-2
-xpack_security_enabled: false
+xpack_security_enabled: true
 xpack_security_enrollment_enabled: true
 xpack_security_http_ssl_enabled: true
 xpack_security_http_ssl_keystore_path: certs/http.p12
