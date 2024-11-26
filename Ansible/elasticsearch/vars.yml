@@ -3,3 +3,28 @@ elastic_version: "8"  # 7 or 8
 elastic_gpg_key: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
 elastic_repo_url_apt: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/apt"
 elastic_repo_url_yum: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/yum"
+
+# elasticsearch.yml
+
+cluster_name: my-application
+node_name: node-1
+node_attr_rack: r1
+path_data: /var/lib/elasticsearch
+path_logs: /var/log/elasticsearch
+network_host: 0.0.0.0
+http_port: 9200
+discovery_seed_hosts:
+  - host1
+  - host2
+cluster_initial_master_nodes:
+  - node-1
+  - node-2
+xpack_security_enabled: true
+xpack_security_enrollment_enabled: true
+xpack_security_http_ssl_enabled: true
+xpack_security_http_ssl_keystore_path: certs/http.p12
+xpack_security_transport_ssl_enabled: true
+xpack_security_transport_ssl_verification_mode: certificate
+xpack_security_transport_ssl_keystore_path: certs/transport.p12
+xpack_security_transport_ssl_truststore_path: certs/transport.p12
+http_host: 0.0.0.0

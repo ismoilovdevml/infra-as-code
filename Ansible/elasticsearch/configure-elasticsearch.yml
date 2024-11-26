@@ -1,0 +1,20 @@
+---
+- name: Configure Elasticsearch
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Template elasticsearch.yml configuration
+      template:
+        src: templates/elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        owner: elasticsearch
+        group: elasticsearch
+        mode: '0644'
+
+    - name: Restart Elasticsearch service
+      service:
+        name: elasticsearch
+        state: restarted
+        enabled: true
