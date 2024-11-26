@@ -1,0 +1,75 @@
+---
+- name: Install Kibana dynamically based on OS
+  hosts: all
+  become: yes
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Install required packages for Debian/Ubuntu
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - apt-transport-https
+        - wget
+        - gnupg
+      when: ansible_os_family == "Debian"
+      
+    - name: Download and add Kibana GPG key for Debian/Ubuntu
+      shell: |
+        wget -qO - {{ elastic_gpg_key }} | gpg --dearmor -o /usr/share/keyrings/elastic-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/elastic-keyring.gpg
+      when: ansible_os_family == "Debian"
+
+    - name: Add Kibana APT repository for Debian/Ubuntu
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/elastic-keyring.gpg] {{ elastic_repo_url_apt }} stable main"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Update APT cache for Debian/Ubuntu
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install Kibana for Debian/Ubuntu
+      apt:
+        name: kibana
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Import Kibana GPG key for RedHat/CentOS
+      rpm_key:
+        state: present
+        key: "{{ elastic_gpg_key }}"
+      when: ansible_os_family == "RedHat"
+
+    - name: Create Kibana repository file for RedHat/CentOS
+      template:
+        src: templates/kibana-yum.j2
+        dest: /etc/yum.repos.d/kibana.repo
+      when: ansible_os_family == "RedHat"
+
+    - name: Install Kibana for RedHat/CentOS
+      yum:
+        name: kibana
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Enable and start Kibana service
+      systemd:
+        name: kibana
+        enabled: yes
+        state: started
+
+    - name: Verify Kibana is running
+      shell: |
+        systemctl status kibana | grep 'active (running)'
+      register: kibana_status
+      changed_when: false
+
+    - name: Display Kibana status
+      debug:
+        msg: "Kibana is running: {{ kibana_status.stdout }}"

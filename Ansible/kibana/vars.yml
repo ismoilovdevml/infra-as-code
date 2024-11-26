@@ -1,0 +1,4 @@
+elastic_version: "8"  # 7 or 8
+elastic_gpg_key: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+elastic_repo_url_apt: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/apt"
+elastic_repo_url_yum: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/yum"

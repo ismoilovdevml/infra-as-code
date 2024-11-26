@@ -91,18 +91,18 @@ http.port: {{ http_port }}
 # --------------------------------------------------------------------------------
 
 # Enable security features
-xpack.security.enabled: {{ xpack_security_enabled }}
+xpack.security.enabled: {{ xpack_security_enabled | lower }}
 
-xpack.security.enrollment.enabled: {{ xpack_security_enrollment_enabled }}
+xpack.security.enrollment.enabled: {{ xpack_security_enrollment_enabled | lower }}
 
 # Enable encryption for HTTP API client connections, such as Kibana, Logstash, and Agents
 xpack.security.http.ssl:
-  enabled: {{ xpack_security_http_ssl_enabled }}
+  enabled: {{ xpack_security_http_ssl_enabled | lower }}
   keystore.path: {{ xpack_security_http_ssl_keystore_path }}
 
 # Enable encryption and mutual authentication between cluster nodes
 xpack.security.transport.ssl:
-  enabled: {{ xpack_security_transport_ssl_enabled }}
+  enabled: {{ xpack_security_transport_ssl_enabled | lower }}
   verification_mode: {{ xpack_security_transport_ssl_verification_mode }}
   keystore.path: {{ xpack_security_transport_ssl_keystore_path }}
   truststore.path: {{ xpack_security_transport_ssl_truststore_path }}

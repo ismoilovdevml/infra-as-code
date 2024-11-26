@@ -1,0 +1,8 @@
+[kibana-{{ elastic_version }}.x]
+name=Kibana repository for {{ elastic_version }}.x packages
+baseurl={{ elastic_repo_url_yum }}
+gpgcheck=1
+gpgkey={{ elastic_gpg_key }}
+enabled=1
+autorefresh=1
+type=rpm-md
