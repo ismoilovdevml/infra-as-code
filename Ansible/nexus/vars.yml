@@ -1,0 +1,7 @@
+---
+nexus_image: "sonatype/nexus3:latest"
+nexus_data_dir: "/mnt/nexus/nexus-data"
+nexus_container_name: "nexus"
+nexus_port: 8081
+nexus_admin_password_file: "/nexus-data/admin.password"
+nexus_parent_dir: "/mnt/nexus"

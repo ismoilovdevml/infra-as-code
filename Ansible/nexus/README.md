@@ -13,6 +13,10 @@ Ensure the following requirements are met before running the playbooks:
 - Docker installed on the target servers
 - Proper inventory configuration (`nexus_servers` group in your inventory)
 
+```bash
+ansible-galaxy collection install community.docker
+```
+
 ## Playbooks
 
 ### `nexus_docker.yml` ⚙️
@@ -28,7 +32,7 @@ This playbook performs the following tasks:
 #### Usage
 
 ```bash
-ansible-playbook -i inventory nexus_docker.yml
+ansible-playbook -i inventory.ini nexus_docker.yml
 ```
 
 
@@ -40,7 +44,7 @@ Copy code
 
 This repository contains two Ansible playbooks for managing a Nexus Repository Docker container:
 
-1. `nexus_docker.yml` - Sets up and starts a Nexus Repository in a Docker container.
+1. `install-nexus.yml` - Sets up and starts a Nexus Repository in a Docker container.
 2. `cleanup_nexus_docker.yml` - Stops, removes the Nexus container, its Docker image, and cleans up associated data directories.
 
 ## Requirements 📋
@@ -66,7 +70,7 @@ This playbook performs the following tasks:
 #### Usage
 
 ```bash
-ansible-playbook -i inventory nexus_docker.yml
+ansible-playbook -i inventory.ini nexus_docker.yml
 ```
 #### Variables:
 |**Variable**|	**Description**|
@@ -89,7 +93,7 @@ This playbook cleans up the Nexus Docker setup:
 #### Usage
 
 ```bash
-ansible-playbook -i inventory cleanup_nexus_docker.yml
+ansible-playbook -i inventory.ini cleanup_nexus_docker.yml
 ```
 #### Variables:
 | **Variable**	| **Description** |

@@ -1,10 +1,8 @@
 ---
 - hosts: nexus_servers
   become: yes
-  vars:
-    nexus_container_name: "nexus"
-    nexus_image: "sonatype/nexus3:latest"
-    nexus_data_dir: "/mnt/nexus/nexus-data"
+  vars_files:
+  - vars.yml
   tasks:
     - name: Stop Nexus container if exists
       docker_container:

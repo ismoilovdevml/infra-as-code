@@ -1,12 +1,8 @@
 ---
 - hosts: nexus_servers
   become: yes
-  vars:
-    nexus_image: "sonatype/nexus3:latest"
-    nexus_data_dir: "/mnt/nexus/nexus-data"
-    nexus_container_name: "nexus"
-    nexus_port: 8081
-    nexus_admin_password_file: "/nexus-data/admin.password"
+  vars_files:
+  - vars.yml
   tasks:
     - name: Create Nexus data directory
       file:
@@ -37,7 +33,7 @@
         timeout: 300
 
     - name: Retrieve Nexus admin password
-      command: docker exec -it "{{ nexus_container_name }}" cat "{{ nexus_admin_password_file }}"
+      command: docker exec "{{ nexus_container_name }}" cat "{{ nexus_admin_password_file }}"
       register: admin_password_output
 
     - name: Show Nexus admin password
