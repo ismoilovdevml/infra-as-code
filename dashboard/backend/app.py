@@ -10,8 +10,10 @@ import asyncio
 from pathlib import Path
 import uuid
 from datetime import datetime
+import json
+import time
 
-app = FastAPI(title="Ansible Dashboard")
+app = FastAPI(title="Ansible Dashboard v2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,12 +26,36 @@ app.add_middleware(
 # Store for running jobs
 jobs_store: Dict[str, Dict[str, Any]] = {}
 
+# History store (persistent)
+HISTORY_FILE = Path("/tmp/ansible_dashboard_history.json")
+history_store: List[Dict[str, Any]] = []
+
 # Base paths
-# Check if running in Docker (Ansible folder is mounted at /app/Ansible)
 if Path("/app/Ansible").exists():
     ANSIBLE_BASE = Path("/app/Ansible")
 else:
     ANSIBLE_BASE = Path(__file__).parent.parent.parent / "Ansible"
+
+# Load history on startup
+def load_history():
+    global history_store
+    if HISTORY_FILE.exists():
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                history_store = json.load(f)
+        except:
+            history_store = []
+    else:
+        history_store = []
+
+def save_history():
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history_store[-100:], f)  # Keep last 100 executions
+    except:
+        pass
+
+load_history()
 
 class InventoryEntry(BaseModel):
     name: str
@@ -57,10 +83,14 @@ class JobStatus(BaseModel):
     output: str
     started_at: str
     completed_at: Optional[str]
+    return_code: Optional[int] = None
+    duration: Optional[float] = None
+    folder: str
+    playbook: str
 
 @app.get("/")
 async def root():
-    return {"message": "Ansible Dashboard API"}
+    return {"message": "Ansible Dashboard API v2", "version": "2.0.0"}
 
 @app.get("/api/folders", response_model=List[AnsibleFolder])
 async def get_ansible_folders():
@@ -119,7 +149,6 @@ async def get_inventory(folder_name: str):
     for section in config.sections():
         hosts = []
         for key in config[section]:
-            # Parse inventory line
             parts = key.split()
             host_info = {"name": parts[0] if parts else key}
 
@@ -163,10 +192,8 @@ async def update_inventory(folder_name: str, content: Dict[str, Any]):
     inventory_file = folder_path / "inventory.ini"
 
     if "raw" in content:
-        # Save raw content
         inventory_file.write_text(content["raw"])
     else:
-        # Generate from structured data
         lines = []
         for group, hosts in content.items():
             lines.append(f"[{group}]")
@@ -197,35 +224,59 @@ async def update_vars(folder_name: str, content: Dict[str, Any]):
     return {"success": True}
 
 async def run_ansible_playbook(job_id: str, folder: str, playbook: str, inventory: str):
-    """Run ansible playbook in background"""
+    """Run ansible playbook in background with detailed output"""
     folder_path = ANSIBLE_BASE / folder
     playbook_path = folder_path / playbook
     inventory_path = folder_path / inventory
 
     jobs_store[job_id]["status"] = "running"
+    start_time = time.time()
 
     try:
-        # Change to the folder directory to respect ansible.cfg
+        # Run with ANSI colors enabled
+        env = os.environ.copy()
+        env['ANSIBLE_FORCE_COLOR'] = 'true'
+
         process = await asyncio.create_subprocess_exec(
             "ansible-playbook",
             "-i", str(inventory_path),
             str(playbook_path),
             cwd=str(folder_path),
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT
+            stderr=asyncio.subprocess.STDOUT,
+            env=env
         )
 
         output, _ = await process.communicate()
+        duration = time.time() - start_time
 
         jobs_store[job_id]["output"] = output.decode()
         jobs_store[job_id]["status"] = "completed" if process.returncode == 0 else "failed"
         jobs_store[job_id]["completed_at"] = datetime.now().isoformat()
         jobs_store[job_id]["return_code"] = process.returncode
+        jobs_store[job_id]["duration"] = round(duration, 2)
+
+        # Save to history
+        history_entry = {
+            "job_id": job_id,
+            "folder": folder,
+            "playbook": playbook,
+            "status": jobs_store[job_id]["status"],
+            "started_at": jobs_store[job_id]["started_at"],
+            "completed_at": jobs_store[job_id]["completed_at"],
+            "duration": jobs_store[job_id]["duration"],
+            "return_code": process.returncode,
+            "output_preview": output.decode()[:500]  # Store first 500 chars
+        }
+        history_store.append(history_entry)
+        save_history()
 
     except Exception as e:
+        duration = time.time() - start_time
         jobs_store[job_id]["status"] = "error"
         jobs_store[job_id]["output"] = str(e)
         jobs_store[job_id]["completed_at"] = datetime.now().isoformat()
+        jobs_store[job_id]["duration"] = round(duration, 2)
 
 @app.post("/api/run")
 async def run_playbook(request: PlaybookRequest, background_tasks: BackgroundTasks):
@@ -239,7 +290,9 @@ async def run_playbook(request: PlaybookRequest, background_tasks: BackgroundTas
         "started_at": datetime.now().isoformat(),
         "completed_at": None,
         "folder": request.folder,
-        "playbook": request.playbook
+        "playbook": request.playbook,
+        "duration": None,
+        "return_code": None
     }
 
     # Update vars if provided
@@ -269,8 +322,83 @@ async def get_job_status(job_id: str):
 
 @app.get("/api/jobs")
 async def get_all_jobs():
-    """Get all jobs"""
+    """Get all active jobs"""
     return list(jobs_store.values())
+
+@app.get("/api/history")
+async def get_history(limit: int = 50):
+    """Get execution history"""
+    return history_store[-limit:][::-1]  # Return last N, newest first
+
+@app.get("/api/history/{job_id}")
+async def get_history_item(job_id: str):
+    """Get specific history item"""
+    for item in history_store:
+        if item["job_id"] == job_id:
+            # Try to get full output from jobs_store if still available
+            if job_id in jobs_store:
+                item["output"] = jobs_store[job_id]["output"]
+            return item
+    raise HTTPException(status_code=404, detail="History item not found")
+
+@app.get("/api/statistics")
+async def get_statistics():
+    """Get execution statistics"""
+    total = len(history_store)
+    if total == 0:
+        return {
+            "total_executions": 0,
+            "successful": 0,
+            "failed": 0,
+            "success_rate": 0,
+            "average_duration": 0,
+            "most_used_folders": [],
+            "recent_activity": []
+        }
+
+    successful = sum(1 for h in history_store if h["status"] == "completed")
+    failed = sum(1 for h in history_store if h["status"] == "failed")
+
+    durations = [h.get("duration", 0) for h in history_store if h.get("duration")]
+    avg_duration = sum(durations) / len(durations) if durations else 0
+
+    # Most used folders
+    folder_counts = {}
+    for h in history_store:
+        folder = h["folder"]
+        folder_counts[folder] = folder_counts.get(folder, 0) + 1
+
+    most_used = sorted(folder_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    # Recent activity (last 24 hours)
+    now = datetime.now()
+    recent = []
+    for h in history_store[-20:]:
+        try:
+            started = datetime.fromisoformat(h["started_at"])
+            hours_ago = (now - started).total_seconds() / 3600
+            if hours_ago <= 24:
+                recent.append(h)
+        except:
+            pass
+
+    return {
+        "total_executions": total,
+        "successful": successful,
+        "failed": failed,
+        "success_rate": round((successful / total * 100) if total > 0 else 0, 1),
+        "average_duration": round(avg_duration, 2),
+        "most_used_folders": [{"name": name, "count": count} for name, count in most_used],
+        "recent_activity": recent[::-1]
+    }
+
+@app.delete("/api/history")
+async def clear_history():
+    """Clear execution history"""
+    global history_store
+    history_store = []
+    save_history()
+    return {"success": True, "message": "History cleared"}
 
 if __name__ == "__main__":
     import uvicorn
