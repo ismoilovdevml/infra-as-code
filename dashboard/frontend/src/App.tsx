@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import {
   Folder, Play, FileText, Settings, Loader2, CheckCircle, XCircle,
   Terminal, Save, Code, History, BarChart3, Star, Download, Copy,
-  Clock, TrendingUp, Activity, Home, Bell
+  Clock, TrendingUp, Activity, Home, Bell, Sun, Moon, Github, ExternalLink, Book
 } from 'lucide-react'
 import axios from 'axios'
 import toast, { Toaster } from 'react-hot-toast'
@@ -11,20 +11,46 @@ import Editor from '@monaco-editor/react'
 import Convert from 'ansi-to-html'
 import { formatDistanceToNow, format } from 'date-fns'
 
-const convert = new Convert({
-  fg: '#e5e7eb',  // Light gray (default text)
-  bg: '#111827',  // Dark background
+// ANSI color converters for dark and light themes
+const convertDark = new Convert({
+  fg: '#ffffff',  // Bright white (default text)
+  bg: '#000000',  // Pure black background
   colors: {
-    0: '#1f2937',   // Black -> Dark gray
-    1: '#ef4444',   // Red
-    2: '#10b981',   // Green
-    3: '#f59e0b',   // Yellow
-    4: '#3b82f6',   // Blue
-    5: '#a855f7',   // Magenta
-    6: '#06b6d4',   // Cyan
-    7: '#f3f4f6',   // White -> Light gray
+    0: '#808080',   // Black -> Gray
+    1: '#ff5555',   // Bright Red
+    2: '#50fa7b',   // Bright Green (Dracula theme)
+    3: '#ffb86c',   // Bright Orange
+    4: '#8be9fd',   // Bright Cyan
+    5: '#ff79c6',   // Bright Pink
+    6: '#8be9fd',   // Bright Cyan
+    7: '#ffffff',   // Bright White
   }
 })
+
+const convertLight = new Convert({
+  fg: '#1f2937',  // Dark gray (default text for light mode)
+  bg: '#ffffff',  // White background
+  colors: {
+    0: '#374151',   // Black -> Dark gray
+    1: '#dc2626',   // Dark Red
+    2: '#16a34a',   // Dark Green
+    3: '#ea580c',   // Dark Orange
+    4: '#2563eb',   // Dark Blue
+    5: '#c026d3',   // Dark Magenta
+    6: '#0891b2',   // Dark Cyan
+    7: '#111827',   // Dark (almost black)
+  }
+})
+
+// Theme helpers
+const getTheme = (): 'dark' | 'light' => {
+  const stored = localStorage.getItem('ansible_theme')
+  return (stored as 'dark' | 'light') || 'dark'
+}
+
+const saveTheme = (theme: 'dark' | 'light') => {
+  localStorage.setItem('ansible_theme', theme)
+}
 
 interface AnsibleFolder {
   name: string
@@ -92,52 +118,71 @@ const toggleFavorite = (folderName: string) => {
 }
 
 // Navigation component
-function Navigation() {
+function Navigation({ theme, onThemeToggle }: { theme: 'dark' | 'light', onThemeToggle: () => void }) {
   const location = useLocation()
 
   const isActive = (path: string) => location.pathname === path
 
+  // Dynamic styles based on theme
+  const navBg = theme === 'dark' ? 'bg-gray-800/50' : 'bg-white/80 backdrop-blur-sm border border-gray-200'
+  const linkActive = theme === 'dark'
+    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+    : 'bg-green-50 text-green-600 border border-green-200 shadow-sm'
+  const linkInactive = theme === 'dark'
+    ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+  const buttonBg = theme === 'dark'
+    ? 'bg-gray-800/50 hover:bg-gray-700 text-gray-300'
+    : 'bg-white/80 hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-sm'
+
   return (
-    <nav className="flex items-center space-x-1 bg-gray-800/50 px-4 py-2 rounded-lg">
-      <Link
-        to="/"
-        className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
-          isActive('/')
-            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-        }`}
+    <nav className="flex items-center gap-3">
+      <div className={`flex items-center space-x-1 px-3 py-2 rounded-xl ${navBg}`}>
+        <Link
+          to="/"
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 ${
+            isActive('/') ? linkActive : linkInactive
+          }`}
+        >
+          <Home className="w-4 h-4" />
+          Dashboard
+        </Link>
+        <Link
+          to="/history"
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 ${
+            isActive('/history') ? linkActive : linkInactive
+          }`}
+        >
+          <History className="w-4 h-4" />
+          History
+        </Link>
+        <Link
+          to="/statistics"
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 ${
+            isActive('/statistics') ? linkActive : linkInactive
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Statistics
+        </Link>
+      </div>
+      <button
+        onClick={onThemeToggle}
+        className={`px-4 py-2 rounded-xl transition-all duration-300 flex items-center gap-2 ${buttonBg}`}
+        title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       >
-        <Home className="w-4 h-4" />
-        Dashboard
-      </Link>
-      <Link
-        to="/history"
-        className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
-          isActive('/history')
-            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-        }`}
-      >
-        <History className="w-4 h-4" />
-        History
-      </Link>
-      <Link
-        to="/statistics"
-        className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
-          isActive('/statistics')
-            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-        }`}
-      >
-        <BarChart3 className="w-4 h-4" />
-        Statistics
-      </Link>
+        {theme === 'dark' ? (
+          <Sun className="w-5 h-5 text-yellow-400 transition-transform hover:rotate-90 duration-300" />
+        ) : (
+          <Moon className="w-5 h-5 text-indigo-500 transition-transform hover:-rotate-12 duration-300" />
+        )}
+      </button>
     </nav>
   )
 }
 
 // Main Dashboard Component
-function Dashboard() {
+function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
   const [folders, setFolders] = useState<AnsibleFolder[]>([])
   const [selectedFolder, setSelectedFolder] = useState<AnsibleFolder | null>(null)
   const [selectedPlaybook, setSelectedPlaybook] = useState<string>('')
@@ -152,6 +197,37 @@ function Dashboard() {
   const [searchTerm, setSearchTerm] = useState('')
   const [favorites, setFavorites] = useState<string[]>(getFavorites())
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+
+  // Get the appropriate ANSI converter based on theme
+  const convert = theme === 'dark' ? convertDark : convertLight
+
+  // Theme-based styles
+  const styles = {
+    card: theme === 'dark'
+      ? 'bg-gray-800 border border-green-500/20 shadow-xl shadow-green-500/5'
+      : 'bg-white border border-gray-200 shadow-lg',
+    cardHover: theme === 'dark'
+      ? 'hover:border-green-500/40'
+      : 'hover:border-green-300',
+    input: theme === 'dark'
+      ? 'bg-gray-900 border-green-500/30 text-gray-300 placeholder-gray-500'
+      : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400',
+    button: theme === 'dark'
+      ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+      : 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600',
+    textPrimary: theme === 'dark' ? 'text-gray-200' : 'text-gray-800',
+    textSecondary: theme === 'dark' ? 'text-gray-400' : 'text-gray-600',
+    textAccent: theme === 'dark' ? 'text-green-400' : 'text-green-600',
+    bgAccent: theme === 'dark' ? 'bg-green-500/20' : 'bg-green-50',
+    borderAccent: theme === 'dark' ? 'border-green-500/30' : 'border-green-200',
+    folderBg: theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50',
+    folderSelected: theme === 'dark'
+      ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500 shadow-lg shadow-green-500/20'
+      : 'bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-500 shadow-md',
+    folderUnselected: theme === 'dark'
+      ? 'bg-gray-900 border border-gray-700 hover:border-green-500/50'
+      : 'bg-white border border-gray-200 hover:border-green-400'
+  }
 
   useEffect(() => {
     loadFolders()
@@ -358,13 +434,13 @@ function Dashboard() {
 
         {/* Left Sidebar */}
         <div className="lg:col-span-1">
-          <div className="bg-gray-800 rounded-xl border border-green-500/20 shadow-xl shadow-green-500/5 p-4">
+          <div className={`rounded-xl ${styles.card} p-4`}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-green-400 flex items-center">
+              <h2 className={`text-lg font-semibold ${styles.textAccent} flex items-center`}>
                 <Folder className="w-5 h-5 mr-2" />
                 Folders
               </h2>
-              <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full">
+              <span className={`text-xs ${styles.bgAccent} ${styles.textAccent} px-2 py-1 rounded-full`}>
                 {filteredFolders.length}
               </span>
             </div>
@@ -374,22 +450,22 @@ function Dashboard() {
               placeholder="Search folders..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-3 py-2 mb-2 bg-gray-900 border border-green-500/30 rounded-lg text-gray-300 placeholder-gray-500 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className={`w-full px-3 py-2 mb-2 border rounded-lg ${styles.input} focus:ring-2 focus:ring-green-500 focus:border-transparent`}
             />
 
             <button
               onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
               className={`w-full mb-4 px-3 py-2 rounded-lg text-sm flex items-center gap-2 justify-center transition-all ${
                 showFavoritesOnly
-                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  : 'bg-gray-900 text-gray-400 hover:bg-gray-700'
+                  ? `${styles.bgAccent} ${styles.textAccent} border ${styles.borderAccent}`
+                  : `${styles.folderBg} ${styles.textSecondary} hover:${styles.cardHover}`
               }`}
             >
-              <Star className={`w-4 h-4 ${showFavoritesOnly ? 'fill-green-400' : ''}`} />
+              <Star className={`w-4 h-4 ${showFavoritesOnly ? `fill-current ${styles.textAccent}` : ''}`} />
               Favorites Only
             </button>
 
-            <div className="space-y-2 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-green-500 scrollbar-track-gray-900">
+            <div className={`space-y-2 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-green-500 ${theme === 'dark' ? 'scrollbar-track-gray-900' : 'scrollbar-track-gray-100'}`}>
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-green-500" />
@@ -401,29 +477,31 @@ function Dashboard() {
                       onClick={() => setSelectedFolder(folder)}
                       className={`w-full text-left px-3 py-3 pr-10 rounded-lg transition-all duration-200 ${
                         selectedFolder?.name === folder.name
-                          ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500 shadow-lg shadow-green-500/20'
-                          : 'bg-gray-900 border border-gray-700 hover:border-green-500/50 hover:bg-gray-900/80'
+                          ? styles.folderSelected
+                          : styles.folderUnselected
                       }`}
                     >
-                      <div className="font-medium text-gray-200">{folder.name}</div>
+                      <div className={`font-medium ${styles.textPrimary}`}>{folder.name}</div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-gray-500">
+                        <span className={`text-xs ${styles.textSecondary}`}>
                           {folder.playbooks.length} playbook(s)
                         </span>
                         {folder.has_vars && (
-                          <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">vars</span>
+                          <span className={`text-xs ${styles.bgAccent} ${styles.textAccent} px-1.5 py-0.5 rounded`}>vars</span>
                         )}
                       </div>
                     </button>
                     <button
                       onClick={() => handleFavoriteToggle(folder.name)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                      className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${
+                        theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                      }`}
                     >
                       <Star
                         className={`w-4 h-4 ${
                           favorites.includes(folder.name)
                             ? 'fill-yellow-400 text-yellow-400'
-                            : 'text-gray-600 hover:text-gray-400'
+                            : theme === 'dark' ? 'text-gray-600 hover:text-gray-400' : 'text-gray-400 hover:text-gray-600'
                         }`}
                       />
                     </button>
@@ -439,8 +517,8 @@ function Dashboard() {
           {selectedFolder ? (
             <>
               {/* Playbook Execution */}
-              <div className="bg-gray-800 rounded-xl border border-green-500/20 shadow-xl shadow-green-500/5 p-6">
-                <h2 className="text-xl font-semibold text-green-400 mb-4 flex items-center">
+              <div className={`rounded-xl ${styles.card} p-6`}>
+                <h2 className={`text-xl font-semibold ${styles.textAccent} mb-4 flex items-center`}>
                   <Play className="w-6 h-6 mr-2" />
                   Execute Playbook
                 </h2>
@@ -448,7 +526,7 @@ function Dashboard() {
                   <select
                     value={selectedPlaybook}
                     onChange={(e) => setSelectedPlaybook(e.target.value)}
-                    className="flex-1 px-4 py-3 bg-gray-900 border border-green-500/30 rounded-lg text-gray-300 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className={`flex-1 px-4 py-3 border rounded-lg ${styles.input} focus:ring-2 focus:ring-green-500 focus:border-transparent`}
                   >
                     {selectedFolder.playbooks.map((playbook) => (
                       <option key={playbook} value={playbook}>
@@ -459,7 +537,7 @@ function Dashboard() {
                   <button
                     onClick={runPlaybook}
                     disabled={running || !selectedPlaybook}
-                    className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-green-500/30 transition-all"
+                    className={`px-8 py-3 ${styles.button} text-white rounded-lg font-semibold disabled:from-gray-500 disabled:to-gray-600 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg transition-all`}
                   >
                     {running ? (
                       <>
@@ -478,9 +556,9 @@ function Dashboard() {
 
               {/* Variables Editor with Monaco */}
               {selectedFolder.has_vars && (
-                <div className="bg-gray-800 rounded-xl border border-green-500/20 shadow-xl shadow-green-500/5 p-6">
+                <div className={`rounded-xl ${styles.card} p-6`}>
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-semibold text-green-400 flex items-center">
+                    <h2 className={`text-xl font-semibold ${styles.textAccent} flex items-center`}>
                       <Settings className="w-6 h-6 mr-2" />
                       Variables
                     </h2>
@@ -533,13 +611,13 @@ function Dashboard() {
                       ))}
                     </div>
                   ) : (
-                    <div className="border border-green-500/30 rounded-lg overflow-hidden">
+                    <div className={`border ${styles.borderAccent} rounded-lg overflow-hidden`} style={{ height: '400px' }}>
                       <Editor
-                        height="300px"
+                        height="100%"
                         language="yaml"
                         value={varsRaw}
                         onChange={(value) => setVarsRaw(value || '')}
-                        theme="vs-dark"
+                        theme={theme === 'dark' ? 'vs-dark' : 'light'}
                         options={{
                           minimap: { enabled: false },
                           fontSize: 14,
@@ -547,6 +625,13 @@ function Dashboard() {
                           scrollBeyondLastLine: false,
                           automaticLayout: true,
                           tabSize: 2,
+                          scrollbar: {
+                            vertical: 'visible',
+                            horizontal: 'visible',
+                            useShadows: false,
+                            verticalScrollbarSize: 10,
+                            horizontalScrollbarSize: 10,
+                          },
                         }}
                       />
                     </div>
@@ -556,33 +641,40 @@ function Dashboard() {
 
               {/* Inventory Editor */}
               {selectedFolder.has_inventory && (
-                <div className="bg-gray-800 rounded-xl border border-green-500/20 shadow-xl shadow-green-500/5 p-6">
+                <div className={`rounded-xl ${styles.card} p-6`}>
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-semibold text-green-400 flex items-center">
+                    <h2 className={`text-xl font-semibold ${styles.textAccent} flex items-center`}>
                       <FileText className="w-6 h-6 mr-2" />
                       Inventory
                     </h2>
                     <button
                       onClick={saveInventory}
-                      className="px-4 py-1.5 text-sm bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 flex items-center gap-1 shadow-lg shadow-green-500/20"
+                      className={`px-4 py-1.5 text-sm ${styles.button} text-white rounded-lg flex items-center gap-1 shadow-lg`}
                     >
                       <Save className="w-4 h-4" />
                       Save
                     </button>
                   </div>
-                  <div className="border border-green-500/30 rounded-lg overflow-hidden">
+                  <div className={`border ${styles.borderAccent} rounded-lg overflow-hidden`} style={{ height: '250px' }}>
                     <Editor
-                      height="200px"
+                      height="100%"
                       language="ini"
                       value={inventoryRaw}
                       onChange={(value) => setInventoryRaw(value || '')}
-                      theme="vs-dark"
+                      theme={theme === 'dark' ? 'vs-dark' : 'light'}
                       options={{
                         minimap: { enabled: false },
                         fontSize: 14,
                         lineNumbers: 'on',
                         scrollBeyondLastLine: false,
                         automaticLayout: true,
+                        scrollbar: {
+                          vertical: 'visible',
+                          horizontal: 'visible',
+                          useShadows: false,
+                          verticalScrollbarSize: 10,
+                          horizontalScrollbarSize: 10,
+                        },
                       }}
                     />
                   </div>
@@ -591,10 +683,10 @@ function Dashboard() {
 
               {/* Job Output with ANSI colors and timestamps */}
               {currentJob && (
-                <div className="bg-gray-800 rounded-xl border border-green-500/20 shadow-xl shadow-green-500/5 p-6">
+                <div className={`rounded-xl ${styles.card} p-6`}>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-semibold text-green-400 flex items-center gap-2">
+                      <h2 className={`text-xl font-semibold ${styles.textAccent} flex items-center gap-2`}>
                         <Terminal className="w-6 h-6" />
                         {currentJob.status === 'running' && <Loader2 className="w-5 h-5 animate-spin text-green-500" />}
                         {currentJob.status === 'completed' && <CheckCircle className="w-5 h-5 text-green-500" />}
@@ -602,7 +694,7 @@ function Dashboard() {
                         Execution Output
                       </h2>
                       {currentJob.duration !== null && (
-                        <span className="text-sm text-gray-400 flex items-center gap-1">
+                        <span className={`text-sm ${styles.textSecondary} flex items-center gap-1`}>
                           <Clock className="w-4 h-4" />
                           {currentJob.duration}s
                         </span>
@@ -620,24 +712,32 @@ function Dashboard() {
                         <>
                           <button
                             onClick={copyOutput}
-                            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                            className={`p-2 rounded-lg transition-colors ${
+                              theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                            }`}
                             title="Copy to clipboard"
                           >
-                            <Copy className="w-4 h-4 text-gray-300" />
+                            <Copy className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => exportOutput('txt')}
-                            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                            className={`p-2 rounded-lg transition-colors ${
+                              theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                            }`}
                             title="Download as TXT"
                           >
-                            <Download className="w-4 h-4 text-gray-300" />
+                            <Download className="w-4 h-4" />
                           </button>
                         </>
                       )}
                     </div>
                   </div>
                   <div
-                    className="bg-[#111827] p-4 rounded-lg overflow-x-auto text-sm font-mono max-h-96 overflow-y-auto border border-green-500/30 scrollbar-thin scrollbar-thumb-green-500 scrollbar-track-gray-900"
+                    className={`p-4 rounded-lg overflow-x-auto text-sm font-mono max-h-96 overflow-y-auto border scrollbar-thin scrollbar-thumb-green-500 ${
+                      theme === 'dark'
+                        ? 'bg-[#111827] border-green-500/30 scrollbar-track-gray-900'
+                        : 'bg-gray-50 border-gray-300 scrollbar-track-gray-200'
+                    }`}
                     dangerouslySetInnerHTML={{
                       __html: convert.toHtml(currentJob.output || 'Waiting for output...')
                     }}
@@ -659,11 +759,14 @@ function Dashboard() {
 }
 
 // History Page Component
-function HistoryPage() {
+function HistoryPage({ theme }: { theme: 'dark' | 'light' }) {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(null)
   const [fullOutput, setFullOutput] = useState<string>('')
+
+  // Get the appropriate ANSI converter based on theme
+  const convert = theme === 'dark' ? convertDark : convertLight
 
   useEffect(() => {
     loadHistory()
@@ -804,7 +907,7 @@ function HistoryPage() {
 }
 
 // Statistics Page Component
-function StatisticsPage() {
+function StatisticsPage({ theme }: { theme: 'dark' | 'light' }) {
   const [stats, setStats] = useState<Statistics | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -944,22 +1047,41 @@ function StatisticsPage() {
 
 // Main App with Router
 function App() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(getTheme())
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(newTheme)
+    saveTheme(newTheme)
+  }
+
+  const bgClass = theme === 'dark'
+    ? 'min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 transition-colors duration-500'
+    : 'min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 transition-colors duration-500'
+
+  const headerBgClass = theme === 'dark'
+    ? 'bg-gray-900 border-b border-green-500/30 shadow-lg shadow-green-500/10'
+    : 'bg-white border-b border-green-500/30 shadow-lg shadow-green-500/10'
+
+  const textPrimaryClass = theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
+  const textSecondaryClass = theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+      <div className={bgClass}>
         <Toaster
           position="top-right"
           toastOptions={{
             style: {
-              background: '#1f2937',
-              color: '#fff',
+              background: theme === 'dark' ? '#1f2937' : '#ffffff',
+              color: theme === 'dark' ? '#fff' : '#1f2937',
               border: '1px solid #10b981',
             },
           }}
         />
 
         {/* Header */}
-        <div className="bg-gray-900 border-b border-green-500/30 shadow-lg shadow-green-500/10">
+        <div className={headerBgClass}>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -968,19 +1090,63 @@ function App() {
                   <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600">
                     Ansible Dashboard
                   </h1>
-                  <p className="text-sm text-gray-400 mt-1">Manage and execute your Ansible playbooks</p>
+                  <p className={`text-sm ${textSecondaryClass} mt-1`}>Manage and execute your Ansible playbooks</p>
                 </div>
               </div>
-              <Navigation />
+              <div className="flex items-center gap-4">
+                {/* Quick Links */}
+                <div className="flex items-center gap-2">
+                  <a
+                    href="https://github.com/ismoilovdevml/infra-as-code"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-2 rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                      theme === 'dark'
+                        ? 'hover:bg-gray-800 text-gray-400 hover:text-gray-200'
+                        : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                    }`}
+                    title="View on GitHub"
+                  >
+                    <Github className="w-5 h-5" />
+                  </a>
+                  <a
+                    href="https://docs.ansible.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-2 rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                      theme === 'dark'
+                        ? 'hover:bg-gray-800 text-gray-400 hover:text-gray-200'
+                        : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                    }`}
+                    title="Ansible Documentation"
+                  >
+                    <Book className="w-5 h-5" />
+                  </a>
+                  <a
+                    href="http://localhost:8000/docs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-2 rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                      theme === 'dark'
+                        ? 'hover:bg-gray-800 text-gray-400 hover:text-gray-200'
+                        : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                    }`}
+                    title="API Documentation"
+                  >
+                    <ExternalLink className="w-5 h-5" />
+                  </a>
+                </div>
+                <Navigation theme={theme} onThemeToggle={toggleTheme} />
+              </div>
             </div>
           </div>
         </div>
 
         {/* Routes */}
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/statistics" element={<StatisticsPage />} />
+          <Route path="/" element={<Dashboard theme={theme} />} />
+          <Route path="/history" element={<HistoryPage theme={theme} />} />
+          <Route path="/statistics" element={<StatisticsPage theme={theme} />} />
         </Routes>
       </div>
     </BrowserRouter>
