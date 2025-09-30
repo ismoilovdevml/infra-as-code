@@ -1,0 +1,57 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: backend-test
+    image: python:3.11-slim
+    pre_build_image: false
+    dockerfile: ../Dockerfile.backend
+    command: /bin/bash
+    volumes:
+      - ../../backend:/app
+    exposed_ports:
+      - 8000
+    published_ports:
+      - "0.0.0.0:8000:8000/tcp"
+
+  - name: frontend-test
+    image: node:20-alpine
+    pre_build_image: false
+    dockerfile: ../Dockerfile.frontend
+    command: /bin/sh
+    volumes:
+      - ../../frontend:/app
+    exposed_ports:
+      - 3000
+    published_ports:
+      - "0.0.0.0:3000:3000/tcp"
+
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      backend-test:
+        ansible_connection: docker
+      frontend-test:
+        ansible_connection: docker
+
+verifier:
+  name: ansible
+
+scenario:
+  name: default
+  test_sequence:
+    - dependency
+    - cleanup
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - side_effect
+    - verify
+    - cleanup
+    - destroy

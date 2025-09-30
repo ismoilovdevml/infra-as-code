@@ -1,0 +1,14 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Wait for services to be ready
+      ansible.builtin.wait_for:
+        port: "{{ item }}"
+        delay: 2
+        timeout: 60
+      loop:
+        - 8000  # backend
+        - 3000  # frontend
+      when: inventory_hostname == 'backend-test' or inventory_hostname == 'frontend-test'

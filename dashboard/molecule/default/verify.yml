@@ -1,0 +1,51 @@
+---
+- name: Verify
+  hosts: backend-test
+  gather_facts: false
+  tasks:
+    - name: Check backend health endpoint
+      ansible.builtin.uri:
+        url: http://localhost:8000/
+        return_content: true
+      register: backend_health
+      delegate_to: localhost
+
+    - name: Verify backend response
+      ansible.builtin.assert:
+        that:
+          - backend_health.status == 200
+          - "'message' in backend_health.json"
+        fail_msg: "Backend health check failed"
+        success_msg: "Backend is healthy"
+
+    - name: Check folders API endpoint
+      ansible.builtin.uri:
+        url: http://localhost:8000/api/folders
+        return_content: true
+      register: folders_api
+      delegate_to: localhost
+
+    - name: Verify folders API response
+      ansible.builtin.assert:
+        that:
+          - folders_api.status == 200
+        fail_msg: "Folders API check failed"
+        success_msg: "Folders API is working"
+
+- name: Verify Frontend
+  hosts: frontend-test
+  gather_facts: false
+  tasks:
+    - name: Check frontend is serving
+      ansible.builtin.uri:
+        url: http://localhost:3000/
+        return_content: true
+      register: frontend_check
+      delegate_to: localhost
+
+    - name: Verify frontend response
+      ansible.builtin.assert:
+        that:
+          - frontend_check.status == 200
+        fail_msg: "Frontend check failed"
+        success_msg: "Frontend is serving"
