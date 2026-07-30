@@ -1,0 +1,82 @@
+---
+# Destructive. Removes the haproxy package, its repository and, when haproxy_purge_data is
+# true, /etc/haproxy.
+- name: Uninstall HAProxy
+  hosts: haproxy_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    haproxy_purge_data: false
+
+  tasks:
+    - name: Check whether haproxy is installed
+      ansible.builtin.stat:
+        path: /usr/sbin/haproxy
+      register: haproxy_binary
+      tags: [always]
+
+    - name: Stop haproxy
+      ansible.builtin.systemd_service:
+        name: "{{ haproxy_service_name }}"
+        state: stopped
+      failed_when: false
+      when: haproxy_binary.stat.exists
+      tags: [uninstall]
+
+    - name: Remove the haproxy package
+      ansible.builtin.package:
+        name: "{{ haproxy_package_name }}"
+        state: absent
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Purge the haproxy package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ haproxy_package_name }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the haproxy.debian.net repository (Debian)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/haproxy.sources
+        - /etc/apt/sources.list.d/haproxy.list
+        - /etc/apt/keyrings/haproxy-archive-keyring.gpg
+      when: ansible_distribution == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the vbernat PPA (Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: "{{ haproxy_ubuntu_ppa }}"
+        state: absent
+      when: ansible_distribution == 'Ubuntu'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Reset the SELinux booleans haproxy used
+      ansible.posix.seboolean:
+        name: "{{ item }}"
+        state: false
+        persistent: true
+      loop: "{{ haproxy_selinux_booleans }}"
+      when:
+        - ansible_os_family == 'RedHat'
+        - ansible_selinux is defined
+        - ansible_selinux.status | default('disabled') == 'enabled'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the haproxy state directory
+      ansible.builtin.file:
+        path: /etc/haproxy
+        state: absent
+      when: haproxy_purge_data | bool
+      tags: [uninstall]

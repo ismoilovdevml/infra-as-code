@@ -1,60 +1,96 @@
 ---
-- name: Install PMM Client on multiple OS
+- name: Install the PMM Client from packages
   hosts: pmm_clients
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Download Percona APT repository package (Debian-based)
-      ansible.builtin.get_url:
-        url: "{{ percona_deb_repo_url }}"
-        dest: "/tmp/percona-release_latest.generic_all.deb"
-      when: ansible_os_family == "Debian"
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+          supported. Percona publishes repo.percona.com packages for
+          Debian/Ubuntu and RHEL family only.
+        quiet: true
+      tags: [always]
 
-    - name: Install Percona APT repository package (Debian-based)
-      ansible.builtin.command:
-        cmd: "dpkg -i /tmp/percona-release_latest.generic_all.deb"
-      when: ansible_os_family == "Debian"
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - admin_password | length > 0
+        fail_msg: >-
+          admin_password is empty. Set vault_pmm_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
 
-    - name: Update APT cache (Debian-based)
+    # ------------------------------------------------------------- repo: Debian
+    - name: Install the Percona release package (Debian family)
       ansible.builtin.apt:
-        update_cache: yes
-      when: ansible_os_family == "Debian"
+        deb: "{{ percona_deb_repo_url }}"
+        state: present
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Install PMM client on Debian-based systems
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Install the Percona release package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ percona_rpm_repo_url }}"
+        state: present
+        disable_gpg_check: true
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    # PMM 3's client packages are gated behind this component; installing
+    # pmm-client without enabling it first only sees the PMM-2-era package set.
+    - name: Enable the PMM 3 client repository component
+      ansible.builtin.command: "percona-release enable {{ percona_release_pmm_component }}"
+      register: pmm_percona_release
+      changed_when: pmm_percona_release.rc == 0
+      tags: [install]
+
+    - name: Refresh the APT cache
       ansible.builtin.apt:
-        name: pmm2-client
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install the PMM client package
+      ansible.builtin.package:
+        name: "{{ pmm_client_package }}"
         state: present
-      when: ansible_os_family == "Debian"
+      tags: [install]
 
-    - name: Install Percona YUM repository package (Red Hat-based)
-      ansible.builtin.command:
-        cmd: "yum install -y {{ percona_rpm_repo_url }}"
-      when: ansible_os_family == "RedHat"
-
-    - name: Install PMM client on Red Hat-based systems
-      ansible.builtin.yum:
-        name: pmm2-client
-        state: present
-      when: ansible_os_family == "RedHat"
-
-    - name: Verify PMM Client installation
-      ansible.builtin.command:
-        cmd: "pmm-admin --version"
+    - name: Verify the PMM client installation
+      ansible.builtin.command: pmm-admin --version
       register: pmm_client_version
       changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Display PMM Client version
+    - name: Show the PMM client version
       ansible.builtin.debug:
         msg: "PMM Client version: {{ pmm_client_version.stdout }}"
+      tags: [verify]
 
-    - name: Configure PMM Client to connect to PMM Server
+    # pmm-admin config is idempotent by design (it re-registers the node), so
+    # no additional guard is required here.
+    - name: Configure the PMM client to connect to the PMM Server
       ansible.builtin.command:
-        cmd: "pmm-admin config --server-insecure-tls --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} {{ inventory_hostname }} --force"
+        cmd: >-
+          pmm-admin config --server-insecure-tls
+          --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
+          {{ inventory_hostname }} --force
       register: pmm_config_output
       changed_when: false
+      no_log: true
+      tags: [configure]
 
-    - name: Display PMM Client configuration result
+    - name: Show the PMM client configuration result
       ansible.builtin.debug:
         msg: "PMM Client configuration result: {{ pmm_config_output.stdout }}"
+      tags: [configure]

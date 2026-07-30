@@ -1,0 +1,4 @@
+{{ ansible_managed | comment }}
+{% for user in security_sudoers_nopasswd %}
+{{ user }} ALL=(ALL) NOPASSWD:ALL
+{% endfor %}

@@ -1,0 +1,269 @@
+---
+# Replaces installation_with_package.yml / installation_with_binary.yml /
+# installation_with_docker.yml, which duplicated each other and each carried their
+# own hardcoded secrets. Pick the path with semaphore_install_method.
+- name: Install Semaphore UI
+  hosts: semaphore
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart semaphore
+      ansible.builtin.systemd_service:
+        name: semaphore
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the install method is valid
+      ansible.builtin.assert:
+        that:
+          - semaphore_install_method in ['package', 'binary', 'docker']
+          - ansible_architecture in semaphore_arch_map
+        fail_msg: >-
+          semaphore_install_method must be package, binary or docker, and
+          {{ ansible_architecture }} must be one of
+          {{ semaphore_arch_map.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    # The encryption key protects every credential Semaphore stores. Refusing to
+    # run without it is deliberate: a generated-on-the-fly key would be silently
+    # regenerated on the next run and orphan everything already encrypted.
+    - name: Assert the secrets are supplied
+      ansible.builtin.assert:
+        that:
+          - semaphore_admin_password | length >= 12
+          - semaphore_access_key_encryption | length >= 24
+        fail_msg: >-
+          Set vault_semaphore_admin_password (>= 12 chars) and
+          vault_semaphore_access_key_encryption. Generate the latter once with
+          `head -c32 /dev/urandom | base64` and keep it for the lifetime of the
+          installation — changing it makes all stored credentials undecryptable.
+        quiet: true
+      tags: [always]
+
+    - name: Assert a database password when not using bolt
+      ansible.builtin.assert:
+        that:
+          - semaphore_db_password | length > 0
+        fail_msg: "semaphore_db_dialect is {{ semaphore_db_dialect }} but semaphore_db_password is empty."
+        quiet: true
+      when: semaphore_db_dialect != 'bolt'
+      tags: [always]
+
+    - name: Resolve the release architecture
+      ansible.builtin.set_fact:
+        semaphore_arch: "{{ semaphore_arch_map[ansible_architecture] }}"
+      tags: [always]
+
+    # ------------------------------------------------------------------ account
+    - name: Create the semaphore group
+      ansible.builtin.group:
+        name: "{{ semaphore_group }}"
+        system: true
+      when: semaphore_install_method != 'docker'
+      tags: [install]
+
+    - name: Create the semaphore user
+      ansible.builtin.user:
+        name: "{{ semaphore_user }}"
+        group: "{{ semaphore_group }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ semaphore_data_dir }}"
+        create_home: false
+      when: semaphore_install_method != 'docker'
+      tags: [install]
+
+    - name: Create the semaphore directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ semaphore_user }}"
+        group: "{{ semaphore_group }}"
+        mode: '0750'
+      loop:
+        - "{{ semaphore_config_dir }}"
+        - "{{ semaphore_data_dir }}"
+        - "{{ semaphore_tmp_dir }}"
+      when: semaphore_install_method != 'docker'
+      tags: [install]
+
+    - name: Install the runtime dependencies
+      ansible.builtin.package:
+        name:
+          - git
+          - tar
+        state: present
+      when: semaphore_install_method != 'docker'
+      tags: [install]
+
+    # ----------------------------------------------------------- package method
+    - name: Install Semaphore from the upstream package
+      when: semaphore_install_method == 'package'
+      tags: [install]
+      block:
+        - name: Download the Semaphore package
+          ansible.builtin.get_url:
+            url: >-
+              {{ semaphore_repo }}/v{{ semaphore_version }}/semaphore_{{ semaphore_version }}_linux_{{
+              semaphore_arch }}.{{ 'deb' if ansible_os_family == 'Debian' else 'rpm' }}
+            dest: "/tmp/semaphore_{{ semaphore_version }}.{{ 'deb' if ansible_os_family == 'Debian' else 'rpm' }}"
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: Install the Semaphore package (Debian family)
+          ansible.builtin.apt:
+            deb: "/tmp/semaphore_{{ semaphore_version }}.deb"
+            state: present
+          when: ansible_os_family == 'Debian'
+
+        - name: Install the Semaphore package (RedHat family)
+          ansible.builtin.dnf:
+            name: "/tmp/semaphore_{{ semaphore_version }}.rpm"
+            state: present
+            disable_gpg_check: true
+          when: ansible_os_family == 'RedHat'
+
+        - name: Record the binary path
+          ansible.builtin.set_fact:
+            semaphore_binary_path: /usr/bin/semaphore
+
+    # ------------------------------------------------------------ binary method
+    - name: Install Semaphore from the release tarball
+      when: semaphore_install_method == 'binary'
+      tags: [install]
+      block:
+        - name: Create the install directory
+          ansible.builtin.file:
+            path: "{{ semaphore_install_dir }}"
+            state: directory
+            owner: "{{ semaphore_user }}"
+            group: "{{ semaphore_group }}"
+            mode: '0755'
+
+        - name: Download and unpack the Semaphore tarball
+          ansible.builtin.unarchive:
+            src: >-
+              {{ semaphore_repo }}/v{{ semaphore_version }}/semaphore_{{ semaphore_version }}_linux_{{ semaphore_arch }}.tar.gz
+            dest: "{{ semaphore_install_dir }}"
+            remote_src: true
+            owner: "{{ semaphore_user }}"
+            group: "{{ semaphore_group }}"
+            creates: "{{ semaphore_install_dir }}/semaphore"
+
+        - name: Record the binary path
+          ansible.builtin.set_fact:
+            semaphore_binary_path: "{{ semaphore_install_dir }}/semaphore"
+
+    # ---------------------------------------------------- config + service (host)
+    - name: Configure the Semaphore service
+      when: semaphore_install_method != 'docker'
+      tags: [configure]
+      block:
+        - name: Write config.json
+          ansible.builtin.template:
+            src: config.json.j2
+            dest: "{{ semaphore_config_dir }}/config.json"
+            owner: "{{ semaphore_user }}"
+            group: "{{ semaphore_group }}"
+            mode: '0600'
+          no_log: true
+          notify: Restart semaphore
+
+        - name: Install the systemd unit
+          ansible.builtin.template:
+            src: semaphore.service.j2
+            dest: /etc/systemd/system/semaphore.service
+            owner: root
+            group: root
+            mode: '0644'
+          notify: Restart semaphore
+
+        - name: Enable and start semaphore
+          ansible.builtin.systemd_service:
+            name: semaphore
+            enabled: true
+            state: started
+            daemon_reload: true
+
+        # `semaphore user add` is not idempotent, so it runs once behind a marker.
+        - name: Check whether the admin user was created
+          ansible.builtin.stat:
+            path: "{{ semaphore_data_dir }}/.ansible_admin_created"
+          register: semaphore_admin_marker
+
+        - name: Create the admin user
+          ansible.builtin.command:
+            cmd: >-
+              {{ semaphore_binary_path }} user add --admin
+              --login {{ semaphore_admin_name | quote }}
+              --name {{ semaphore_admin_name | quote }}
+              --email {{ semaphore_admin_email | quote }}
+              --password {{ semaphore_admin_password | quote }}
+              --config {{ semaphore_config_dir }}/config.json
+          become_user: "{{ semaphore_user }}"
+          become: true
+          no_log: true
+          changed_when: true
+          when: not semaphore_admin_marker.stat.exists
+
+        - name: Mark the admin user as created
+          ansible.builtin.file:
+            path: "{{ semaphore_data_dir }}/.ansible_admin_created"
+            state: touch
+            owner: "{{ semaphore_user }}"
+            group: "{{ semaphore_group }}"
+            mode: '0600'
+          when: not semaphore_admin_marker.stat.exists
+
+    # ------------------------------------------------------------ docker method
+    - name: Run Semaphore as a container
+      when: semaphore_install_method == 'docker'
+      tags: [install]
+      block:
+        - name: Create the Semaphore data directory
+          ansible.builtin.file:
+            path: "{{ semaphore_data_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: '0750'
+
+        - name: Run the Semaphore container
+          community.docker.docker_container:
+            name: "{{ semaphore_container_name }}"
+            image: "{{ semaphore_image }}"
+            state: started
+            restart_policy: "{{ semaphore_restart_policy }}"
+            pull: true
+            published_ports:
+              - "{{ semaphore_bind_address }}:{{ semaphore_port }}:3000"
+            volumes:
+              - "{{ semaphore_data_dir }}:/var/lib/semaphore"
+            env:
+              SEMAPHORE_DB_DIALECT: "{{ semaphore_db_dialect }}"
+              SEMAPHORE_ADMIN: "{{ semaphore_admin_name }}"
+              SEMAPHORE_ADMIN_NAME: "{{ semaphore_admin_name }}"
+              SEMAPHORE_ADMIN_EMAIL: "{{ semaphore_admin_email }}"
+              SEMAPHORE_ADMIN_PASSWORD: "{{ semaphore_admin_password }}"
+              SEMAPHORE_ACCESS_KEY_ENCRYPTION: "{{ semaphore_access_key_encryption }}"
+          no_log: true
+
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the Semaphore port
+      ansible.builtin.wait_for:
+        host: "{{ '127.0.0.1' if semaphore_bind_address == '0.0.0.0' else semaphore_bind_address }}"
+        port: "{{ semaphore_port }}"
+        timeout: 90
+      tags: [verify]
+
+    - name: Show the Semaphore URL
+      ansible.builtin.debug:
+        msg: "Semaphore {{ semaphore_version }} ({{ semaphore_install_method }}) on http://{{ inventory_hostname }}:{{ semaphore_port }}"
+      tags: [verify]

@@ -1,128 +1,101 @@
 ---
-- name: Uninstall Docker on multiple OS
+# Destructive. Removes the Docker packages, the repository and, when
+# docker_purge_data is true, every container, image, volume and network.
+- name: Uninstall Docker Engine
   hosts: all
   become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    docker_purge_data: false
+
   tasks:
-    - name: Gather facts
-      ansible.builtin.setup:
-        filter: ansible_distribution*
+    - name: Check whether docker is installed
+      ansible.builtin.stat:
+        path: /usr/bin/docker
+      register: docker_binary
+      tags: [always]
 
-    - name: Check if Docker is installed
-      ansible.builtin.command:
-        cmd: "which docker"
-      register: docker_installed
-      ignore_errors: true
-      failed_when: docker_installed.rc != 0 and docker_installed.rc != 1
+    - name: Remove all Docker data
+      when:
+        - docker_binary.stat.exists
+        - docker_purge_data | bool
+      tags: [uninstall]
+      block:
+        - name: Prune every container, image, network and volume
+          ansible.builtin.command: docker system prune --all --force --volumes
+          register: docker_prune
+          changed_when: "'Total reclaimed space: 0B' not in docker_prune.stdout"
+          failed_when: false
 
-    - name: Stop all running containers (if Docker is found)
-      ansible.builtin.shell: docker stop $(docker ps -q)
-      when: docker_installed.rc == 0
-      ignore_errors: yes
-
-    - name: Remove all stopped containers (if Docker is found)
-      ansible.builtin.shell: docker rm $(docker ps -a -q)
-      when: docker_installed.rc == 0
-      ignore_errors: yes
-
-    - name: Remove all Docker images (if Docker is found)
-      ansible.builtin.shell: docker rmi $(docker images -a -q)
-      when: docker_installed.rc == 0
-      ignore_errors: yes
-
-    - name: Remove all Docker volumes (if Docker is found)
-      ansible.builtin.shell: docker volume prune -f
-      when: docker_installed.rc == 0
-      ignore_errors: yes
-
-    - name: Prune all Docker system files (if Docker is found)
-      ansible.builtin.shell: docker system prune -a -f --volumes
-      when: docker_installed.rc == 0
-      ignore_errors: yes
-
-    - name: Stop Docker service (if Docker is found)
-      ansible.builtin.systemd:
-        name: docker
-        state: stopped
-      when: docker_installed.rc == 0
-      ignore_errors: yes
-
-    - name: Remove Docker packages (Ubuntu/Debian)
-      ansible.builtin.apt:
+    - name: Stop docker
+      ansible.builtin.systemd_service:
         name: "{{ item }}"
-        state: absent
-        purge: yes
+        state: stopped
       loop:
-        - docker-ce
-        - docker-ce-cli
-        - containerd.io
-        - docker-compose-plugin
-        - docker-buildx-plugin
-        - docker.io
-      when: ansible_distribution in ['Ubuntu', 'Debian']
+        - docker.socket
+        - docker.service
+      failed_when: false
+      when: docker_binary.stat.exists
+      tags: [uninstall]
 
-    - name: Remove Docker packages (CentOS/RHEL/Fedora/Rocky)
-      ansible.builtin.yum:
-        name:
-          - docker
-          - docker-client
-          - docker-client-latest
-          - docker-common
-          - docker-latest
-          - docker-latest-logrotate
-          - docker-logrotate
-          - docker-engine
-          - containerd.io
+    - name: Remove the Docker packages
+      ansible.builtin.package:
+        name: "{{ docker_packages + [docker_distro_package_map[ansible_distribution] | default(omit)] | select('string') | list }}"
         state: absent
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove Docker packages (SLES)
-      community.general.zypper:
-        name: docker
+    - name: Purge the Docker packages (Debian family)
+      ansible.builtin.apt:
+        name: "{{ docker_packages }}"
         state: absent
-      when: ansible_distribution == 'SLES'
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove leftover Docker files and directories
+    - name: Remove the Docker repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/docker.sources
+        - /etc/apt/sources.list.d/docker.list
+        - /etc/apt/keyrings/docker.asc
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Docker repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/docker-ce.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the Docker repository (SUSE)
+      community.general.zypper_repository:
+        name: docker-ce-stable
+        state: absent
+      when: ansible_os_family == 'Suse'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Docker state directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
         - /var/lib/docker
-        - /etc/docker
-        - /var/run/docker.sock
-        - /usr/local/bin/docker-compose
-        - /root/.docker
-        - /home/{{ ansible_user_id }}/.docker
         - /var/lib/containerd
+        - /etc/docker
+      when: docker_purge_data | bool
+      tags: [uninstall]
 
-    - name: Remove Docker group
+    - name: Remove the docker group
       ansible.builtin.group:
         name: docker
         state: absent
-
-    - name: Clean up APT sources (Ubuntu/Debian)
-      ansible.builtin.file:
-        path: /etc/apt/sources.list.d/docker.list
-        state: absent
-      when: ansible_distribution in ['Ubuntu', 'Debian']
-      ignore_errors: yes
-
-    - name: Clean up Yum/DNF sources (CentOS/RHEL/Fedora/Rocky)
-      ansible.builtin.file:
-        path: /etc/yum.repos.d/docker-ce.repo
-        state: absent
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
-      ignore_errors: yes
-
-    - name: Remove Docker GPG key (Ubuntu/Debian)
-      ansible.builtin.apt_key:
-        id: "{{ item }}"
-        state: absent
-      loop:
-        - 9DC858229FC7DD38854AE2D88D81803C0EBFCD88  # Docker GPG key for Ubuntu/Debian
-      when: ansible_distribution in ['Ubuntu', 'Debian']
-
-    - name: Remove Docker GPG key (CentOS/RHEL/Fedora/Rocky)
-      ansible.builtin.rpm_key:
-        key: https://download.docker.com/linux/centos/gpg
-        state: absent
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
+      tags: [uninstall]

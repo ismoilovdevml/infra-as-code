@@ -1,4 +1,30 @@
-elastic_version: "8"  # 7 or 8
-elastic_gpg_key: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
-elastic_repo_url_apt: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/apt"
-elastic_repo_url_yum: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/yum"
+---
+# Must match the Elasticsearch cluster this Kibana connects to - see
+# ../elasticsearch/vars.yml. Kibana and Elasticsearch versions must match.
+elastic_major_version: "9"
+elastic_version: "9.4.4"
+
+elastic_gpg_key_url: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+elastic_gpg_key_fingerprint: "46095ACC8548582C1A2699A9D27D666CD88E42B4"
+elastic_apt_keyring: /etc/apt/keyrings/elasticsearch.asc
+
+elastic_repo_url_apt: "https://artifacts.elastic.co/packages/{{ elastic_major_version }}.x/apt"
+elastic_repo_url_yum: "https://artifacts.elastic.co/packages/{{ elastic_major_version }}.x/yum"
+
+# ---------------------------------- kibana.yml --------------------------------
+
+# Default is loopback-only and intentionally unreachable from a browser on
+# another host. Set to 0.0.0.0 (or a specific interface) once you are ready
+# to expose Kibana.
+server_host: 127.0.0.1
+server_port: 5601
+# Required by Kibana when running behind a proxy/load balancer, e.g.
+# "https://kibana.example.internal". Leave empty for direct access.
+server_public_base_url: ""
+kibana_log_level: info
+
+# Delegation target used to mint the Kibana enrollment token
+# (elasticsearch-create-enrollment-token -s kibana, 30-minute lifetime). Must
+# be a running, security-enabled Elasticsearch node reachable from the
+# controller - see the [elasticsearch] group in inventory.ini.
+elasticsearch_enrollment_host: "{{ groups['elasticsearch'][0] | default('') }}"

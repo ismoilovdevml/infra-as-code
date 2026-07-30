@@ -1,32 +1,93 @@
 ---
-# SSH security configurations
+# ---------------------------------------------------------------- SSH hardening
+# Every value below is rendered into a single drop-in at
+# /etc/ssh/sshd_config.d/10-hardening.conf, validated with `sshd -t -f %s`
+# before it is ever written (main.yml). /etc/ssh/sshd_config itself is only
+# ever touched to guarantee the `Include` line exists — every other directive
+# lives in the drop-in. Naming it `10-` keeps it before RHEL's own
+# `50-redhat.conf` drop-in, matching upstream Red Hat guidance.
 security_ssh_port: 22
-security_ssh_password_authentication: "no"
-security_ssh_permit_root_login: "no"
-security_ssh_usedns: "no"
-security_ssh_permit_empty_password: "no"
-security_ssh_challenge_response_auth: "no"
-security_ssh_gss_api_authentication: "no"
-security_ssh_x11_forwarding: "no"
-security_ssh_allowed_users:
-  - johndoe
-  - adminuser
-security_ssh_allowed_groups:
-  - admin
-  - devops
 
-# Sudoers configuration
-security_sudoers_passworded:
-  - johndoe
-  - deployacct
+# SAFETY: 'no' disables root SSH login outright. If this play connects as root
+# over SSH (see inventory.ini's ansible_user), leave this at the OpenSSH
+# upstream default 'prohibit-password' (root can still log in with a key, just
+# not a password) until you have migrated to a non-root sudo user. main.yml
+# refuses to apply 'no' while ansible_user is root (preflight assert).
+security_ssh_permit_root_login: prohibit-password  # yes | no | prohibit-password | forced-commands-only
 
-# Automatic updates configuration
-security_autoupdate_enabled: true
-security_autoupdate_conf_path: "{{ '/etc/apt/apt.conf.d/50unattended-upgrades' if ansible_facts['os_family'] == 'Debian' else '/etc/yum/yum-cron.conf' }}"
-security_autoupdate_reboot: true
-security_autoupdate_reboot_time: "03:00"
-security_autoupdate_mail_to: "admin@example.com"
-security_autoupdate_mail_on_error: true
+# SAFETY: main.yml refuses to disable password authentication unless the
+# connecting user already has a non-empty ~/.ssh/authorized_keys on the target
+# (checked at runtime with a preflight assert).
+security_ssh_password_authentication: false
 
-# Fail2ban configuration
+# Current OpenSSH directive; ChallengeResponseAuthentication is a deprecated
+# alias for the same setting and is not used here.
+security_ssh_kbd_interactive_authentication: false
+security_ssh_permit_empty_passwords: false
+security_ssh_x11_forwarding: false
+security_ssh_use_dns: false
+security_ssh_gssapi_authentication: false
+security_ssh_max_auth_tries: 4
+security_ssh_client_alive_interval: 300
+security_ssh_client_alive_count_max: 2
+
+# SAFETY: if non-empty, must include the user this play connects as, or the
+# next connection is locked out. main.yml asserts this before applying it.
+security_ssh_allowed_users: []
+security_ssh_allowed_groups: []
+
+# --------------------------------------------------------------------- sudoers
+# Users granted passwordless sudo via a dedicated, visudo-validated drop-in.
+security_sudoers_nopasswd: []
+#  - deployacct
+
+# -------------------------------------------------------------------- fail2ban
 security_fail2ban_enabled: true
+security_fail2ban_bantime: 10m
+security_fail2ban_findtime: 10m
+security_fail2ban_maxretry: 5
+
+# ------------------------------------------------------------- automatic updates
+security_autoupdate_enabled: true
+
+# Debian/Ubuntu (unattended-upgrades) only: reboot automatically if a patch
+# requires it. Off by default — an unattended reboot of a service host is a
+# decision an operator should make explicitly.
+security_autoupdate_reboot: false
+security_autoupdate_reboot_time: "03:00"
+
+# RHEL/Rocky/Alma/Fedora/CentOS Stream/Amazon Linux (dnf-automatic) only.
+security_autoupdate_dnf_apply_updates: true
+security_autoupdate_dnf_upgrade_type: default   # default | security
+
+# openSUSE/SLES only: this module drives a small self-authored systemd timer
+# (zypper-patch.timer/.service) rather than YaST's Online Update Configuration,
+# whose /etc/sysconfig/automatic_online_update keys are not documented in a way
+# this play could verify. See README "Notes".
+security_suse_patch_oncalendar: daily
+
+# ----------------------------------------------------------------------- auditd
+security_auditd_enabled: true
+security_auditd_package:
+  Debian: auditd
+  RedHat: audit
+  Suse: audit
+
+# -------------------------------------------------------------------- sysctl
+security_sysctl_hardening_enabled: true
+security_sysctl_settings:
+  net.ipv4.conf.all.rp_filter: '1'
+  net.ipv4.conf.default.rp_filter: '1'
+  net.ipv4.tcp_syncookies: '1'
+  net.ipv4.conf.all.accept_redirects: '0'
+  net.ipv4.conf.default.accept_redirects: '0'
+  net.ipv4.conf.all.send_redirects: '0'
+  net.ipv4.conf.all.accept_source_route: '0'
+  net.ipv4.icmp_echo_ignore_broadcasts: '1'
+  net.ipv4.conf.all.log_martians: '1'
+  net.ipv6.conf.all.accept_redirects: '0'
+  kernel.randomize_va_space: '2'
+  fs.suid_dumpable: '0'
+  kernel.dmesg_restrict: '1'
+  kernel.kptr_restrict: '1'
+  kernel.yama.ptrace_scope: '1'

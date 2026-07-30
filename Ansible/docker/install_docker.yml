@@ -1,144 +1,272 @@
 ---
-- name: Install Docker on multiple OS
+- name: Install Docker Engine
   hosts: all
   become: true
-  tasks:
-    - name: Gather facts
-      ansible.builtin.setup:
-        filter: ansible_distribution*
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
-    - name: Show system distribution
-      debug:
-        msg: "Installing Docker on {{ ansible_distribution }}"
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
 
-    - name: Remove old Docker versions (Debian/Ubuntu based)
-      ansible.builtin.package:
-        name:
-          - docker.io
-          - docker-doc
-          - docker-compose
-          - docker-compose-v2
-          - podman-docker
-          - containerd
-          - runc
-        state: absent
-      when: ansible_distribution in ['Ubuntu', 'Debian']
-      tags: debian_ubuntu
-
-    - name: Remove old Docker versions (RHEL/CentOS/Rocky/Fedora based)
-      ansible.builtin.shell: |
-        sudo {{ ansible_pkg_mgr }} remove -y docker \
-                                        docker-client \
-                                        docker-client-latest \
-                                        docker-common \
-                                        docker-latest \
-                                        docker-latest-logrotate \
-                                        docker-logrotate \
-                                        docker-engine
-      when: ansible_distribution in ['CentOS', 'RedHat', 'Fedora', 'Rocky']
-      tags: rhel_centos_rocky
-
-    - name: Install Docker on Debian/Ubuntu based systems
-      block:
-        - name: Install dependencies
-          ansible.builtin.apt:
-            name: "{{ item }}"
-            state: present
-          loop:
-            - ca-certificates
-            - curl
-            - gnupg
-
-        - name: Add Docker’s official GPG key
-          ansible.builtin.shell: |
-            install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
-
-        - name: Add Docker APT repository
-          ansible.builtin.shell: |
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list
-            apt-get update
-
-        - name: Install Docker
-          ansible.builtin.apt:
-            name:
-              - docker-ce
-              - docker-ce-cli
-              - containerd.io
-              - docker-buildx-plugin
-              - docker-compose-plugin
-            state: present
-      when: ansible_distribution in ['Ubuntu', 'Debian']
-      tags: debian_ubuntu
-
-    - name: Install Docker on CentOS/RHEL/Rocky based systems
-      block:
-        - name: Install dependencies
-          ansible.builtin.yum:
-            name: yum-utils
-            state: present
-
-        - name: Add Docker repository
-          ansible.builtin.shell: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-        - name: Install Docker
-          ansible.builtin.yum:
-            name:
-              - docker-ce
-              - docker-ce-cli
-              - containerd.io
-              - docker-buildx-plugin
-              - docker-compose-plugin
-            state: present
-      when: ansible_distribution in ['RedHat', 'CentOS', 'Rocky']
-      tags: rhel_centos_rocky
-
-    - name: Install Docker on Fedora based systems
-      block:
-        - name: Install dnf-plugins-core
-          ansible.builtin.dnf:
-            name: dnf-plugins-core
-            state: present
-
-        - name: Add Docker repository
-          ansible.builtin.shell: dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-
-        - name: Install Docker
-          ansible.builtin.dnf:
-            name:
-              - docker-ce
-              - docker-ce-cli
-              - containerd.io
-              - docker-buildx-plugin
-              - docker-compose-plugin
-            state: present
-      when: ansible_distribution == 'Fedora'
-      tags: fedora
-
-    - name: Start and enable Docker
-      ansible.builtin.systemd:
+    - name: Restart docker
+      ansible.builtin.systemd_service:
         name: docker
-        enabled: yes
-        state: started
+        state: restarted
 
-    - name: Add user to Docker group
-      ansible.builtin.user:
-        name: "{{ ansible_user_id }}"
-        groups: docker
-        append: yes
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Read /etc/os-release
+          ansible.builtin.slurp:
+            src: /etc/os-release
+          register: docker_os_release_raw
 
-    - name: Set permissions on Docker socket
+        # Upstream derives the APT suite from /etc/os-release, not `lsb_release -cs`:
+        # lsb_release is absent on minimal Debian images, and on Ubuntu derivatives
+        # UBUNTU_CODENAME is the only field that maps to a real Docker suite.
+        - name: Parse /etc/os-release
+          ansible.builtin.set_fact:
+            docker_os_release: >-
+              {{ docker_os_release | default({})
+                 | combine({item.split('=', 1)[0]: item.split('=', 1)[1] | trim('"')}) }}
+          loop: "{{ (docker_os_release_raw.content | b64decode).splitlines() | select('match', '^[A-Z_]+=') | list }}"
+          loop_control:
+            label: "{{ item.split('=', 1)[0] }}"
+
+        - name: Resolve repository path, suite and install method
+          ansible.builtin.set_fact:
+            docker_repo_path: "{{ docker_repo_path_map[ansible_distribution] | default('') }}"
+            docker_distro_package: "{{ docker_distro_package_map[ansible_distribution] | default('') }}"
+            docker_apt_suite: >-
+              {{ docker_os_release.UBUNTU_CODENAME
+                 | default(docker_os_release.VERSION_CODENAME, true)
+                 | default(ansible_distribution_release, true) }}
+
+        - name: Select the install method
+          ansible.builtin.set_fact:
+            docker_install_method: "{{ 'distro' if docker_distro_package | length > 0 else 'docker_ce' }}"
+
+        - name: Assert the platform is supported
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+              - docker_install_method == 'distro' or docker_repo_path | length > 0
+            fail_msg: >-
+              Docker cannot be installed on {{ ansible_distribution }} {{ ansible_distribution_version }}.
+              Upstream repositories exist for Debian, Ubuntu, Raspbian, RHEL, CentOS Stream, Rocky,
+              AlmaLinux, Oracle Linux, Fedora and SLES 15. Distribution packages are used on
+              Amazon Linux 2023 and openSUSE.
+            quiet: true
+
+        - name: Assert the release is still supported upstream
+          ansible.builtin.assert:
+            that:
+              - ansible_distribution_major_version | int >= docker_minimum_major_version[ansible_distribution]
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} has been dropped by upstream.
+              Minimum is {{ ansible_distribution }} {{ docker_minimum_major_version[ansible_distribution] }}.
+              Set docker_strict_platform_check=false to install anyway.
+            quiet: true
+          when:
+            - docker_strict_platform_check | bool
+            - ansible_distribution in docker_minimum_major_version
+
+    # --------------------------------------------------------- conflicting pkgs
+    - name: Remove the distribution Docker packages (Debian family)
+      ansible.builtin.apt:
+        name: "{{ docker_conflicting_packages_debian }}"
+        state: absent
+      when:
+        - ansible_os_family == 'Debian'
+        - docker_install_method == 'docker_ce'
+      tags: [install]
+
+    - name: Remove the distribution Docker packages (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ docker_conflicting_packages_redhat }}"
+        state: absent
+      when:
+        - ansible_os_family == 'RedHat'
+        - docker_install_method == 'docker_ce'
+      tags: [install]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the Docker CE repository (Debian family)
+      when:
+        - ansible_os_family == 'Debian'
+        - docker_install_method == 'docker_ce'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian    # required by ansible.builtin.deb822_repository
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the Docker GPG key
+          ansible.builtin.get_url:
+            url: "https://download.docker.com/linux/{{ docker_repo_path }}/gpg"
+            dest: /etc/apt/keyrings/docker.asc
+            mode: '0644'
+
+        - name: Remove the legacy one-line repository file
+          ansible.builtin.file:
+            path: /etc/apt/sources.list.d/docker.list
+            state: absent
+
+        - name: Add the Docker CE repository
+          ansible.builtin.deb822_repository:
+            name: docker
+            types: [deb]
+            uris: "https://download.docker.com/linux/{{ docker_repo_path }}"
+            suites: ["{{ docker_apt_suite }}"]
+            components: [stable]
+            architectures: ["{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"]
+            signed_by: /etc/apt/keyrings/docker.asc
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the Docker CE repository (RedHat family)
+      when:
+        - ansible_os_family == 'RedHat'
+        - docker_install_method == 'docker_ce'
+      tags: [install]
+      block:
+        - name: Import the Docker GPG key
+          ansible.builtin.rpm_key:
+            key: "https://download.docker.com/linux/{{ docker_repo_path }}/gpg"
+            state: present
+
+        # yum_repository is used instead of `dnf config-manager`: the dnf4 flag
+        # (--add-repo) was removed in dnf5, so the shell form breaks on Fedora 41+.
+        - name: Add the Docker CE repository
+          ansible.builtin.yum_repository:
+            name: docker-ce-stable
+            file: docker-ce
+            description: "Docker CE Stable - $basearch"
+            baseurl: >-
+              https://download.docker.com/linux/{{ docker_repo_path }}/{{ ansible_distribution_major_version }}/$basearch/stable
+            gpgkey: "https://download.docker.com/linux/{{ docker_repo_path }}/gpg"
+            gpgcheck: true
+            enabled: true
+
+    # --------------------------------------------------------------- repo: SUSE
+    - name: Configure the Docker CE repository (SLES)
+      when:
+        - ansible_os_family == 'Suse'
+        - docker_install_method == 'docker_ce'
+      tags: [install]
+      block:
+        - name: Import the Docker GPG key
+          ansible.builtin.rpm_key:
+            key: https://download.docker.com/linux/sles/gpg
+            state: present
+
+        - name: Add the Docker CE repository
+          community.general.zypper_repository:
+            name: docker-ce-stable
+            repo: "https://download.docker.com/linux/sles/15/{{ ansible_architecture }}/stable"
+            auto_import_keys: true
+            state: present
+
+    # ------------------------------------------------------------------ install
+    # docker_version pins docker-ce/docker-ce-cli only; the plugins and containerd.io
+    # follow their own version streams. apt separates with '=', dnf with '-'.
+    - name: Install Docker CE
+      ansible.builtin.package:
+        name: >-
+          {{ docker_packages if docker_version | length == 0
+             else docker_packages | map('regex_replace', '^(docker-ce|docker-ce-cli)$',
+                                        '\1' ~ ('=' if ansible_os_family == 'Debian' else '-') ~ docker_version) | list }}
+        state: present
+      when: docker_install_method == 'docker_ce'
+      tags: [install]
+
+    - name: Install the distribution Docker package
+      ansible.builtin.package:
+        name: "{{ docker_distro_package }}"
+        state: present
+      when: docker_install_method == 'distro'
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Create /etc/docker
       ansible.builtin.file:
-        path: /var/run/docker.sock
-        owner: "{{ ansible_user_id }}"
-        group: docker
-        mode: '0666'
+        path: /etc/docker
+        state: directory
+        mode: '0755'
+      when: docker_daemon_options | length > 0
+      tags: [configure]
 
-    - name: Print Docker version
-      ansible.builtin.shell: docker --version
-      register: docker_version_output
+    - name: Write /etc/docker/daemon.json
+      ansible.builtin.copy:
+        content: "{{ docker_daemon_options | to_nice_json }}\n"
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: '0644'
+      when: docker_daemon_options | length > 0
+      notify: Restart docker
+      tags: [configure]
 
-    - name: Show Docker version
-      debug:
-        msg: "Installed Docker version: {{ docker_version_output.stdout }}"
+    # ------------------------------------------------------------------ service
+    - name: Enable and start containerd
+      ansible.builtin.systemd_service:
+        name: containerd
+        enabled: "{{ docker_service_enabled }}"
+        state: "{{ docker_service_state }}"
+      when: docker_install_method == 'docker_ce'
+      tags: [service]
+
+    - name: Enable and start docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: "{{ docker_service_enabled }}"
+        state: "{{ docker_service_state }}"
+      tags: [service]
+
+    # Membership of the docker group is root-equivalent. The socket itself stays at
+    # its packaged 0660 root:docker — never widen it.
+    - name: Add users to the docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ docker_users }}"
+      tags: [configure]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed versions
+      ansible.builtin.command: "{{ item }}"
+      changed_when: false
+      check_mode: false
+      register: docker_verify
+      loop:
+        - docker --version
+        - docker compose version
+      tags: [verify]
+
+    - name: Show the installed versions
+      ansible.builtin.debug:
+        msg: "{{ docker_verify.results | map(attribute='stdout') | list }}"
+      tags: [verify]

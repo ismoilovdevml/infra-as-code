@@ -1,53 +1,47 @@
 ---
-- name: Expose Rancher UI
-  hosts: all
-  become: yes
-  vars:
-    rancher_namespace: "cattle-system"
-    ingress_name: "rancher-ingress"
-    ingress_host: "rancher.helm.uz"  # Replace with your Rancher hostname
-    tls_secret_name: "rancher-tls"
-    cluster_issuer: "letsencrypt-prod"
-    service_name: "rancher"
-    service_port: 80  # Internal Rancher service port
+- name: Expose Rancher UI with an Ingress
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Create Rancher Ingress configuration file
-      ansible.builtin.copy:
-        dest: /tmp/rancher-ingress.yaml
-        content: |
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
-          metadata:
-            name: {{ ingress_name }}
-            namespace: {{ rancher_namespace }}
-            annotations:
-              cert-manager.io/cluster-issuer: "{{ cluster_issuer }}"
-              nginx.ingress.kubernetes.io/ssl-redirect: "true"
-              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-          spec:
-            ingressClassName: "nginx"
-            rules:
-            - host: {{ ingress_host }}
-              http:
-                paths:
-                - path: /
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: {{ service_name }}
-                      port:
-                        number: {{ service_port }}  # ClusterIP port for Rancher
-            tls:
-            - hosts:
-              - {{ ingress_host }}
-              secretName: {{ tls_secret_name }}
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Verify the Rancher Service exists
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Service
+            name: "{{ rancher_service_name }}"
+            namespace: "{{ rancher_namespace }}"
+          register: rancher_service_check
 
-    - name: Apply Rancher Ingress configuration
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/rancher-ingress.yaml
-      register: ingress_apply_output
+        - name: Fail if the Rancher Service does not exist
+          ansible.builtin.assert:
+            that:
+              - rancher_service_check.resources | length > 0
+            fail_msg: "Service {{ rancher_service_name }} not found in {{ rancher_namespace }}. Run install.yml first."
+            quiet: true
 
-    - name: Show Ingress apply output
-      debug:
-        var: ingress_apply_output.stdout
+    - name: Apply the Ingress
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        template: templates/ingress.yaml.j2
+      tags: [configure]
+
+    - name: Show the Ingress status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Ingress
+        name: "{{ rancher_ingress_name }}"
+        namespace: "{{ rancher_namespace }}"
+      register: rancher_ingress_status
+      tags: [verify]
+
+    - name: Show the Ingress
+      ansible.builtin.debug:
+        var: rancher_ingress_status.resources
+      tags: [verify]

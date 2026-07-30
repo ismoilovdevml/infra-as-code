@@ -1,0 +1,27 @@
+---
+- name: Uninstall the Go programming language
+  hosts: go_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the Go installation
+      ansible.builtin.file:
+        path: "{{ go_install_root }}/go"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the system-wide PATH/GOPATH profile snippet
+      ansible.builtin.file:
+        path: "{{ go_profile_path }}"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the default GOPATH directory
+      ansible.builtin.file:
+        path: "{{ ansible_user_dir | default('/root') }}/go"
+        state: absent
+      when: go_purge_gopath | bool
+      tags: [uninstall]

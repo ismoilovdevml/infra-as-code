@@ -1,90 +1,249 @@
 ---
-- name: Install Elasticsearch dynamically based on version
-  hosts: all
-  become: yes
+- name: Install Elasticsearch
+  hosts: elasticsearch
+  become: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart elasticsearch
+      ansible.builtin.systemd_service:
+        name: elasticsearch
+        state: restarted
+        daemon_reload: true
+
+  pre_tasks:
+    - name: Run preflight platform checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+
   tasks:
-    - name: Install required packages for Debian/Ubuntu
-      apt:
-        name: "{{ item }}"
+    # ---------------------------------------------------------------- Debian
+    - name: Install APT prerequisites
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - gnupg
+          - python3-debian
         state: present
-      loop:
-        - apt-transport-https
-        - wget
-        - gnupg
-      when: ansible_os_family == "Debian"
-      
-    - name: Download and add Elasticsearch GPG key for Debian/Ubuntu
-      apt_key:
-        url: "{{ elastic_gpg_key }}"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Ensure /etc/apt/keyrings exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Download Elasticsearch APT signing key
+      ansible.builtin.get_url:
+        url: "{{ elastic_gpg_key_url }}"
+        dest: "{{ elastic_apt_keyring }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    # deb822_repository (not the deprecated apt_repository) - matches
+    # STANDARDS.md 4.6. signed_by points at the key already fetched above.
+    - name: Add Elasticsearch APT repository
+      ansible.builtin.deb822_repository:
+        name: "elastic-{{ elastic_major_version }}.x"
+        types: deb
+        uris: "{{ elastic_repo_url_apt }}"
+        suites: stable
+        components: main
+        signed_by: "{{ elastic_apt_keyring }}"
         state: present
-      when: ansible_os_family == "Debian"
+      register: elasticsearch_apt_repo
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Add Elasticsearch APT repository for Debian/Ubuntu
-      apt_repository:
-        repo: "deb {{ elastic_repo_url_apt }} stable main"
+    - name: Update APT cache after adding the Elasticsearch repository
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_os_family == 'Debian' and elasticsearch_apt_repo is changed
+      tags: [install]
+
+    - name: Install Elasticsearch (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "{{ 'elasticsearch=' + elastic_version if elastic_version | length > 0 else 'elasticsearch' }}"
         state: present
-      when: ansible_os_family == "Debian"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Update APT cache for Debian/Ubuntu
-      apt:
-        update_cache: yes
-      when: ansible_os_family == "Debian"
+    # --------------------------------------------------------------- RedHat
+    - name: Import Elasticsearch GPG key (RPM)
+      ansible.builtin.rpm_key:
+        key: "{{ elastic_gpg_key_url }}"
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Install Elasticsearch for Debian/Ubuntu
-      apt:
+    - name: Add Elasticsearch YUM repository
+      ansible.builtin.yum_repository:
+        name: elasticsearch
+        description: "Elasticsearch repository for {{ elastic_major_version }}.x packages"
+        baseurl: "{{ elastic_repo_url_yum }}"
+        gpgcheck: true
+        gpgkey: "{{ elastic_gpg_key_url }}"
+        # enabled: false matches Elastic's shipped elasticsearch.repo - it
+        # prevents this repo from upgrading Elasticsearch when other
+        # packages are updated. The install task below opts in explicitly
+        # with enablerepo, exactly as Elastic's own docs instruct.
+        enabled: false
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    - name: Install Elasticsearch (RHEL/Rocky/AlmaLinux/Oracle/Amazon Linux)
+      ansible.builtin.dnf:
         name: elasticsearch
         state: present
-      when: ansible_os_family == "Debian"
+        enablerepo: elasticsearch
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Import Elasticsearch GPG key for RedHat/CentOS
-      rpm_key:
+    # ----------------------------------------------------------------- SUSE
+    - name: Import Elasticsearch GPG key (zypper)
+      ansible.builtin.rpm_key:
+        key: "{{ elastic_gpg_key_url }}"
         state: present
-        key: "{{ elastic_gpg_key }}"
-      when: ansible_os_family == "RedHat"
+      when: ansible_os_family == 'Suse'
+      tags: [install]
 
-    - name: Disable SELinux temporarily
-      command: setenforce 0
-      when: ansible_os_family == "RedHat"
-      
-    - name: Create Elasticsearch repository file for RedHat/CentOS
-      template:
-        src: templates/elasticsearch-yum.j2
-        dest: /etc/yum.repos.d/elasticsearch.repo
-      when: ansible_os_family == "RedHat"
+    - name: Add Elasticsearch zypper repository
+      community.general.zypper_repository:
+        name: elasticsearch
+        description: "Elasticsearch repository for {{ elastic_major_version }}.x packages"
+        repo: "{{ elastic_repo_url_yum }}"
+        auto_import_keys: true
+        autorefresh: true
+        state: present
+      when: ansible_os_family == 'Suse'
+      tags: [install]
 
-    - name: Install Elasticsearch for RedHat/CentOS
-      yum:
+    - name: Install Elasticsearch (SUSE/openSUSE)
+      community.general.zypper:
         name: elasticsearch
         state: present
-      when: ansible_os_family == "RedHat"
+      when: ansible_os_family == 'Suse'
+      tags: [install]
 
+    # ------------------------------------------------------------- Kernel
+    - name: Set vm.max_map_count for Elasticsearch
+      ansible.posix.sysctl:
+        name: vm.max_map_count
+        value: "{{ vm_max_map_count }}"
+        sysctl_set: true
+        state: present
+        reload: true
+      tags: [configure]
+
+    # ------------------------------------------------------------- Service
     - name: Enable and start Elasticsearch service
-      systemd:
+      ansible.builtin.systemd_service:
         name: elasticsearch
-        enabled: yes
+        enabled: true
         state: started
+        daemon_reload: true
+      tags: [service]
 
-    - name: Reset Elasticsearch password for 'elastic' user
-      shell: |
-        echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic
+    - name: Wait for Elasticsearch HTTP port to accept connections
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ http_port }}"
+        delay: 5
+        timeout: 120
+      tags: [verify]
+
+    # --------------------------------------------------- elastic superuser
+    # elasticsearch-reset-password prints the new password once and only
+    # once; systemd services have no terminal to show it on first start, so
+    # the CLI reset is the only supported way to obtain it for packaged
+    # installs (see README.md Notes). Gated on a marker file so re-running
+    # this play does not rotate the password every time (idempotency).
+    - name: Check whether the elastic user password has already been reset
+      ansible.builtin.stat:
+        path: /etc/elasticsearch/.ansible_elastic_password_set
+      register: elastic_password_marker
+      tags: [configure]
+
+    - name: Reset password for the built-in elastic user
+      ansible.builtin.command:
+        cmd: /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -b
       register: elasticsearch_password_output
-      changed_when: false
+      when: not elastic_password_marker.stat.exists
+      changed_when: true
+      no_log: true
+      tags: [configure]
 
-    - name: Extract new 'elastic' password
-      set_fact:
-        elastic_password: "{{ elasticsearch_password_output.stdout | regex_search('New value: (.*)', '\\1') }}"
+    - name: Extract new elastic user password
+      ansible.builtin.set_fact:
+        elastic_password: "{{ elasticsearch_password_output.stdout | regex_search('New value: (.*)', '\\1') | first }}"
+      when: not elastic_password_marker.stat.exists
+      no_log: true
+      tags: [configure]
 
-    - name: Get Elasticsearch version
-      command: /usr/share/elasticsearch/bin/elasticsearch --version
-      register: elasticsearch_version
+    - name: Persist elastic password for operator retrieval (root-only)
+      ansible.builtin.copy:
+        dest: /root/.elastic_password
+        content: "{{ elastic_password }}\n"
+        owner: root
+        group: root
+        mode: '0600'
+      when: not elastic_password_marker.stat.exists
+      no_log: true
+      tags: [configure]
 
-    - name: Display Elasticsearch version
-      debug:
-        msg: "Elasticsearch Version: {{ elasticsearch_version }}"
+    - name: Mark elastic password as reset
+      ansible.builtin.file:
+        path: /etc/elasticsearch/.ansible_elastic_password_set
+        state: touch
+        owner: root
+        group: elasticsearch
+        mode: '0600'
+      when: not elastic_password_marker.stat.exists
+      tags: [configure]
 
-    - name: Display elastic user password
+    # ------------------------------------------------------------- Verify
+    - name: Gather installed package facts
+      ansible.builtin.package_facts:
+        manager: auto
+      tags: [verify]
+
+    - name: Assert Elasticsearch package is installed
+      ansible.builtin.assert:
+        that:
+          - "'elasticsearch' in ansible_facts.packages"
+        fail_msg: "Elasticsearch package was not found after install."
+        quiet: true
+      tags: [verify]
+
+    - name: Report installed Elasticsearch version
       ansible.builtin.debug:
-        msg: "Elastic user password: {{ elastic_password }}"
+        msg: "Elasticsearch package version: {{ ansible_facts.packages.elasticsearch[0].version }}"
+      tags: [verify]
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: [verify]
+
+    - name: Assert Elasticsearch service is active
+      ansible.builtin.assert:
+        that:
+          - "'elasticsearch.service' in ansible_facts.services"
+          - ansible_facts.services['elasticsearch.service'].state == 'running'
+        fail_msg: >-
+          Elasticsearch service is not active:
+          {{ ansible_facts.services['elasticsearch.service'].state | default('not found') }}
+        quiet: true
+      tags: [verify]

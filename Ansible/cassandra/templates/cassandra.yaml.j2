@@ -1,0 +1,39 @@
+{{ ansible_managed | comment }}
+# Minimal production cassandra.yaml authored by this repository. Only the
+# directives this playbook manages are set explicitly; every other Cassandra
+# setting keeps the packaged default.
+
+cluster_name: '{{ cassandra_cluster_name }}'
+num_tokens: 16
+
+seed_provider:
+  - class_name: org.apache.cassandra.locator.SimpleSeedProvider
+    parameters:
+      - seeds: "{{ cassandra_seeds | join(',') }}"
+
+data_file_directories:
+{% for dir in cassandra_data_dirs if 'commitlog' not in dir and 'saved_caches' not in dir and 'hints' not in dir %}
+  - {{ dir }}
+{% endfor %}
+commitlog_directory: {{ cassandra_data_dirs | select('search', 'commitlog') | first }}
+saved_caches_directory: {{ cassandra_data_dirs | select('search', 'saved_caches') | first }}
+hints_directory: {{ cassandra_data_dirs | select('search', 'hints') | first }}
+
+commitlog_sync: periodic
+commitlog_sync_period: 10000ms
+
+partitioner: org.apache.cassandra.dht.Murmur3Partitioner
+endpoint_snitch: SimpleSnitch
+
+listen_address: {{ cassandra_listen_address }}
+rpc_address: {{ cassandra_rpc_address }}
+
+storage_port: {{ cassandra_storage_port }}
+ssl_storage_port: {{ cassandra_ssl_storage_port }}
+
+start_native_transport: true
+native_transport_port: {{ cassandra_native_transport_port }}
+
+authenticator: {{ cassandra_authenticator }}
+authorizer: {{ cassandra_authorizer }}
+role_manager: CassandraRoleManager

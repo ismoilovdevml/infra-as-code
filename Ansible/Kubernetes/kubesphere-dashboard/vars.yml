@@ -1,0 +1,33 @@
+---
+# STATUS: no working, verifiable, primary-source install path for KubeSphere could
+# be confirmed as of 2026-07-31 — see README.md "Status" section before doing
+# anything else. install.yml refuses to run until you supply your own re-verified
+# kubesphere_chart_url.
+#
+# Path to the kubeconfig used for every kubernetes.core task in this module.
+kubeconfig_path: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+kubesphere_namespace: "kubesphere-system"
+kubesphere_release_name: "ks-core"
+
+# Left empty deliberately. Every install path this repo could find (the retired
+# ks-installer, the ks-core tarball URL printed in KubeSphere's own v4 GA
+# announcement) is broken or unverifiable — see README.md. Set this only after you
+# have personally confirmed a working chart URL/OCI reference upstream.
+kubesphere_chart_url: ""
+kubesphere_chart_version: ""
+
+kubesphere_wait: true
+kubesphere_wait_timeout: "600s"
+
+# --- expose_kubesphere.yml (Ingress) -------------------------------------------------
+# Preserved from the pre-existing playbook's v3.x architecture. Re-verify the Service
+# name against whatever install path you actually end up using — v4's ks-core chart
+# has not been confirmed to produce the same Service.
+kubesphere_ingress_name: "kubesphere-dashboard-ingress"
+kubesphere_ingress_host: "kubesphere.example.com"
+kubesphere_ingress_tls_secret_name: "ks-console-tls"
+kubesphere_cluster_issuer_name: "letsencrypt-prod"
+kubesphere_ingress_class: "nginx"
+kubesphere_service_name: "ks-console"
+kubesphere_service_port: 80

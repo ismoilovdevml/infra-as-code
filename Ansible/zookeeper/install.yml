@@ -1,29 +1,181 @@
-- hosts: zookeeper-nodes
+---
+- name: Install Apache ZooKeeper
+  hosts: zookeeper_nodes
   become: true
-  vars:
-    zookeeper_mirror: "https://dlcdn.apache.org/zookeeper"
-    zookeeper_version: "3.9.2"
-    zookeeper_package: "apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
-    zookeeper_group: "zookeeper"
-    zookeeper_user: "zookeeper"
-    zookeeper_root_dir: "/usr/share"
-    zookeeper_install_dir: "{{ zookeeper_root_dir }}/apache-zookeeper-{{zookeeper_version}}"
-    zookeeper_dir: "{{ zookeeper_root_dir }}/zookeeper"
-    zookeeper_data_dir: "/var/lib/zookeeper"
-    zookeeper_log_dir: "/var/log/zookeeper"
-    zookeeper_data_log_dir: "/var/lib/zookeeper"
-    zookeeper_client_port: 2181
-    zookeeper_leader_port: 2888
-    zookeeper_election_port: 3888
-    zookeeper_firewalld: false
-    zookeeper_config_params:
-      tickTime: 2000
-      initLimit: 10
-      syncLimit: 5
-      autopurge.snapRetainCount: 3
-      autopurge.purgeInterval: 1
-      clientPortAddress: 0.0.0.0
-    zookeeper_servers_use_inventory_hostname: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
-  roles:
-    - sleighzy.zookeeper
+  handlers:
+    - name: Restart zookeeper
+      ansible.builtin.systemd_service:
+        name: zookeeper
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in zookeeper_java_packages
+        fail_msg: >-
+          No JDK package mapping for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ zookeeper_java_packages.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    - name: Install the JDK
+      ansible.builtin.package:
+        name: "{{ zookeeper_java_packages[ansible_os_family] }}"
+        state: present
+      tags: [install]
+
+    - name: Install netcat for the health check
+      ansible.builtin.package:
+        name: "{{ 'netcat-openbsd' if ansible_os_family == 'Debian' else 'nmap-ncat' }}"
+        state: present
+      tags: [install]
+
+    # ------------------------------------------------------------------ account
+    - name: Create the zookeeper group
+      ansible.builtin.group:
+        name: "{{ zookeeper_group }}"
+        system: true
+      tags: [install]
+
+    - name: Create the zookeeper user
+      ansible.builtin.user:
+        name: "{{ zookeeper_user }}"
+        group: "{{ zookeeper_group }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ zookeeper_dir }}"
+        create_home: false
+      tags: [install]
+
+    - name: Create the data and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ zookeeper_user }}"
+        group: "{{ zookeeper_group }}"
+        mode: '0750'
+      loop:
+        - "{{ zookeeper_data_dir }}"
+        - "{{ zookeeper_log_dir }}"
+      tags: [install]
+
+    # ----------------------------------------------------------------- download
+    # Apache has published .sha512 in two layouts over the years:
+    #   "<hash>  <file>" and "<file>: <hash with spaces>". Normalise both.
+    - name: Fetch the release checksum
+      ansible.builtin.uri:
+        url: "{{ zookeeper_checksum_url }}/{{ zookeeper_remote_subdir }}/{{ zookeeper_tarball }}.sha512"
+        return_content: true
+      register: zookeeper_sha512
+      check_mode: false
+      tags: [install]
+
+    - name: Normalise the checksum
+      ansible.builtin.set_fact:
+        zookeeper_sha512_digest: >-
+          {{ ((zookeeper_sha512.content.split(':') | last) if ':' in zookeeper_sha512.content
+              else (zookeeper_sha512.content.split() | first))
+             | regex_replace('\s+', '') | lower }}
+      tags: [install]
+
+    - name: Download the ZooKeeper tarball
+      ansible.builtin.get_url:
+        url: "{{ zookeeper_mirror_url }}/{{ zookeeper_remote_subdir }}/{{ zookeeper_tarball }}"
+        dest: "/tmp/{{ zookeeper_tarball }}"
+        checksum: "sha512:{{ zookeeper_sha512_digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [install]
+
+    - name: Unpack ZooKeeper
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ zookeeper_tarball }}"
+        dest: "{{ zookeeper_install_root }}"
+        remote_src: true
+        owner: "{{ zookeeper_user }}"
+        group: "{{ zookeeper_group }}"
+        creates: "{{ zookeeper_versioned_dir }}"
+      tags: [install]
+
+    - name: Link the install root to the installed version
+      ansible.builtin.file:
+        src: "{{ zookeeper_versioned_dir }}"
+        dest: "{{ zookeeper_dir }}"
+        state: link
+        owner: "{{ zookeeper_user }}"
+        group: "{{ zookeeper_group }}"
+      notify: Restart zookeeper
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Write zoo.cfg
+      ansible.builtin.template:
+        src: zoo.cfg.j2
+        dest: "{{ zookeeper_conf_dir }}/zoo.cfg"
+        owner: "{{ zookeeper_user }}"
+        group: "{{ zookeeper_group }}"
+        mode: '0640'
+      notify: Restart zookeeper
+      tags: [configure]
+
+    # The server identifies itself by reading this file; it must match its
+    # server.<N> line in zoo.cfg.
+    - name: Write the myid file
+      ansible.builtin.copy:
+        content: "{{ zookeeper_id }}\n"
+        dest: "{{ zookeeper_data_dir }}/myid"
+        owner: "{{ zookeeper_user }}"
+        group: "{{ zookeeper_group }}"
+        mode: '0644'
+      notify: Restart zookeeper
+      tags: [configure]
+
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: zookeeper.service.j2
+        dest: /etc/systemd/system/zookeeper.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart zookeeper
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start zookeeper
+      ansible.builtin.systemd_service:
+        name: zookeeper
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for the client port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ zookeeper_client_port }}"
+        timeout: 90
+      tags: [verify]
+
+    # `ruok` is one of the four-letter-word commands allowed by 4lw.commands.whitelist.
+    - name: Ask the server whether it is healthy
+      ansible.builtin.shell:
+        cmd: "set -o pipefail; echo ruok | timeout 5 nc 127.0.0.1 {{ zookeeper_client_port }}"
+        executable: /bin/bash
+      register: zookeeper_ruok
+      changed_when: false
+      check_mode: false
+      failed_when: "'imok' not in zookeeper_ruok.stdout"
+      tags: [verify]
+
+    - name: Show the node status
+      ansible.builtin.debug:
+        msg: "ZooKeeper {{ zookeeper_version }} myid={{ zookeeper_id }} healthy on port {{ zookeeper_client_port }}"
+      tags: [verify]

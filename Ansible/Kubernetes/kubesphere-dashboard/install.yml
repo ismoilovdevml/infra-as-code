@@ -1,18 +1,114 @@
 ---
-- name: Install Kubesphere
-  hosts: all
-  become: yes
+# =============================================================================
+# STATUS: no working install path could be confirmed from a primary source.
+#
+#   1. kubesphere/ks-installer (used by the previous version of this playbook,
+#      pinned to v3.3.2) no longer exists as a GitHub repository at all — not just
+#      the release asset. Verified 2026-07-31.
+#   2. KubeSphere v4's own GA announcement quotes:
+#        helm upgrade --install -n kubesphere-system --create-namespace ks-core \
+#          https://charts.kubesphere.io/main/ks-core-1.1.2.tgz --debug --wait
+#      That URL does not serve a chart: it returns HTTP 200 with an HTML SPA shell,
+#      not a tarball, for every version tried. charts.kubesphere.io/main/index.yaml
+#      and .../test/index.yaml are both live and valid, and neither lists a
+#      "ks-core" chart at all.
+#   3. No ks-core/ks-installer repository exists under the kubesphere GitHub org.
+#   4. KubeKey (kk), KubeSphere's own installer, explicitly defers to ks-installer
+#      for adding KubeSphere to an *existing* cluster (this module's use case) —
+#      which per (1) no longer exists.
+#
+# Per this repo's engineering policy: do not ship a plausible-looking but broken (or
+# unverified third-party) download. This playbook refuses to run until you supply
+# your own re-verified kubesphere_chart_url. See README.md "Status" section.
+# =============================================================================
+- name: Install KubeSphere
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
   tasks:
-    - name: Install Kubesphere installer
-      command: kubectl apply -f https://github.com/kubesphere/ks-installer/releases/download/v3.3.2/kubesphere-installer.yaml
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Fail — no verified install path configured
+          ansible.builtin.fail:
+            msg: >-
+              No working KubeSphere install path could be confirmed upstream as of
+              2026-07-31 (kubesphere/ks-installer no longer exists;
+              charts.kubesphere.io does not serve a ks-core chart despite
+              KubeSphere's own v4 GA announcement quoting a URL for one — see
+              README.md and vars.yml for the full investigation). Refusing to guess.
+              Re-verify a working chart URL/OCI reference against current upstream
+              sources yourself, then set kubesphere_chart_url (and
+              kubesphere_chart_version if the chart requires a separate version
+              string) explicitly before running this playbook.
+            quiet: true
+          when: kubesphere_chart_url | length == 0
 
-    - name: Apply Kubesphere cluster configuration
-      command: kubectl apply -f https://github.com/kubesphere/ks-installer/releases/download/v3.3.2/cluster-configuration.yaml
+        - name: Assert the kubeconfig file exists
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: kubesphere_kubeconfig_stat
 
-    - name: Wait for 3 minutes before proceeding
-      wait_for:
-        timeout: 180  # 3 minutes (180 seconds)
+        - name: Fail if the kubeconfig file is missing
+          ansible.builtin.assert:
+            that:
+              - kubesphere_kubeconfig_stat.stat.exists
+            fail_msg: "kubeconfig not found at {{ kubeconfig_path }}. Set kubeconfig_path or KUBECONFIG."
+            quiet: true
 
-    - name: Delete ks-apiserver pod in kubesphere-system namespace
-      command: kubectl delete pod -n kubesphere-system -l app=ks-apiserver
-      ignore_errors: yes
+        - name: Check that the helm binary is available
+          block:
+            - name: Query the helm version
+              ansible.builtin.command: helm version --short
+              changed_when: false
+              check_mode: false
+          rescue:
+            - name: Fail with a clear message
+              ansible.builtin.fail:
+                msg: "helm binary not found on the controller. Install it first (see ../helm/)."
+
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+          register: kubesphere_cluster_check
+
+        - name: Fail if the cluster is unreachable
+          ansible.builtin.assert:
+            that:
+              - kubesphere_cluster_check is not failed
+            fail_msg: "Could not reach the Kubernetes API using {{ kubeconfig_path }}."
+            quiet: true
+
+    # ------------------------------------------------------------------- install
+    # Only reached once kubesphere_chart_url has been explicitly set — see the
+    # preflight fail above. Uses the chart URL/version as-is; this repo cannot
+    # validate a path it could not itself confirm upstream.
+    - name: Install KubeSphere from an operator-supplied chart reference
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ kubesphere_release_name }}"
+        chart_ref: "{{ kubesphere_chart_url }}"
+        chart_version: "{{ kubesphere_chart_version if kubesphere_chart_version | length > 0 else omit }}"
+        release_namespace: "{{ kubesphere_namespace }}"
+        create_namespace: true
+        wait: "{{ kubesphere_wait }}"
+        wait_timeout: "{{ kubesphere_wait_timeout }}"
+      tags: [install]
+
+    # -------------------------------------------------------------------- verify
+    - name: List KubeSphere pods
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Pod
+        namespace: "{{ kubesphere_namespace }}"
+      register: kubesphere_pods
+      tags: [verify]
+
+    - name: Show the KubeSphere pods
+      ansible.builtin.debug:
+        msg: "{{ kubesphere_pods.resources | map(attribute='metadata.name') | list }}"
+      tags: [verify]

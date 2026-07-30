@@ -1,7 +1,36 @@
 ---
-go_version: "1.23.1"
-go_platform: linux
-go_arch: amd64
-go_tarball: go{{ go_version }}.{{ go_platform }}-{{ go_arch }}.tar.gz
-go_download_url: https://dl.google.com/go/{{ go_tarball }}
-go_checksum: "49bbb517cfa9eee677e1e7897f7cf9cfdbcf49e05f61984a2789136de359f9bd"  # Correct checksum here https://go.dev/dl/
+# Current stable release per https://go.dev/dl/?mode=json (verified 2026-07-30).
+# Bump both the version and the matching checksums together — never one without the other.
+go_version: "1.26.5"
+
+# Install root. Upstream's own doc (go.dev/doc/install) hardcodes /usr/local as the
+# extraction target; changing this means adjusting go_bin_dir and the PATH template too.
+go_install_root: /usr/local
+go_bin_dir: "{{ go_install_root }}/go/bin"
+
+# ansible_architecture -> the arch token go.dev embeds in the tarball filename.
+# Never hardcode x86_64 in a task — always go through this map.
+go_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: armv6l
+  armv6l: armv6l
+
+# SHA256 for go{{ go_version }}.linux-<arch>.tar.gz, taken from the official JSON index
+# (https://go.dev/dl/?mode=json), not the human page. Update together with go_version.
+go_checksums:
+  amd64: "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
+  arm64: "fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"
+  armv6l: "6dae9edab81c13bccf962dec15f1fd2ec26c14a6821b4d2c92dab4130c289d7a"
+
+go_download_url: "https://go.dev/dl/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+
+# Where the system-wide PATH/GOPATH profile snippet is written.
+go_profile_path: /etc/profile.d/go-path.sh
+
+# Empty = leave GOPATH at the Go toolchain's own default ($HOME/go), per go.dev/wiki/GOPATH.
+# Set to override it system-wide (rare; most teams leave this alone).
+go_gopath: ""
+
+# uninstall_go.yml: also remove the profile snippet and any GOPATH left behind.
+go_purge_gopath: false

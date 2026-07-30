@@ -1,0 +1,42 @@
+---
+# This installs the free SonarQube Community Build (no LTA/version-support concept —
+# it releases monthly and only the latest version is fixed). The paid "SonarQube
+# Server" editions (Developer/Enterprise/Data Center) use calendar-versioned LTA tags
+# instead, e.g. "2026.1-developer" - not used here.
+# https://github.com/SonarSource/docker-sonarqube/blob/master/example-compose-files/sq-with-postgres/docker-compose.yml
+sonarqube_image: "sonarqube:community"
+sonarqube_container_name: sonarqube
+sonarqube_port: 9000
+
+# Embedded H2 is upstream's own default but is documented as unsuited for production;
+# PostgreSQL 14-18 is supported, the official example pins postgres:17.
+# https://docs.sonarsource.com/sonarqube-server/2026.1/server-installation/installing-the-database
+postgresql_image: "postgres:17"
+postgresql_container_name: postgresql
+
+sonarqube_network: sonarqube_network
+sonarqube_restart_policy: unless-stopped
+
+sonarqube_compose_project_dir: /opt/sonarqube
+sonarqube_compose_file: "{{ sonarqube_compose_project_dir }}/docker-compose.yml"
+
+sonarqube_db_name: sonar
+sonarqube_db_user: sonar
+# No committed secret: set vault_sonarqube_db_password via ansible-vault. The play
+# refuses to run while this is empty.
+sonarqube_db_password: "{{ vault_sonarqube_db_password | default('') }}"
+
+# SonarQube embeds Elasticsearch, which requires these host kernel parameters (the
+# container shares the host kernel, so they must be set on the Docker host itself).
+# https://docs.sonarsource.com/sonarqube-server/2026.1/server-installation/pre-installation/linux
+sonarqube_vm_max_map_count: 524288
+sonarqube_fs_file_max: 131072
+# Applied as container ulimits (community.docker.docker_compose_v2), not host
+# /etc/security/limits.d — the SonarQube process runs as the image's own user inside
+# the container, not as a host account.
+sonarqube_ulimit_nofile: 131072
+sonarqube_ulimit_nproc: 8192
+
+# cleanup.yml only: also delete the named volumes (destroys all SonarQube + database
+# data). Off by default.
+sonarqube_purge_data: false

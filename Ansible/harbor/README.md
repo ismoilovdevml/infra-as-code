@@ -1,65 +1,79 @@
-# 🚢 Harbor Deployment and Cleanup with Ansible
+# Harbor
 
-Harbor is an open-source container registry that provides users with secure storage, vulnerability analysis, role-based access control, and more for container images. This guide explains how to deploy and clean up a Harbor instance using Ansible.
+Installs Harbor from the official offline (or online) installer tarball published on
+`goharbor/harbor` GitHub releases, rendering `harbor.yml` from a template and running
+the upstream `install.sh`.
 
----
+## Supported platforms
 
-## 📋 Prerequisites
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Any with Docker Engine + Compose plugin | see `Ansible/docker/` |
+| RedHat | Any with Docker Engine + Compose plugin | EPEL needed for certbot |
+| Suse | Any with Docker Engine + Compose plugin | certbot best-effort only |
 
-- **Docker** and **Docker Compose** must be installed on the target machine.
-- **Ansible** installed on the control node.
-- **SSL Option**: You can use either `certbot` for automatic certificate generation or `self_signed` for custom certificates.
+This module does not install Docker itself; it only deploys Harbor. Docker Engine
+(> 20.10) and the `docker compose` plugin (> 2.3) must already be present — `install.sh`
+itself prefers the plugin over the standalone `docker-compose` v1 binary.
 
----
+## Requirements
 
-## ⚙️ Configuration: `vars.yml`
+- Ansible core >= 2.15
+- Collections: `community.docker`, `community.crypto`, `community.general`
+  (`ansible-galaxy collection install -r requirements.yml`)
+- Docker Engine + Compose plugin on the target (`Ansible/docker/install_docker.yml`)
+- `sudo` on the target
+- `vault_harbor_admin_password` and `vault_harbor_db_password` set via `ansible-vault`
+  — the play refuses to run while either is empty
 
-Edit the `vars.yml` file to set up your specific configuration for Harbor. 
-
-```yaml
-harbor_version: "v2.11.1"
-harbor_hostname: "harbor.helm.uz"
-harbor_admin_password: "Harbor12345"
-harbor_db_password: "root123"
-ssl_option: "certbot"  # Options: "certbot" or "self_signed"
-certbot_cert_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/fullchain.pem"
-certbot_key_path: "/etc/letsencrypt/live/{{ harbor_hostname }}/privkey.pem"
-self_signed_cert_path: "/path/to/selfsigned/fullchain.pem"  # Specify path for self-signed cert
-self_signed_key_path: "/path/to/selfsigned/privkey.pem"     # Specify path for self-signed key
-harbor_download_url: "https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-offline-installer-{{ harbor_version }}.tgz"
-```
-
-## 📂 Inventory File: `inventory.ini`
-Define your target servers in `inventory.ini`.
-
-```ini
-[harbor_server]
-rockylinux ansible_host=24.144.106.189 ansible_user=root
-```
-
-## 🚀 Deployment Steps
-### 1. Run the Bootstrap Playbook
-This playbook (`bootstrap_harbor.yml`) sets up Harbor on the specified host, including handling SSL configuration and deploying Harbor services.
-
-Run the playbook:
-```bash
-ansible-playbook -i inventory.ini bootstrap_harbor.yml
-```
-### 📝 Important Playbook Variables:
-* **Certificate Path:** Automatically set based on `ssl_option` (either `certbot` or `self_signed`).
-* **Harbor Version:** Configurable via `vars.yml` to update Harbor versions seamlessly.
-
-## 🧹 Cleanup Steps
-To completely remove Harbor, use the `cleanup.yml` playbook. It stops and removes all Harbor-related containers, images, and data.
-
-### 2. Run the Cleanup Playbook
-This playbook removes Harbor components from the host, cleaning up all associated containers, images, and directories.
+## Usage
 
 ```bash
-ansible-playbook -i inventory.ini `cleanup.yml`
+ansible-vault encrypt_string 'S3cr3tAdmin!' --name 'vault_harbor_admin_password' >> group_vars/vault.yml
+ansible-vault encrypt_string 'S3cr3tDb!' --name 'vault_harbor_db_password' >> group_vars/vault.yml
+ansible-playbook bootstrap_harbor.yml --ask-vault-pass
+ansible-playbook bootstrap_harbor.yml --check --diff --ask-vault-pass   # dry-run
+ansible-playbook cleanup.yml --ask-vault-pass
+ansible-playbook cleanup.yml -e harbor_purge_data=true --ask-vault-pass  # also wipe /data
 ```
 
-### 📝 Cleanup Actions:
-* Stops and removes all Harbor containers.
-* Deletes all Harbor images.
-* Clears Harbor data and installation directories.
+## Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `harbor_version` | `v2.15.2` | Current stable tag on `goharbor/harbor` |
+| `harbor_installer_type` | `offline` | `offline` (bundled images) or `online` (pulls from Docker Hub) |
+| `harbor_hostname` | `harbor.example.internal` | Must not be `127.0.0.1` or `reg.mydomain.com` |
+| `harbor_ssl_option` | `self_signed` | `self_signed`, `certbot`, or `disabled` |
+| `harbor_admin_password` | `""` (vault) | `vault_harbor_admin_password`; asserted non-empty |
+| `harbor_db_password` | `""` (vault) | `vault_harbor_db_password`; asserted non-empty |
+| `harbor_with_trivy` | `false` | Enables the Trivy vulnerability scanner |
+| `harbor_purge_data` | `false` | `cleanup.yml` only — deletes `/data` and TLS material |
+
+## Verify
+
+```bash
+docker compose -f /opt/harbor/docker-compose.yml ps
+curl -sk https://<harbor_hostname>/api/v2.0/systeminfo
+```
+
+## Notes
+
+- **TLS is not optional-by-omission.** Harbor's own `prepare` script hard-fails if the
+  rendered `harbor.yml` has an `https:` block with certificate/key paths left at the
+  template's placeholder values. This module either renders real paths (self-signed,
+  generated with `community.crypto`, or certbot/Let's Encrypt) or omits the `https:`
+  block entirely (`harbor_ssl_option: disabled`), which Harbor allows with a plaintext
+  warning. Never leave `harbor_ssl_option` pointed at unset placeholder paths.
+- **Verification gap:** upstream's docs still describe GPG `.asc` signature
+  verification, but the actual release assets ship `.sigstore.json` bundles and a
+  plain `md5sum` file instead — no `.asc` file exists to check. This module verifies
+  the download against `md5sum` (integrity only, not cryptographic authenticity); there
+  is no built-in Ansible sigstore/cosign verifier.
+- `harbor_config_schema_version` (the `_version:` field in `harbor.yml`) is pinned to
+  what `harbor_version`'s own template ships — bump both together, never independently.
+- Re-running `bootstrap_harbor.yml` is a no-op when nothing changed: `install.sh` only
+  runs on first install or when the rendered `harbor.yml` changes; otherwise the play
+  reconciles the existing compose project in place.
+- `--with-notary` and `--with-chartmuseum` are not supported by current `install.sh`
+  (both features were removed upstream) and are not exposed by this module.

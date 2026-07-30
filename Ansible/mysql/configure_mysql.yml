@@ -1,46 +1,86 @@
 ---
-- name: Configure MySQL and grant root access
+- name: Configure MySQL networking and root access
   hosts: mysql_servers
-  become: yes
+  become: true
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Ensure MySQL is listening on all interfaces (Debian/Ubuntu/MariaDB)
-      lineinfile:
-        path: /etc/mysql/my.cnf
-        regexp: '^bind-address'
-        line: 'bind-address = {{ bind-address }}'
-        state: present
-      when: ansible_os_family == "Debian"
-      notify: Restart MySQL
+    - name: Assert vault-backed root password is set
+      ansible.builtin.assert:
+        that:
+          - mysql_root_password | length > 0
+        fail_msg: >-
+          mysql_root_password is empty. Set vault_mysql_root_password via ansible-vault
+          (see README).
+        quiet: true
+      tags: [always]
 
-    - name: Ensure MySQL is listening on all interfaces (RHEL/CentOS)
-      lineinfile:
-        path: /etc/my.cnf
-        regexp: '^bind-address'
-        line: 'bind-address = {{ bind-address }}'
-        state: present
-      when: ansible_os_family == "RedHat"
-      notify: Restart MySQL
+    - name: Check whether root@localhost still has the installer temporary password
+      ansible.builtin.stat:
+        path: /etc/mysql_root_configured
+      register: mysql_root_configured_marker
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [configure]
 
-    - name: Grant root access from any host
-      mysql_user:
+    - name: Bootstrap root password on RHEL/Suse (installer-generated temp password)
+      when:
+        - ansible_os_family in ['RedHat', 'Suse']
+        - not mysql_root_configured_marker.stat.exists
+      tags: [configure]
+      block:
+        - name: Extract installer-generated temporary root password
+          ansible.builtin.shell: |
+            set -o pipefail
+            grep -m1 'temporary password' {{ mysql_error_log }} | awk '{print $NF}'
+          # No dedicated module reads MySQL's error log; read-only, guarded by
+          # check_mode: false and changed_when: false.
+          args:
+            executable: /bin/bash
+          register: mysql_temp_password
+          changed_when: false
+          check_mode: false
+          no_log: true
+
+        - name: Set MySQL root password using the installer temporary password
+          ansible.builtin.command: >-
+            mysql --connect-expired-password -uroot -p{{ mysql_temp_password.stdout }}
+            -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
+          no_log: true
+          when: mysql_temp_password.stdout | length > 0
+          changed_when: true
+
+        - name: Mark root password as configured
+          ansible.builtin.file:
+            path: /etc/mysql_root_configured
+            state: touch
+            mode: '0600'
+
+    - name: Deploy network configuration drop-in
+      ansible.builtin.template:
+        src: templates/mysqld-network.cnf.j2
+        dest: "{{ mysql_conf_dir }}/90-ansible-network.cnf"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart MySQL
+      tags: [configure]
+
+    - name: Grant remote access to root
+      ansible.mysql.mysql_user:
         name: root
-        host: '%'
+        host: "{{ mysql_admin_remote_host }}"
         password: "{{ mysql_root_password }}"
-        priv: '*.*:ALL,GRANT'
-        state: present
-
-    - name: Flush privileges to apply changes
-      mysql_query:
-        query: "FLUSH PRIVILEGES;"
+        priv: "*.*:ALL,GRANT"
         login_user: root
         login_password: "{{ mysql_root_password }}"
-      ignore_errors: yes
+        login_unix_socket: "{{ mysql_socket_path }}"
+        state: present
+      no_log: true
+      tags: [configure]
 
   handlers:
     - name: Restart MySQL
-      service:
-        name: mysql
+      ansible.builtin.systemd_service:
+        name: "{{ mysql_service_name }}"
         state: restarted

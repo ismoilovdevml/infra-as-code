@@ -1,38 +1,82 @@
 ---
 - name: Configure RabbitMQ
-  hosts: all
+  hosts: rabbitmq_servers
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  tasks:
-    - name: Enable RabbitMQ management plugin
-      community.rabbitmq.rabbitmq_plugin:
-        name: rabbitmq_management
-        state: enabled
 
-    - name: Create RabbitMQ admin user
+  handlers:
+    - name: Restart rabbitmq-server
+      ansible.builtin.systemd_service:
+        name: "{{ rabbitmq_service_name }}"
+        state: restarted
+
+  tasks:
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - rabbitmq_admin_password | length > 0
+        fail_msg: >-
+          rabbitmq_admin_password is empty. Set vault_rabbitmq_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
+
+    # rabbitmq.conf uses the sysctl-style "Key = Value" format, not the legacy
+    # Erlang-term rabbitmq.config. https://www.rabbitmq.com/docs/configure
+    - name: Write rabbitmq.conf
+      ansible.builtin.template:
+        src: rabbitmq.conf.j2
+        dest: "{{ rabbitmq_conf_dir }}/rabbitmq.conf"
+        owner: rabbitmq
+        group: rabbitmq
+        mode: '0640'
+      notify: Restart rabbitmq-server
+      tags: [configure]
+
+    - name: Enable the RabbitMQ management plugin
+      community.rabbitmq.rabbitmq_plugin:
+        names: rabbitmq_management
+        state: enabled
+      when: rabbitmq_management_plugin_enabled | bool
+      tags: [configure]
+
+    # The default guest/guest account is left in place: upstream already restricts it
+    # to loopback connections, so it is harmless as long as rabbitmq.conf never sets
+    # loopback_users.guest = false. This admin user is what remote clients should use.
+    - name: Create the RabbitMQ admin user
       community.rabbitmq.rabbitmq_user:
         user: "{{ rabbitmq_admin_user }}"
         password: "{{ rabbitmq_admin_password }}"
-        tags:
-          - administrator
-        vhost: /
+        tags: administrator
+        vhost: "{{ rabbitmq_admin_vhost }}"
         configure_priv: ".*"
         read_priv: ".*"
         write_priv: ".*"
         state: present
+      no_log: true
+      tags: [configure]
 
-    - name: Set RabbitMQ to listen on 0.0.0.0
-      lineinfile:
-        path: /etc/rabbitmq/rabbitmq.conf
-        regexp: '^listeners.tcp.default'
-        line: "listeners.tcp.default = 0.0.0.0"
-        state: present
-        create: yes
-      notify: Restart RabbitMQ
+    - name: Wait for the management API
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ rabbitmq_management_port }}"
+        timeout: 90
+      tags: [verify]
 
-  handlers:
-    - name: Restart RabbitMQ
-      service:
-        name: rabbitmq-server
-        state: restarted
+    - name: Check the management API health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ rabbitmq_management_port }}/api/healthchecks/node"
+        method: GET
+        user: "{{ rabbitmq_admin_user }}"
+        password: "{{ rabbitmq_admin_password }}"
+        force_basic_auth: true
+        status_code: 200
+      register: rabbitmq_health
+      until: rabbitmq_health.status == 200
+      retries: 5
+      delay: 10
+      no_log: true
+      check_mode: false
+      tags: [verify]

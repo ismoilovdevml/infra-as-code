@@ -1,52 +1,61 @@
-# 📋 Java Installation Playbook
+# Java (OpenJDK)
 
-This Ansible playbook installs the Java Development Kit (JDK) on multiple servers using the **geerlingguy.java** role.
+Installs one or more OpenJDK majors (LTS lines 8, 11, 17, 21, 25) either from the
+distribution's own packages (default) or from the Eclipse Adoptium (Temurin) repository,
+and selects the default `java`/`javac` via `alternatives`.
 
-## 🛠️ Usage
+## Supported platforms
 
-### Install Java
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Debian 11+, Ubuntu 20.04+ | `openjdk-<N>-jdk`, or Temurin APT repo |
+| RedHat | RHEL/Rocky/Alma 8+, Fedora 40+, Amazon Linux 2023 | `java-<N>-openjdk[-devel]`, or Temurin YUM repo |
+| Suse | openSUSE Leap 15.x, SLES 15 | `java-<N>-openjdk[-devel]` from the distro's own Update channel |
 
-To install Java on your servers, follow these steps:
+Anything else fails in preflight with an explicit message. `java_install_method: temurin`
+is best-effort on openSUSE/SLES (Adoptium's zypper path is not independently re-verified
+per SUSE variant) — the default `distro` method is the well-verified path everywhere.
 
-1. Install the required Ansible role:
-   ```bash
-   ansible-galaxy role install geerlingguy.java
-   ```
-2. Run the playbook to install Go:
-   ```bash
-   ansible-playbook -i inventory.ini install_java.yml
-   ```
-The Java version can be customized in the playbook by setting the `java_packages` variable.
+## Requirements
 
-### Example
+- Ansible core >= 2.15 (`deb822_repository`)
+- `ansible-galaxy collection install -r requirements.yml` (`community.general`, for
+  `alternatives`, `zypper`, `zypper_repository`)
+- `sudo` on the target
 
-To install OpenJDK 11, set the `java_packages` variable in the playbook as shown below:
+## Usage
 
-```yml
-vars:
-  java_packages:
-    - openjdk-11-jdk
+```bash
+ansible-playbook install_java.yml
+ansible-playbook install_java.yml -e '{"java_versions": ["17", "21"], "java_default_version": "21"}'
+ansible-playbook install_java.yml -e java_install_method=temurin
+ansible-playbook install_java.yml --check --diff
+ansible-playbook uninstall_java.yml
 ```
 
-### Playbook Explanation
+## Variables
 
-* **Role used:** [geerlingguy.java](https://github.com/geerlingguy/ansible-role-java)
-* This role handles the installation of the Java packages on supported operating systems. You can specify different JDK versions by updating the `java_packages` variable.
+| Variable | Default | Description |
+|---|---|---|
+| `java_versions` | `["17"]` | JDK majors to install; installing several is supported |
+| `java_default_version` | `"17"` | Must be one of `java_versions`; the one `alternatives` points `java`/`javac` at |
+| `java_install_method` | `distro` | `distro` (distribution packages) or `temurin` (Adoptium repo) |
+| `java_alternatives_priority` | `1700` | Priority passed to `alternatives`/`update-alternatives` |
 
-### 💻 Supported Linux Operating Systems
-This playbook supports the following Linux distributions:
-* 🐧 **Debian:** 10,11
-* 🐧 **Ubuntu:** 20.04,22.04
-* 🐧 **CentOS:** 7,8
+## Verify
 
-### ⚙️ Supported Ansible Versions
-* ✅ ansible-core 2.11.0
-* ✅  ansible-core 2.12.5
-* ❗️ ansible [core 2.17.3] (compatibility issues)
+```bash
+java -version
+update-alternatives --list java    # Debian
+alternatives --display java        # RHEL/SUSE
+```
 
-> Note: Ensure you run the playbook with appropriate privileges (e.g., use become: yes if needed).
+## Notes
 
-### Resources
-
-* [Ansible Galaxy - geerlingguy.java Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/java/documentation/)
-* [GitHub - geerlingguy/ansible-role-java](https://github.com/geerlingguy/ansible-role-java)
+- Installing multiple JDKs leaves every one of them registered as an `alternatives`
+  choice; only `java_default_version` is (re-)pinned by this playbook, so re-running with a
+  different `java_default_version` switches the active JDK without reinstalling anything.
+- Debian's `openjdk-<N>-jdk` package already bundles the compiler; RHEL/SUSE split
+  `java-<N>-openjdk` (JRE) from `java-<N>-openjdk-devel` (adds `javac`) — both are installed.
+- JDK 8 and 11 no longer receive updates under Oracle's free/permissive license, but
+  Temurin and the distributions' own community OpenJDK builds continue shipping them.

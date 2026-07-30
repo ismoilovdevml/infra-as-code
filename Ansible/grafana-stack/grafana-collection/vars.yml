@@ -1,0 +1,43 @@
+---
+# Grafana
+# https://grafana.com/docs/grafana/latest/setup-grafana/installation/
+grafana_version: "latest"                      # "latest" or a pinned version, e.g. "13.1.1"
+grafana_repo_channel: "stable"                  # stable | beta
+grafana_admin_user: "admin"
+grafana_http_port: 3000
+# Vault-backed secret — do not put a real password here. Populate it in an encrypted file,
+# e.g. group_vars/all/vault.yml, and run playbooks with --ask-vault-pass / --vault-password-file.
+vault_grafana_admin_password: ""
+
+# Loki
+# Current upstream release at time of writing: 3.7.4 — verify against
+# https://github.com/grafana/loki/releases before deploying.
+loki_version: "3.7.4"
+loki_http_listen_port: 3100
+loki_http_listen_address: "0.0.0.0"
+loki_working_path: "/var/lib/loki"
+loki_alertmanager_url: "http://localhost:9093"
+
+# Promtail — UPSTREAM END OF LIFE since 2026-03-02. See README "Promtail end of life" section.
+# Loki >= 3.7.0 no longer ships promtail release assets, so promtail_version: "latest" resolves
+# against the Loki repo and 404s. Pin to the last version Loki ever published (3.6.11) until
+# the fleet is migrated to Grafana Alloy (https://grafana.com/docs/alloy/latest/).
+promtail_version: "3.6.11"
+promtail_http_listen_port: 9080
+promtail_http_listen_address: "0.0.0.0"
+promtail_positions_path: "/var/lib/promtail"
+promtail_runtime_mode: "acl"                    # acl | root
+promtail_loki_push_url: "http://127.0.0.1:3100/loki/api/v1/push"
+promtail_config_template: "promtail_config.yml.j2"
+
+# Promtail via Docker — alternative to the binary install above. Do not run both on one host.
+promtail_docker_image: "grafana/promtail"
+promtail_docker_tag: "3.6.11"                   # grafana/promtail:latest is frozen at 3.6.11
+promtail_docker_config_dir: "/etc/promtail"
+# Package name providing the Docker Engine, per OS family. Many RHEL derivatives do not ship
+# a "docker" package in their base repos (Docker CE must be installed from Docker's own repo,
+# or use podman-docker). Override this map if the default does not resolve on your target.
+docker_package_map:
+  Debian: "docker.io"
+  RedHat: "docker"
+  Suse: "docker"

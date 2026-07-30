@@ -1,0 +1,12 @@
+{{ ansible_managed | comment }}
+# rabbitmq.conf uses the sysctl-style "Key = Value" format. The legacy Erlang-term
+# rabbitmq.config is deprecated upstream; do not add settings there.
+# https://www.rabbitmq.com/docs/configure
+
+listeners.tcp.default = {{ rabbitmq_listen_address }}:{{ rabbitmq_amqp_port }}
+
+management.tcp.port = {{ rabbitmq_management_port }}
+management.tcp.ip = {{ rabbitmq_listen_address }}
+
+# The default guest user stays loopback-only (upstream default). Do not add
+# loopback_users.guest = false here unless its password has also been changed.

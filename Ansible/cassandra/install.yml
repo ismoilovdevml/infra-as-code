@@ -1,21 +1,179 @@
 ---
-- name: Install Cassandra on target hosts
+- name: Install Apache Cassandra
   hosts: cassandra_nodes
-  become: yes
-
-  collections:
-    - community.cassandra
-
-  roles:
-    - cassandra_repository
-    - cassandra_install
-
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart cassandra
+      ansible.builtin.systemd_service:
+        name: "{{ cassandra_service_name }}"
+        state: restarted
+
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
   tasks:
-    - name: Ensure required firewall ports are open
-      include_role:
-        name: cassandra_firewall
-      vars:
-        cassandra_firewall_ports: "{{ firewall_ports }}"
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+          Apache Cassandra publishes official packages only for Debian/Ubuntu (APT)
+          and RHEL/Rocky/AlmaLinux (YUM). No official SUSE repository exists.
+        quiet: true
+      tags: [always]
+
+    - name: Install Java
+      ansible.builtin.package:
+        name: "{{ cassandra_java_packages[ansible_os_family] }}"
+        state: present
+      tags: [install]
+
+    - name: Check the Java major version
+      ansible.builtin.command: java -version
+      register: cassandra_java_version
+      changed_when: false
+      check_mode: false
+      tags: [install]
+
+    - name: Assert Java 11 or 17
+      ansible.builtin.assert:
+        that:
+          - (cassandra_java_version.stderr | regex_search('version \"([0-9]+)', '\1') | first | int) in [11, 17]
+        fail_msg: >-
+          Cassandra {{ cassandra_series }} requires Java 11 or 17 (mixing build/run
+          major versions is unsupported); found: {{ cassandra_java_version.stderr_lines | first }}
+        quiet: true
+      tags: [install]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the Cassandra repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the Cassandra GPG key
+          ansible.builtin.get_url:
+            url: "{{ cassandra_gpg_key_url }}"
+            dest: "{{ cassandra_apt_keyring_path }}"
+            mode: '0644'
+
+        - name: Add the Cassandra repository
+          ansible.builtin.deb822_repository:
+            name: cassandra
+            types: [deb]
+            uris: https://debian.cassandra.apache.org
+            suites: ["{{ cassandra_series }}"]
+            components: [main]
+            signed_by: "{{ cassandra_apt_keyring_path }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the Cassandra repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Import the Cassandra GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ cassandra_gpg_key_url }}"
+            state: present
+
+        - name: Add the Cassandra repository
+          ansible.builtin.yum_repository:
+            name: cassandra
+            description: Apache Cassandra
+            baseurl: "https://redhat.cassandra.apache.org/{{ cassandra_series }}/"
+            gpgcheck: true
+            repo_gpgcheck: true
+            gpgkey: "{{ cassandra_gpg_key_url }}"
+            enabled: true
+
+    # ------------------------------------------------------------------ install
+    - name: Install Cassandra (Debian family)
+      ansible.builtin.apt:
+        name: "{{ cassandra_packages }}"
+        state: present
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install Cassandra (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ cassandra_packages }}"
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Ensure the data and log directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: cassandra
+        group: cassandra
+        mode: '0750'
+      loop: "{{ cassandra_data_dirs + [cassandra_log_dir] }}"
+      tags: [configure]
+
+    - name: Write cassandra.yaml
+      ansible.builtin.template:
+        src: cassandra.yaml.j2
+        dest: "{{ cassandra_config_path }}"
+        owner: cassandra
+        group: cassandra
+        mode: '0640'
+      notify: Restart cassandra
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start Cassandra
+      ansible.builtin.systemd_service:
+        name: "{{ cassandra_service_name }}"
+        enabled: "{{ cassandra_service_enabled }}"
+        state: "{{ cassandra_service_state }}"
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the native transport port
+      ansible.builtin.wait_for:
+        host: "{{ cassandra_rpc_address }}"
+        port: "{{ cassandra_native_transport_port }}"
+        timeout: 120
+      tags: [verify]
+
+    - name: Report the cluster status
+      ansible.builtin.command: nodetool status
+      changed_when: false
+      check_mode: false
+      register: cassandra_verify
+      tags: [verify]
+
+    - name: Show the cluster status
+      ansible.builtin.debug:
+        msg: "{{ cassandra_verify.stdout_lines }}"
+      tags: [verify]

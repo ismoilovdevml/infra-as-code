@@ -1,0 +1,29 @@
+---
+# NOTE: the variables are prefixed. Naming them http_proxy / https_proxy at play
+# level shadows the environment names Ansible itself uses for module connections.
+system_proxy_http: "http://proxy.example.com:3128"
+# Proxies are reached over plain HTTP even for HTTPS traffic (CONNECT tunnelling);
+# an https:// scheme here is almost always wrong.
+system_proxy_https: "http://proxy.example.com:3128"
+system_proxy_no: "localhost,127.0.0.1,::1,.svc,.cluster.local,.corp"
+
+# Optional credentials. Vault-back them; they end up in world-readable config files
+# unless you keep them out of the URL, so prefer an IP-allowlisted proxy.
+system_proxy_user: ""
+system_proxy_password: "{{ vault_system_proxy_password | default('') }}"
+
+# Which consumers to configure.
+system_proxy_targets:
+  environment: true      # /etc/environment  (login shells, systemd user units)
+  apt: true              # Debian family
+  dnf: true              # RedHat family
+  zypper: true           # SUSE family
+  docker: true           # systemd drop-in, only if docker.service exists
+  git: true              # /etc/gitconfig
+  wget: true             # /etc/wgetrc
+  pip: true              # /etc/pip.conf
+  npm: true              # /etc/npmrc
+
+# curl and most CLI tools read http_proxy/https_proxy/no_proxy from the environment,
+# so they are covered by the `environment` target. curl has no documented
+# system-wide rc file, which is why there is no curl target here.

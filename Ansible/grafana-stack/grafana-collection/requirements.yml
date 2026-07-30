@@ -1,0 +1,11 @@
+---
+collections:
+  - name: grafana.grafana
+    version: ">=6.1.0"
+  - name: community.docker
+    version: ">=3.6.0"
+  # Transitive dependencies of grafana.grafana (zypper/rhsm repo handling, firewalld).
+  - name: community.general
+    version: ">=9.0.0"
+  - name: ansible.posix
+    version: ">=1.5.4"

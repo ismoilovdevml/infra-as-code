@@ -1,160 +1,91 @@
-# Percona PMM Ansible Playbooks 📊
+# Percona Monitoring and Management (PMM)
 
-This repository contains a set of Ansible playbooks to automate the setup, configuration, and cleanup of Percona Monitoring and Management (PMM) server, clients, and PostgreSQL monitoring integration.
+Deploys PMM Server 3.x via Docker, the PMM Client 3.x via either Docker or the
+official `repo.percona.com` package, and configures PostgreSQL monitoring
+(`pg_stat_monitor`) against a PMM Server. PMM 2 reached EOL on 2025-10-31; this
+module targets PMM 3 only.
 
-## Playbooks Overview 📋
+## Supported platforms
 
-1. **`pmm_server.yml`** - Deploy and configure the PMM Server using Docker.
-2. **`pmm_client_with_package.yml`** - Install the PMM client using package managers.
-3. **`pmm_client_with_docker.yml`** - Configure the PMM client using Docker.
-4. **`pmm_postgresql.yml`** - Configure PostgreSQL for monitoring with PMM.
-5. **`cleanup_server.yml`** - Clean up PMM Server Docker setup.
-6. **`cleanup_client_package.yml`** - Remove the PMM client installed using package managers.
-7. **`cleanup_client_docker.yml`** - Remove the PMM client Docker setup.
+| OS family | Versions | Notes |
+| --- | --- | --- |
+| Debian | Debian 11+, Ubuntu 20.04+ | `repo.percona.com/apt` release package |
+| RedHat | RHEL/Rocky/Alma/CentOS Stream 8+ | `repo.percona.com/yum` release package |
+| Suse | not implemented | not documented by a primary Percona source in this pass |
 
----
+Docker-based playbooks (`pmm_server.yml`, `pmm_client_with_docker.yml`) require
+Docker Engine already installed on the target (see `../docker/`).
 
-## Requirements 📦
+## Requirements
 
-- **Ansible Version:** 2.9 or higher
-- **Supported Operating Systems:** Debian-based (e.g., Ubuntu) and RedHat-based (e.g., CentOS)
-- **Dependencies:**
-  - Docker installed on target servers for `pmm_server.yml` and `pmm_client_with_docker.yml`.
-  - Package managers (APT/YUM) for `pmm_client_with_package.yml`.
-  - PostgreSQL installed for `pmm_postgresql.yml`.
+- Ansible core >= 2.15
+- Collections: `community.docker`, `community.postgresql`
+  (`ansible-galaxy collection install -r requirements.yml`)
+- `sudo` on every target
+- `pmm_postgresql.yml` requires PostgreSQL already installed and requires the
+  PMM client already registered (run `pmm_client_with_package.yml` or
+  `pmm_client_with_docker.yml` first)
 
----
-
-## Inventory Configuration 🗂️
-
-Ensure the `inventory.ini` file is properly configured with the following groups:
-
-- `pmm_servers` - Hosts where the PMM server will be installed.
-- `pmm_clients` - Hosts where the PMM client will be installed.
-- `postgresql_servers` - Hosts where PostgreSQL monitoring will be configured.
-
-Example:
-
-```ini
-[pmm_servers]
-server1 ansible_host=192.168.1.100
-
-[pmm_clients]
-client1 ansible_host=192.168.1.101
-client2 ansible_host=192.168.1.102
-
-[postgresql_servers]
-postgresql1 ansible_host=192.168.1.103
-```
-## Playbooks and Usage Instructions 🚀
-### 1. PMM Server Deployment (`pmm_server.yml`) 🖥️
-
-This playbook sets up the PMM Server using Docker.
-
-**Steps:**
-
-1. Ensures Docker is installed.
-2. Pulls the PMM Server Docker image.
-3. Runs the PMM Server container.
-4. Sets up the admin password.
-5. Verifies that the PMM Server is running.
-
-**Run:**
-```bash
-ansible-playbook -i inventory.ini pmm_server.yml
-```
-
-### 2. PMM Client Installation (`pmm_client_with_package.yml`) 📡
-
-This playbook installs the PMM client using system package managers (APT or YUM).
-
-**Steps:**
-
-1. Adds the Percona repository.
-2. Installs the PMM client package.
-3. Configures the client to connect to the PMM Server.
-
-**Run:**
-```bash
-ansible-playbook -i inventory.ini pmm_client_with_package.yml
-```
-
-### 3. PMM Client with Docker (`pmm_client_with_docker.yml`) 🐋
-
-This playbook sets up the PMM client using Docker.
-
-**Steps:**
-
-1. Checks for Docker installation.
-2. Pulls the PMM Client Docker image.
-3. Runs the PMM client container and configures it to connect to the PMM Server.
-
-**Run:**
+## Usage
 
 ```bash
-ansible-playbook -i inventory.ini pmm_client_with_docker.yml
+ansible-playbook pmm_server.yml                  # PMM Server, Docker
+ansible-playbook pmm_client_with_package.yml     # PMM Client via repo.percona.com package
+ansible-playbook pmm_client_with_docker.yml      # PMM Client, Docker
+ansible-playbook pmm_postgresql.yml              # PostgreSQL monitoring setup
+
+ansible-playbook cleanup_server.yml
+ansible-playbook cleanup_package.yml
+ansible-playbook cleanup_client_docker.yml
+ansible-playbook pmm_server.yml --check --diff
 ```
 
-### 4. PostgreSQL Configuration (`pmm_postgresql.yml`) 🛢️
+Set secrets before running:
 
-This playbook configures PostgreSQL monitoring for PMM.
-
-**Steps:**
-
-1. Adds the Percona PostgreSQL repository.
-2. Installs the pg_stat_monitor extension.
-3. Configures the pg_hba.conf and postgresql.conf files.
-4. Registers PostgreSQL with the PMM Server.
-
-**Run:**
 ```bash
-ansible-playbook -i inventory.ini pmm_postgresql.yml
+ansible-vault edit group_vars/all/vault.yml
+# vault_pmm_admin_password: "..."
+# vault_postgresql_admin_password: "..."
+# vault_pmm_postgresql_password: "..."
 ```
 
-### 5. Cleanup Playbooks 🧹
-**a. Cleanup PMM Server (`cleanup_server.yml`)**
+## Variables
 
-Removes the PMM Server Docker setup, including:
+| Variable | Default | Description |
+| --- | --- | --- |
+| `pmm_image` | `percona/pmm-server:3` | PMM Server image |
+| `pmm_server_container_port` | `8443` | 3.x listens internally on 8443, not the PMM-2-era 443 |
+| `pmm_client_docker_tag` | `3` | PMM Client image tag |
+| `pmm_client_package` | `pmm-client` | PMM 3 package name (was `pmm2-client` in PMM 2) |
+| `percona_release_pmm_component` | `pmm3-client` | Component enabled via `percona-release enable` before installing the client |
+| `admin_password` | vault-backed, empty | PMM Server admin password; every playbook that uses it asserts non-empty |
+| `postgresql_version` | `17` | Selects the `percona-pg-stat-monitor<version>` package and PGDG/Percona repo component |
+| `pmm_purge_data` | `false` | cleanup playbooks: also delete data directories |
 
-1. Stopping and removing the container.
-2. Deleting the Docker image.
-3. Removing the data directory.
+## Verify
 
-**Run:**
 ```bash
-ansible-playbook -i inventory.ini cleanup_server.yml
+docker ps --filter name=pmm-server
+curl -k https://<pmm-server>:443
+pmm-admin status
 ```
 
-**b. Cleanup PMM Client Installed via Package (`cleanup_client_package.yml`)**
+## Notes
 
-Removes the PMM client installed via package managers.
-
-**Run:**
-```bash
-ansible-playbook -i inventory.ini cleanup_client_package.yml
-```
-**c. Cleanup PMM Client Docker Setup (`cleanup_client_docker.yml`)**
-
-Removes the PMM client Docker setup, including:
-
-1. Stopping and removing the container.
-2. Deleting the Docker image.
-3. Cleaning up the data directory.
-
-**Run:**
-```bash
-ansible-playbook -i inventory.ini cleanup_client_docker.yml
-```
-### Variables 📖
-
-All variables are defined in `vars.yml`. Customize these variables as per your environment.
-
-| Variable	| Description |
-| --------- | ----------- |
-| `pmm_image`	| PMM Server Docker image (default: `percona/pmm-server:2`). |
-| `pmm_data_dir` |	Directory to store PMM Server data. |
-| `pmm_container_name`	| Name of the PMM Server Docker container. |
-| `pmm_server_address`	| PMM Server address (e.g., `34.56.26.160:443`). |
-| `admin_password` |	Admin password for PMM Server. |
-| `postgresql_version` |	PostgreSQL version to configure (default: `16`). |
-| `pg_extensions` |	Extensions to install (e.g., `pg_stat_monitor,pg_stat_statements`). |
+- **PMM 3 changes applied here:** server image bumped to `:3`, container port
+  changed from `443` to `8443` (published as `443:8443`), client package
+  renamed `pmm2-client` -> `pmm-client`, and `percona-release enable
+  pmm3-client` is now required before installing the client package.
+- PMM 3 also supports service-account API tokens
+  (`PMM_AGENT_SERVER_USERNAME=service_token`, a `glsa_...` token) as a more
+  modern alternative to admin username/password for client registration; this
+  module keeps username/password to match the existing feature set. Consider
+  tokens for production.
+- `pmm_postgresql.yml` uses distinct `postgresql.conf`/`pg_hba.conf` paths for
+  Debian (`/etc/postgresql/<ver>/main/`) vs RHEL (`/var/lib/pgsql/<ver>/data/`)
+  — a previous version of this playbook used the Debian path on both.
+- This module does not install or provision the database engine itself
+  (MySQL/PostgreSQL) — only PMM's monitoring integration.
+- No dedicated `templates/*.j2` files are used: PMM's server/client
+  configuration here is entirely environment-variable and CLI-flag driven,
+  not file-based.

@@ -1,64 +1,78 @@
-# NFS Server Setup with Ansible 🚀
+# NFS
 
-![Ansible](https://img.shields.io/badge/Ansible-Playbook-blue?logo=ansible)
-![NFS](https://img.shields.io/badge/NFS-Server-yellowgreen)
+Configures an NFS server with declarative exports, and mounts those exports on
+clients. NFSv4-only by default.
 
-This playbook allows you to set up and configure an NFS server automatically. It supports different Linux distributions such as **RedHat** and **Debian** families. The process includes installing the NFS server, creating a directory, and exporting it to the network.
+## Supported platforms
 
-## Purpose 🎯
+| OS family | Server package | Service |
+| --- | --- | --- |
+| Debian | `nfs-kernel-server`, `nfs-common` | `nfs-kernel-server` |
+| RedHat | `nfs-utils` | `nfs-server` |
+| Suse | `nfs-kernel-server` | `nfs-server` |
 
-- Set up an **NFS (Network File System)** server and enable file sharing over the network.
-- Be compatible with both RedHat and Debian-based systems.
-- Create an NFS directory, export it, and manage the service.
+Client side: `nfs-common` (Debian), `nfs-utils` (RedHat), `nfs-client` (SUSE).
 
-## Requirements 📋
+## Requirements
 
-- Ansible must be installed.
-- The `nfs_server` group in your inventory should contain the host(s) that will act as the NFS server.
+- Ansible core >= 2.15
+- `ansible-galaxy collection install -r requirements.yml` (`ansible.posix`, `community.general`)
+- `sudo` on the target
 
-## Variables 📂
+## Usage
 
-- `nfs_export_path`: The path to the directory you want to share over NFS.
-- `nfs_allowed_hosts`: Hosts allowed to access the shared directory.
-- `nfs_service_name`: Variable to manage NFS service names for RedHat and Debian families.
+```bash
+ansible-playbook nfs_setup.yml            # server
+ansible-playbook nfs_client.yml           # clients
+ansible-playbook nfs_setup.yml --check --diff
+```
 
-## How to Use ⚙️
+## Variables
 
-1. **Prepare an inventory file**, for example:
-    ```ini
-    [nfs_server]
-    nfs.example.com ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
-    ```
+| Variable | Default | Description |
+| --- | --- | --- |
+| `nfs_exports` | one `/srv/nfs` export | List of exports, each with a `clients` list |
+| `nfs_client_mounts` | `[]` | Mounts applied by `nfs_client.yml` |
+| `nfs_v4_only` | `true` | Disable NFSv2/v3 so everything stays on 2049 |
+| `nfs_manage_firewall` | `true` | Open NFS in firewalld or ufw when one is running |
 
-2. **Run the playbook:**
-    ```bash
-    ansible-playbook -i inventory.ini nfs_setup.yml
-    ```
+Export shape:
 
-3. **What the playbook does:**
-   - Installs required NFS packages.
-   - Creates the export directory and sets the correct permissions.
-   - Updates the `/etc/exports` file.
-   - Starts the NFS service and exports the directory.
+```yaml
+nfs_exports:
+  - path: /srv/data
+    owner: root
+    group: root
+    mode: '0755'
+    clients:
+      - host: "10.0.0.0/24"
+        options: "rw,sync,root_squash,no_subtree_check"
+```
 
-## Testing 🧪
+## Verify
 
-1. Check that the NFS service is running on the server:
-    ```bash
-    systemctl status nfs-server
-    ```
+```bash
+systemctl status nfs-server        # or nfs-kernel-server on Debian
+exportfs -v
+showmount -e <server>              # NFSv3 only; use `mount` output on v4
+findmnt -t nfs4
+```
 
-2. Verify that the directory is exported:
-    ```bash
-    exportfs -v
-    ```
+## Notes
 
-3. Mount the NFS share from another machine to test:
-    ```bash
-    mount nfs.example.com:/srv/nfs /mnt
-    ```
-
-## Supported OS Families 🖥️
-
-- **RedHat** family: RHEL, CentOS, Fedora
-- **Debian** family: Debian, Ubuntu
+- **The previous version exported `/srv/nfs` to `*` with `no_root_squash`.** That gives
+  root on the export to any host that can reach port 2049. The defaults are now a
+  private CIDR with `root_squash`, and the play **refuses to run** if any export
+  combines a `*` client with `no_root_squash`.
+- `root_squash` maps remote root to `nobody`. Only use `no_root_squash` for a single
+  named host that genuinely needs it.
+- **NFS has no transport authentication by default.** Access control is by IP alone,
+  which is trivially spoofable on an untrusted network. Use Kerberos (`sec=krb5p`) or
+  keep NFS on a private network.
+- `nfs_v4_only` keeps all traffic on 2049. Turning it off re-enables NFSv3, which
+  needs `rpcbind`, `statd` and `lockd` on additional and partly dynamic ports — much
+  harder to firewall.
+- Exports are reloaded with `exportfs -ra`, which re-reads `/etc/exports` without
+  restarting the service, so existing client mounts survive a config change.
+- Client mounts default to `hard` and `_netdev`: `hard` avoids silent data loss on a
+  server outage, `_netdev` stops boot hanging when the server is unreachable.

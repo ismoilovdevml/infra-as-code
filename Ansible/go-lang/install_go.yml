@@ -1,7 +1,107 @@
 ---
-- hosts: go_servers
-  become: yes
+- name: Install the Go programming language
+  hosts: go_servers
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  roles:
-    - geerlingguy.go
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this Go playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma, openSUSE/SLES.
+        quiet: true
+      tags: [always]
+
+    - name: Resolve the Go architecture token for this host
+      ansible.builtin.set_fact:
+        go_arch: "{{ go_arch_map[ansible_architecture] | default('') }}"
+      tags: [always]
+
+    - name: Assert the architecture is supported
+      ansible.builtin.assert:
+        that:
+          - go_arch | length > 0
+        fail_msg: >-
+          {{ ansible_architecture }} has no known Go download for this playbook.
+          Supported: {{ go_arch_map.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    # ------------------------------------------------------------------ install
+    - name: Check the currently installed Go version
+      ansible.builtin.command: "{{ go_bin_dir }}/go version"
+      register: go_current
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      tags: [install]
+
+    # Upstream (go.dev/doc/install) is explicit: never untar a new release into an
+    # existing /usr/local/go tree — it "produces broken Go installations". Wipe first
+    # whenever the installed version differs from go_version.
+    - name: Determine whether Go needs to be (re)installed
+      ansible.builtin.set_fact:
+        go_reinstall_needed: "{{ go_current.rc != 0 or (go_version not in go_current.stdout) }}"
+      tags: [install]
+
+    - name: Remove the previous Go installation
+      ansible.builtin.file:
+        path: "{{ go_install_root }}/go"
+        state: absent
+      when: go_reinstall_needed
+      tags: [install]
+
+    - name: Download the Go tarball
+      ansible.builtin.get_url:
+        url: "{{ go_download_url }}"
+        dest: "/tmp/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+        checksum: "sha256:{{ go_checksums[go_arch] }}"
+        mode: '0644'
+      when: go_reinstall_needed
+      tags: [install]
+
+    - name: Extract Go to the install root
+      ansible.builtin.unarchive:
+        src: "/tmp/go{{ go_version }}.linux-{{ go_arch }}.tar.gz"
+        dest: "{{ go_install_root }}"
+        remote_src: true
+        creates: "{{ go_bin_dir }}/go"
+      when: go_reinstall_needed
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Install the system-wide PATH/GOPATH profile snippet
+      ansible.builtin.template:
+        src: go-path.sh.j2
+        dest: "{{ go_profile_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [configure]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed Go version
+      ansible.builtin.command: "{{ go_bin_dir }}/go version"
+      register: go_verify
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Assert the expected version is active
+      ansible.builtin.assert:
+        that:
+          - go_version in go_verify.stdout
+        fail_msg: "Expected Go {{ go_version }}, found: {{ go_verify.stdout }}"
+        quiet: true
+      tags: [verify]
+
+    - name: Show the installed Go version
+      ansible.builtin.debug:
+        msg: "{{ go_verify.stdout }}"
+      tags: [verify]

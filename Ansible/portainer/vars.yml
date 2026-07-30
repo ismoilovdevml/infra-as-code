@@ -1,0 +1,43 @@
+---
+# Portainer ships as a container image only — there is no APT/YUM/zypper package.
+# Upstream's documented tag is `lts` (2.39.5 as of 2026-07-14); `sts` is the
+# short-term line. Pin an exact version here for reproducible rollouts.
+portainer_ce_image: portainer/portainer-ce
+portainer_ee_image: portainer/portainer-ee
+portainer_agent_image: portainer/agent
+portainer_tag: lts
+
+portainer_container_name: portainer
+portainer_agent_container_name: portainer_agent
+portainer_volume: portainer_data
+
+# 9443 = HTTPS UI (self-signed by default). 8000 = Edge agent tunnel, only needed
+# if you use Edge agents. 9000 (legacy HTTP UI) is deliberately not published.
+portainer_https_port: 9443
+portainer_edge_tunnel_port: 8000
+portainer_publish_edge_tunnel: true
+portainer_agent_port: 9001
+
+# Bind to 127.0.0.1 to keep the UI off the public interface. Docker bypasses
+# ufw/firewalld when publishing ports, so this is the effective control.
+portainer_bind_address: "0.0.0.0"
+
+portainer_docker_socket: /var/run/docker.sock
+portainer_restart_policy: always
+
+# First-run admin bootstrap.
+# Since 2.39.4/2.43 an uninitialised instance requires a one-time setup token,
+# and the admin account must be created within 5 minutes of container start.
+# Passing an admin password file suppresses the token entirely, which is the only
+# workable path for unattended installs.
+# Provide via Ansible Vault, e.g.:  ansible-vault edit group_vars/all/vault.yml
+portainer_admin_password: "{{ vault_portainer_admin_password | default('') }}"
+portainer_admin_password_file: /opt/portainer/admin_password
+
+# Business Edition only. The license key is entered in the UI after first login;
+# the container takes no license argument.
+portainer_ee_license_note: "Enter the license key in the UI after first login."
+
+# Upstream's documented workaround for enforcing SELinux hosts. Read the README
+# before enabling: it gives the container full host privileges.
+portainer_selinux_privileged: false

@@ -2,121 +2,156 @@
 - name: Install Prometheus Exporters
   hosts: target_servers
   become: true
-  collections:
-    - prometheus.prometheus
+
   vars_files:
     - vars.yml
 
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/CentOS Stream/Fedora/Amazon
+          Linux, openSUSE/SLES (all exporters ship as self-contained binaries, so any systemd
+          Linux distribution works in practice).
+        quiet: true
+      tags: always
+
+    - name: Assert Alertmanager Discord webhook is set via vault when Alertmanager is enabled
+      ansible.builtin.assert:
+        that:
+          - vault_alertmanager_discord_webhook_url | length > 0
+        fail_msg: >-
+          vault_alertmanager_discord_webhook_url is empty. Set it in an Ansible Vault file
+          (e.g. group_vars/all/vault.yml) and re-run with --ask-vault-pass, or set
+          exporters.alertmanager: false in vars.yml.
+        quiet: true
+      no_log: true
+      when: exporters.alertmanager | default(false)
+      tags: always
+
   tasks:
     - name: Install and configure Node Exporter
-      when: exporters.node_exporter == true
-      include_role:
-        name: node_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.node_exporter
+      when: exporters.node_exporter | default(false)
+      tags: node_exporter
 
-    - name: Install and configure Alert Manager
-      when: exporters.alertmanager == true
-      include_role:
-        name: alertmanager
+    - name: Install and configure Alertmanager
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.alertmanager
       vars:
-        alertmanager_version: 0.27.0
-        alertmanager_receivers:
-          - name: discord
-            webhook_configs:
-              - send_resolved: true
-                url: "https://discord.com/api/webhooks/1156904139327017063/UYC-Az12KeFyvpv2nEm_yvo_Ype0yvqenAxJNeNvTLUnN6hH-9p6YBc6jKJOKFWmlUTb"
-        alertmanager_route:
-          group_by: ['alertname', 'cluster', 'service']
-          group_wait: 30s
-          group_interval: 5m
-          repeat_interval: 3h
-          receiver: discord
+        alertmanager_receivers: "{{ alertmanager_receivers }}"
+        alertmanager_route: "{{ alertmanager_route }}"
+      when: exporters.alertmanager | default(false)
+      tags: alertmanager
 
     - name: Install and configure Bind Exporter
-      when: exporters.bind_exporter == true
-      include_role:
-        name: bind_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.bind_exporter
+      when: exporters.bind_exporter | default(false)
+      tags: bind_exporter
 
     - name: Install and configure Blackbox Exporter
-      when: exporters.blackbox_exporter == true
-      include_role:
-        name: blackbox_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.blackbox_exporter
+      when: exporters.blackbox_exporter | default(false)
+      tags: blackbox_exporter
 
     - name: Install and configure cAdvisor
-      when: exporters.cadvisor == true
-      include_role:
-        name: cadvisor
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.cadvisor
+      when: exporters.cadvisor | default(false)
+      tags: cadvisor
 
     - name: Install and configure Chrony Exporter
-      when: exporters.chrony_exporter == true
-      include_role:
-        name: chrony_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.chrony_exporter
+      when: exporters.chrony_exporter | default(false)
+      tags: chrony_exporter
 
     - name: Install and configure Fail2ban Exporter
-      when: exporters.fail2ban_exporter == true
-      include_role:
-        name: fail2ban_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.fail2ban_exporter
+      when: exporters.fail2ban_exporter | default(false)
+      tags: fail2ban_exporter
 
     - name: Install and configure IPMI Exporter
-      when: exporters.ipmi_exporter == true
-      include_role:
-        name: ipmi_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.ipmi_exporter
+      when: exporters.ipmi_exporter | default(false)
+      tags: ipmi_exporter
 
     - name: Install and configure Memcached Exporter
-      when: exporters.memcached_exporter == true
-      include_role:
-        name: memcached_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.memcached_exporter
+      when: exporters.memcached_exporter | default(false)
+      tags: memcached_exporter
 
     - name: Install and configure MongoDB Exporter
-      when: exporters.mongodb_exporter == true
-      include_role:
-        name: mongodb_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.mongodb_exporter
+      when: exporters.mongodb_exporter | default(false)
+      tags: mongodb_exporter
 
     - name: Install and configure MySQL Exporter
-      when: exporters.mysqld_exporter == true
-      include_role:
-        name: mysqld_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.mysqld_exporter
+      when: exporters.mysqld_exporter | default(false)
+      tags: mysqld_exporter
 
     - name: Install and configure NGINX Exporter
-      when: exporters.nginx_exporter == true
-      include_role:
-        name: nginx_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.nginx_exporter
+      when: exporters.nginx_exporter | default(false)
+      tags: nginx_exporter
 
     - name: Install and configure PostgreSQL Exporter
-      when: exporters.postgres_exporter == true
-      include_role:
-        name: postgres_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.postgres_exporter
+      when: exporters.postgres_exporter | default(false)
+      tags: postgres_exporter
 
     - name: Install and configure Process Exporter
-      when: exporters.process_exporter == true
-      include_role:
-        name: process_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.process_exporter
+      when: exporters.process_exporter | default(false)
+      tags: process_exporter
 
     - name: Install and configure Pushgateway
-      when: exporters.pushgateway == true
-      include_role:
-        name: pushgateway
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.pushgateway
+      when: exporters.pushgateway | default(false)
+      tags: pushgateway
 
     - name: Install and configure Redis Exporter
-      when: exporters.redis_exporter == true
-      include_role:
-        name: redis_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.redis_exporter
+      when: exporters.redis_exporter | default(false)
+      tags: redis_exporter
 
     - name: Install and configure Smartctl Exporter
-      when: exporters.smartctl_exporter == true
-      include_role:
-        name: smartctl_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.smartctl_exporter
+      when: exporters.smartctl_exporter | default(false)
+      tags: smartctl_exporter
 
     - name: Install and configure Smokeping Prober
-      when: exporters.smokeping_prober == true
-      include_role:
-        name: smokeping_prober
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.smokeping_prober
+      when: exporters.smokeping_prober | default(false)
+      tags: smokeping_prober
 
     - name: Install and configure SNMP Exporter
-      when: exporters.snmp_exporter == true
-      include_role:
-        name: snmp_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.snmp_exporter
+      when: exporters.snmp_exporter | default(false)
+      tags: snmp_exporter
 
     - name: Install and configure Systemd Exporter
-      when: exporters.systemd_exporter == true
-      include_role:
-        name: systemd_exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.systemd_exporter
+      when: exporters.systemd_exporter | default(false)
+      tags: systemd_exporter

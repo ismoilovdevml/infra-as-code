@@ -1,0 +1,106 @@
+---
+# stable or mainline. See https://nginx.org/en/linux_packages.html
+nginx_release: stable
+
+# Optional exact version pin, e.g. "1.30.4-1~bookworm" (apt) or "1.30.4-1.el9.ngx" (dnf).
+# Empty means "latest from the repo".
+nginx_version: ""
+
+# Path segment under https://nginx.org/packages/[mainline/]<path>. Only Debian and Ubuntu
+# themselves are published by nginx.org (no derivatives, no Raspbian) — confirmed on
+# https://nginx.org/en/linux_packages.html.
+nginx_repo_path_map:
+  Debian: debian
+  Ubuntu: ubuntu
+
+# RedHat-family distributions that get the nginx.org YUM repo, and which URL segment they
+# use. RHEL/CentOS Stream/Rocky/AlmaLinux all share the literal "centos" path segment
+# upstream — there is no per-distro path the way Docker has one. Amazon Linux 2023 uses its
+# own "amzn/2023" path (the "2023" is a hardcoded literal upstream, not $releasever). Fedora
+# is not listed as a distinct OS on the nginx.org packages page, so it is not in this map and
+# falls back to the distribution's own "nginx" package.
+nginx_yum_baseurl_map:
+  RedHat: "https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}centos/{{ ansible_distribution_major_version }}/$basearch/"
+  CentOS: "https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}centos/{{ ansible_distribution_major_version }}/$basearch/"
+  Rocky: "https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}centos/{{ ansible_distribution_major_version }}/$basearch/"
+  AlmaLinux: "https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}centos/{{ ansible_distribution_major_version }}/$basearch/"
+  Amazon: "https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}amzn/2023/$basearch/"
+
+# SLES gets the nginx.org repo (path uses $releasever_major, i.e. "15"); openSUSE Leap and
+# Tumbleweed are not published upstream and use the distribution's own "nginx" package.
+nginx_suse_baseurl_map:
+  SLES: "https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}sles/{{ ansible_distribution_major_version }}"
+
+# Distributions with no nginx.org repository at all: install the distro's own package.
+nginx_distro_package_map:
+  Fedora: nginx
+  openSUSE Leap: nginx
+  openSUSE Tumbleweed: nginx
+
+nginx_package_name: nginx
+nginx_service_name: nginx
+
+nginx_service_enabled: true
+nginx_service_state: started
+
+# Refuse to run on releases nginx.org has dropped. Set to false to try anyway (distro package
+# fallback still applies where mapped above).
+nginx_strict_platform_check: true
+nginx_minimum_major_version:
+  Ubuntu: 22
+  Debian: 11
+  RedHat: 8
+  CentOS: 8
+  Rocky: 8
+  AlmaLinux: 8
+  SLES: 15
+
+# --------------------------------------------------------------------------- SELinux (RHEL)
+# nginx runs under the confined httpd_t domain on RHEL-family systems (shared with Apache).
+# httpd_can_network_connect is required for reverse-proxying to a remote backend; confirmed
+# against Red Hat's own "Setting up and configuring NGINX" guide (RHEL 8/9/10 docs.redhat.com).
+nginx_manage_selinux: true
+nginx_selinux_booleans:
+  - httpd_can_network_connect
+
+# --------------------------------------------------------------------------------- firewall
+# Open 80/tcp and 443/tcp in firewalld / ufw when one of them is active.
+nginx_manage_firewall: true
+nginx_firewall_ports:
+  - 80
+  - 443
+
+# ----------------------------------------------------------------------------------- sites
+# Rendered by templates/site.conf.j2 into /etc/nginx/sites-available/<name>.conf and symlinked
+# into /etc/nginx/sites-enabled/ when enabled. sites-available/sites-enabled is a Debian
+# packaging convention, NOT shipped by the nginx.org package (confirmed:
+# https://docs.nginx.com/nginx/admin-guide/basic-functionality/managing-configuration-files/
+# documents conf.d only) — this module owns nginx.conf itself so the include is always
+# present, on every OS family.
+#
+# type: static -> serves `root` directly.
+# type: proxy  -> reverse-proxies to `proxy_pass`.
+# type: raw    -> `raw_config` is emitted verbatim inside the server block.
+nginx_sites:
+  - name: default
+    enabled: true
+    listen: 80
+    default_server: true
+    server_name: "_"
+    type: static
+    root: /var/www/html
+    extra_config: []
+
+# Example reverse-proxy site (see README):
+#  - name: app.example.com
+#    enabled: true
+#    listen: 80
+#    server_name: "app.example.com www.app.example.com"
+#    type: proxy
+#    proxy_pass: "http://127.0.0.1:3000"
+
+# --------------------------------------------------------------------------- nginx.conf body
+nginx_worker_processes: auto
+nginx_worker_connections: 1024
+nginx_keepalive_timeout: 65
+nginx_user: "{{ 'nginx' if ansible_os_family in ['RedHat', 'Suse'] else 'www-data' }}"

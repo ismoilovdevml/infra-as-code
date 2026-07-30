@@ -1,0 +1,33 @@
+---
+# Path to the kubeconfig used for every kubernetes.core task in this module. Defaults
+# to the KUBECONFIG env var, falling back to the standard location.
+kubeconfig_path: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+# cert-manager chart version == app version upstream (verified against
+# https://charts.jetstack.io/index.yaml — the "v" prefix is part of the chart version).
+certmanager_version: "v1.21.1"
+certmanager_namespace: "cert-manager"
+
+certmanager_chart_repo_name: jetstack
+certmanager_chart_repo_url: "https://charts.jetstack.io"
+certmanager_release_name: cert-manager
+certmanager_chart_ref: "jetstack/cert-manager"
+
+# Current upstream method (replaces the old separate `kubectl apply -f
+# cert-manager.crds.yaml` + installCRDs flow): CRDs are installed and lifecycle-managed
+# by the chart itself when this is true.
+certmanager_crds_enabled: true
+
+certmanager_wait: true
+certmanager_wait_timeout: "300s"
+
+# --- configure_certmanager.yml (ClusterIssuer) -------------------------------------
+# Must be a real, reachable address — Let's Encrypt uses it for expiry notices.
+certmanager_acme_email: ""
+# Switch to the staging directory while testing to avoid Let's Encrypt rate limits:
+# https://acme-staging-v02.api.letsencrypt.org/directory
+certmanager_acme_server: "https://acme-v02.api.letsencrypt.org/directory"
+certmanager_cluster_issuer_name: letsencrypt-prod
+# Must match the IngressClass of the ingress controller handling HTTP-01 challenges
+# (see ../ingress-nginx/).
+certmanager_ingress_class: nginx

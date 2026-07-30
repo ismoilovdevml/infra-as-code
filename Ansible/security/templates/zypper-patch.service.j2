@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Apply pending zypper patches
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# changed_when-equivalent for a shell unit: zypper exit code 0/102/103 are all
+# "success" (103 = zypper itself was updated, 102 = reboot suggested); anything
+# else is a real failure, which fails the unit and shows up in `systemctl status`.
+ExecStart=/usr/bin/zypper --non-interactive patch
+SuccessExitStatus=102 103

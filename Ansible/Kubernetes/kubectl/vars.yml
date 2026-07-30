@@ -1,0 +1,30 @@
+---
+# https://pkgs.k8s.io publishes one apt/yum/zypper repo per Kubernetes minor version
+# (e.g. .../core:/stable:/v1.36/deb/). Bump this to move to a new minor; upstream keeps
+# only the most recent ~3 minors published, so an old value eventually 404s.
+kubectl_minor_version: "1.36"
+
+# package: pkgs.k8s.io apt/yum/zypper repo (recommended — patches flow through the
+#          normal OS package manager).
+# binary:  single static binary from dl.k8s.io, verified against its sha256 checksum.
+kubectl_install_method: package
+
+# package method only. Empty = latest available in the kubectl_minor_version repo.
+# apt pin example: "1.36.3-1.1"; dnf/zypper pin example: "1.36.3". The suffix format
+# differs per package manager and per release — check the repo before pinning.
+kubectl_package_version: ""
+
+# binary method only. Full version string, e.g. "v1.36.3". Empty = resolve
+# https://dl.k8s.io/release/stable.txt at runtime (always the newest patch of the
+# newest minor — pin explicitly if the cluster's API server is on an older minor).
+kubectl_version: ""
+
+kubectl_bin_dir: /usr/local/bin
+
+# dl.k8s.io and pkgs.k8s.io use Go-style architecture names. Never hardcode x86_64.
+kubectl_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: arm
+
+kubectl_keyring_path: /etc/apt/keyrings/kubernetes-apt-keyring.asc

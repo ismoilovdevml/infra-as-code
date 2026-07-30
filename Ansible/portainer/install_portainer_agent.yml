@@ -1,0 +1,32 @@
+---
+# Portainer Agent, for Docker hosts managed by a remote Portainer server.
+# The agent and the server must run the same version — mismatches are a known
+# incompatibility, so both use portainer_tag.
+- name: Install the Portainer Agent
+  hosts: portainer_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Run the Portainer Agent
+      community.docker.docker_container:
+        name: "{{ portainer_agent_container_name }}"
+        image: "{{ portainer_agent_image }}:{{ portainer_tag }}"
+        state: started
+        restart_policy: "{{ portainer_restart_policy }}"
+        pull: true
+        published_ports:
+          - "{{ portainer_agent_port }}:9001"
+        volumes:
+          - "{{ portainer_docker_socket }}:/var/run/docker.sock"
+          - /var/lib/docker/volumes:/var/lib/docker/volumes
+      tags: [install]
+
+    - name: Wait for the agent port to open
+      ansible.builtin.wait_for:
+        port: "{{ portainer_agent_port }}"
+        host: 127.0.0.1
+        timeout: 60
+      tags: [verify]

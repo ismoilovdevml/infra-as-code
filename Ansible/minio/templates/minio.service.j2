@@ -1,0 +1,42 @@
+{{ ansible_managed | comment }}
+# Sourced from https://github.com/minio/minio-service/blob/master/linux-systemd/minio.service
+# (that repo's own boilerplate now reads "MinIO AIStor" — this installs the community
+# MinIO binary; the unit mechanics are the same for both).
+[Unit]
+Description=MinIO
+Documentation=https://github.com/minio/minio-service
+Wants=network-online.target
+After=network-online.target
+AssertFileIsExecutable={{ minio_install_dir }}/minio
+AssertFileNotEmpty={{ minio_default_env_path }}
+
+[Service]
+Type=notify
+
+WorkingDirectory={{ minio_install_dir }}
+
+User={{ minio_user }}
+Group={{ minio_group }}
+ProtectProc=invisible
+
+# CAP_NET_BIND_SERVICE: bind to privileged ports (< 1024) without running as root.
+# CAP_SYS_ADMIN + CAP_DAC_OVERRIDE: S.M.A.R.T. disk health monitoring (NVMe admin
+# commands / opening block devices).
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+
+EnvironmentFile={{ minio_default_env_path }}
+ExecStart={{ minio_install_dir }}/minio server $MINIO_OPTS $MINIO_VOLUMES
+
+# SIGHUP hot-reloads pool config, license and TLS certificate directory without a
+# full restart.
+ExecReload=/bin/kill -SIGHUP $MAINPID
+
+Restart=always
+LimitNOFILE=1048576
+TasksMax=infinity
+TimeoutSec=infinity
+OOMScoreAdjust=-1000
+SendSIGKILL=no
+
+[Install]
+WantedBy=multi-user.target

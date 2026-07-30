@@ -1,114 +1,88 @@
 ---
-- name: Uninstall Jenkins and cleanup on multiple OS
+# Destructive. Removes the Jenkins package, its repository and, when
+# jenkins_purge_data is true, JENKINS_HOME itself (every job, credential and config).
+- name: Uninstall Jenkins
   hosts: jenkins_servers
   become: true
-  vars:
-    java_package_debian: openjdk-17-jre
-    java_package_rhel: java-17-openjdk
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
   tasks:
-
-    - name: Check if Jenkins service exists on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      shell: |
-        systemctl list-units --type service --all | grep -w jenkins
-      register: jenkins_service_exists_debian
-      failed_when: jenkins_service_exists_debian.rc > 1
-      ignore_errors: yes
-
-    - name: Stop Jenkins on Debian/Ubuntu if running
-      when: ansible_os_family == "Debian" and jenkins_service_exists_debian.rc == 0
-      systemd:
+    - name: Stop and disable jenkins
+      ansible.builtin.systemd_service:
         name: jenkins
         state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Uninstall Jenkins and Java on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      apt:
-        name:
-          - jenkins
-          - "{{ java_package_debian }}"
-          - fontconfig
+    - name: Remove the Jenkins package
+      ansible.builtin.package:
+        name: jenkins
         state: absent
-        purge: yes
+      tags: [uninstall]
 
-    - name: Remove Jenkins repo from sources list on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
+    - name: Purge the Jenkins package (Debian family)
+      ansible.builtin.apt:
+        name: jenkins
+        state: absent
+        purge: true
+        autoremove: false
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the systemd override
       ansible.builtin.file:
-        path: /etc/apt/sources.list.d/jenkins.list
+        path: /etc/systemd/system/jenkins.service.d
         state: absent
+      tags: [uninstall]
 
-    - name: Remove Jenkins keyring on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      ansible.builtin.file:
-        path: /usr/share/keyrings/jenkins-keyring.asc
-        state: absent
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      tags: [uninstall]
 
-    - name: Remove Jenkins cache and log directories on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
+    - name: Remove the Jenkins repository (Debian family)
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
-        - /var/cache/jenkins
-        - /var/log/jenkins
+        - /etc/apt/sources.list.d/jenkins.sources
+        - /etc/apt/sources.list.d/jenkins.list
+        - /etc/apt/keyrings/jenkins-keyring.asc
+        - /usr/share/keyrings/jenkins-keyring.asc
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
 
-    - name: Check if Jenkins data directory exists on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      stat:
-        path: /var/lib/jenkins
-      register: jenkins_data_dir
-
-    - name: Remove Jenkins data directory on Debian/Ubuntu
-      when: ansible_os_family == "Debian" and jenkins_data_dir.stat.exists
-      ansible.builtin.file:
-        path: /var/lib/jenkins
-        state: absent
-        recurse: yes
-        force: yes
-
-    - name: Check if Jenkins service exists on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      shell: |
-        systemctl list-units --type service --all | grep -w jenkins
-      register: jenkins_service_exists_rhel
-      failed_when: jenkins_service_exists_rhel.rc > 1
-      ignore_errors: yes
-
-    - name: Stop Jenkins on Red Hat/Fedora/Alma/Rocky if running
-      when: ansible_os_family == "RedHat" and jenkins_service_exists_rhel.rc == 0
-      systemd:
-        name: jenkins
-        state: stopped
-
-    - name: Uninstall Jenkins and Java on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      yum:
-        name:
-          - jenkins
-          - "{{ java_package_rhel }}"
-          - fontconfig
-        state: absent
-
-    - name: Remove Jenkins repo file on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
+    - name: Remove the Jenkins repository (RedHat family)
       ansible.builtin.file:
         path: /etc/yum.repos.d/jenkins.repo
         state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
 
-    - name: Remove Jenkins GPG key on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat" and jenkins_gpg_key is defined and jenkins_gpg_key is not none
-      ansible.builtin.rpm_key:
+    - name: Remove the Jenkins repository (SUSE)
+      community.general.zypper_repository:
+        name: jenkins
         state: absent
-        key: gpg-pubkey
-      register: jenkins_gpg_key
+      when: ansible_os_family == 'Suse'
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove Jenkins cache, log, and data directories on Red Hat/Fedora/Alma/Rocky
+    - name: Remove the Jenkins cache and log directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
-        force: yes
       loop:
         - /var/cache/jenkins
         - /var/log/jenkins
-        - /var/lib/jenkins
+      tags: [uninstall]
+
+    - name: Remove JENKINS_HOME
+      ansible.builtin.file:
+        path: "{{ jenkins_home }}"
+        state: absent
+      when: jenkins_purge_data | bool
+      tags: [uninstall]

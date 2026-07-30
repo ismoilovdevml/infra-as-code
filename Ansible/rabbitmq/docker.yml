@@ -1,65 +1,95 @@
-# docker.yml
-
+---
 - name: Install RabbitMQ using Docker
-  hosts: all
+  hosts: rabbitmq_servers
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
+
   tasks:
-    - name: Check if Docker is installed
-      shell: "command -v docker"
-      register: docker_check
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - rabbitmq_docker_admin_password | length > 0
+        fail_msg: >-
+          rabbitmq_docker_admin_password is empty. Set
+          vault_rabbitmq_docker_admin_password via ansible-vault before running
+          this playbook.
+        quiet: true
+      tags: [always]
+
+    # `command -v` requires a shell, so this uses ansible.builtin.command against
+    # `which` instead of ansible.builtin.shell.
+    - name: Check whether Docker is installed
+      ansible.builtin.command: which docker
+      register: rabbitmq_docker_check
       changed_when: false
       failed_when: false
+      check_mode: false
+      tags: [always]
 
-    - name: Display message if Docker is not installed
-      debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
+    - name: Assert Docker is present
+      ansible.builtin.assert:
+        that:
+          - rabbitmq_docker_check.rc == 0
+        fail_msg: >-
+          Docker is not installed on {{ inventory_hostname }}. Install it first
+          (see ../docker/install_docker.yml).
+        quiet: true
+      tags: [always]
 
-    - name: Skip host if either Docker is missing
-      meta: end_host
-      when: docker_check.rc != 0
-
-    - name: Create host path directory for RabbitMQ data
-      file:
-        path: "{{ host_path }}"
+    - name: Create the host path directory for RabbitMQ data
+      ansible.builtin.file:
+        path: "{{ rabbitmq_docker_data_path }}"
         state: directory
-        mode: '0755'
+        mode: '0750'
         owner: root
         group: root
+      tags: [install]
 
-    - name: Start RabbitMQ container
-      docker_container:
-        name: "{{ container_name }}"
-        image: "rabbitmq:{{ rabbitmq_image }}"
+    - name: Start the RabbitMQ container
+      community.docker.docker_container:
+        name: "{{ rabbitmq_docker_container_name }}"
+        image: "rabbitmq:{{ rabbitmq_docker_image }}"
         state: started
+        restart_policy: unless-stopped
         ports:
-          - "{{ host_port }}:5672"
-          - "{{ management_port }}:15672"
+          - "{{ rabbitmq_docker_amqp_host_port }}:5672"
+          - "{{ rabbitmq_docker_management_host_port }}:15672"
         env:
-          RABBITMQ_DEFAULT_USER: "{{ admin_user }}"
-          RABBITMQ_DEFAULT_PASS: "{{ admin_password }}"
+          RABBITMQ_DEFAULT_USER: "{{ rabbitmq_docker_admin_user }}"
+          RABBITMQ_DEFAULT_PASS: "{{ rabbitmq_docker_admin_password }}"
         volumes:
-          - "{{ host_path }}:/var/lib/rabbitmq"
+          - "{{ rabbitmq_docker_data_path }}:/var/lib/rabbitmq"
+      no_log: true
+      tags: [install]
 
-    - name: Wait 30 seconds for RabbitMQ to initialize
-      pause:
-        seconds: 30
+    - name: Wait for the management port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ rabbitmq_docker_management_host_port }}"
+        timeout: 90
+      tags: [verify]
 
     - name: Check RabbitMQ health status
-      uri:
-        url: "http://localhost:{{ management_port }}/api/healthchecks/node"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ rabbitmq_docker_management_host_port }}/api/healthchecks/node"
         method: GET
-        user: "{{ admin_user }}"
-        password: "{{ admin_password }}"
+        user: "{{ rabbitmq_docker_admin_user }}"
+        password: "{{ rabbitmq_docker_admin_password }}"
+        force_basic_auth: true
         status_code: 200
-      register: health_check
-      failed_when: health_check.status != 200
+      register: rabbitmq_docker_health
+      until: rabbitmq_docker_health.status == 200
       retries: 5
       delay: 10
-      until: health_check.status == 200
+      no_log: true
+      check_mode: false
+      tags: [verify]
 
-    - name: Display RabbitMQ installation completion message
-      debug:
-        msg: "RabbitMQ installation and configuration completed successfully. Management is available on port {{ management_port }}."
+    - name: Show the RabbitMQ container status
+      ansible.builtin.debug:
+        msg: >-
+          RabbitMQ container {{ rabbitmq_docker_container_name }} is healthy.
+          Management UI on port {{ rabbitmq_docker_management_host_port }}.
+      tags: [verify]

@@ -1,0 +1,55 @@
+---
+- name: Uninstall KeyDB
+  hosts: keydb_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable the keydb service
+      ansible.builtin.systemd_service:
+        name: "{{ keydb_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      when: keydb_install_method == 'package'
+      tags: [uninstall]
+
+    - name: Remove the KeyDB packages
+      ansible.builtin.apt:
+        name: "{{ keydb_deb_packages + ['keydb', 'keydb-sentinel'] }}"
+        state: absent
+        purge: true
+        autoremove: true
+      failed_when: false
+      when:
+        - keydb_install_method == 'package'
+        - ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the KeyDB container
+      community.docker.docker_container:
+        name: "{{ keydb_container_name }}"
+        state: absent
+      when: keydb_install_method == 'docker'
+      tags: [uninstall]
+
+    - name: Remove the KeyDB image
+      community.docker.docker_image_remove:
+        name: "{{ keydb_image }}"
+        force: true
+      failed_when: false
+      when: keydb_install_method == 'docker'
+      tags: [uninstall]
+
+    - name: Remove the KeyDB data
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ keydb_data_dir }}"
+        - /var/lib/keydb
+        - /etc/keydb
+      when: keydb_purge_data | bool
+      tags: [uninstall]

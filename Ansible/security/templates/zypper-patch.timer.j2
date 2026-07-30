@@ -1,0 +1,11 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Run zypper-patch.service on a schedule
+
+[Timer]
+OnCalendar={{ security_suse_patch_oncalendar }}
+Persistent=true
+RandomizedDelaySec=1800
+
+[Install]
+WantedBy=timers.target

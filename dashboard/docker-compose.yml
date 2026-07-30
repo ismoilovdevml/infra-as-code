@@ -2,29 +2,43 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+    # Not published on the host: the frontend proxies to it over the compose
+    # network. Publish it only if you need the API directly.
+    expose:
+      - "8000"
     volumes:
+      # Read-only would be safer, but the dashboard edits inventory.ini and
+      # vars.yml by design.
       - ../Ansible:/app/Ansible
-      - ./backend:/app
+      - backend_data:/app/data
+      # SSH keys for reaching the managed hosts.
+      - ${SSH_KEY_PATH:-~/.ssh}:/home/dashboard/.ssh:ro
     environment:
-      - PYTHONUNBUFFERED=1
-    networks:
-      - ansible-dashboard
+      PYTHONUNBUFFERED: "1"
+      ANSIBLE_BASE: /app/Ansible
+      DASHBOARD_DATA_DIR: /app/data
+      # REQUIRED. Generate with: openssl rand -base64 32
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:?set DASHBOARD_TOKEN in .env}
+      DASHBOARD_CORS_ORIGINS: ${DASHBOARD_CORS_ORIGINS:-http://localhost:3000}
+      # Playbooks assert on vault-backed secrets; without this they fail fast.
+      ANSIBLE_VAULT_PASSWORD_FILE: ${ANSIBLE_VAULT_PASSWORD_FILE:-}
+      DASHBOARD_CHECK_MODE_ONLY: ${DASHBOARD_CHECK_MODE_ONLY:-false}
+    restart: unless-stopped
+    networks: [ansible-dashboard]
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
-      - backend
-    environment:
-      - VITE_API_URL=http://backend:8000
-    networks:
-      - ansible-dashboard
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [ansible-dashboard]
+
+volumes:
+  backend_data:
 
 networks:
   ansible-dashboard:

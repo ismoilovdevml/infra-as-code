@@ -1,38 +1,99 @@
 ---
-- name: Install Cert-Manager
-  hosts: all
-  become: yes
-  vars:
-    version: "v1.15.3"  # Cert-manager version
-    namespace: "cert-manager"  # Cert-manager namespace
+# Acts on the cluster via the Kubernetes API (kubernetes.core), not over SSH — see
+# inventory.ini. Requires a working kubeconfig and the helm binary on whichever host
+# runs this playbook.
+- name: Install cert-manager
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Apply cert-manager CRDs
-      ansible.builtin.command:
-        cmd: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{ version }}/cert-manager.crds.yaml
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert the kubeconfig file exists
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: certmanager_kubeconfig_stat
 
-    - name: Add Jetstack Helm repo
-      ansible.builtin.command:
-        cmd: helm repo add jetstack https://charts.jetstack.io
+        - name: Fail if the kubeconfig file is missing
+          ansible.builtin.assert:
+            that:
+              - certmanager_kubeconfig_stat.stat.exists
+            fail_msg: "kubeconfig not found at {{ kubeconfig_path }}. Set kubeconfig_path or KUBECONFIG."
+            quiet: true
 
-    - name: Update Helm repo
-      ansible.builtin.command:
-        cmd: helm repo update
+        - name: Check that the helm binary is available
+          block:
+            - name: Query the helm version
+              ansible.builtin.command: helm version --short
+              changed_when: false
+              check_mode: false
+          rescue:
+            - name: Fail with a clear message
+              ansible.builtin.fail:
+                msg: "helm binary not found on the controller. Install it first (see ../helm/)."
 
-    - name: Install cert-manager using Helm
-      ansible.builtin.command:
-        cmd: helm install cert-manager jetstack/cert-manager --namespace {{ namespace }} --create-namespace --version {{ version }}
-      register: helm_install_output
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+          register: certmanager_cluster_check
 
-    - name: Wait for 1 minute to let Cert-Manager pods start
-      ansible.builtin.pause:
-        minutes: 1
+        - name: Fail if the cluster is unreachable
+          ansible.builtin.assert:
+            that:
+              - certmanager_cluster_check is not failed
+            fail_msg: "Could not reach the Kubernetes API using {{ kubeconfig_path }}."
+            quiet: true
 
-    - name: Get all Cert-Manager resources
-      ansible.builtin.command:
-        cmd: kubectl get all -n {{ namespace }}
-      register: cert_manager_resources
+    # ------------------------------------------------------------------- install
+    - name: Add the Jetstack Helm repository
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ certmanager_chart_repo_name }}"
+        repo_url: "{{ certmanager_chart_repo_url }}"
+      tags: [install]
 
-    - name: Show Cert-Manager resources
-      debug:
-        var: cert_manager_resources.stdout
+    - name: Install cert-manager
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ certmanager_release_name }}"
+        chart_ref: "{{ certmanager_chart_ref }}"
+        chart_version: "{{ certmanager_version }}"
+        release_namespace: "{{ certmanager_namespace }}"
+        create_namespace: true
+        wait: "{{ certmanager_wait }}"
+        wait_timeout: "{{ certmanager_wait_timeout }}"
+        values:
+          crds:
+            enabled: "{{ certmanager_crds_enabled }}"
+      tags: [install]
+
+    # -------------------------------------------------------------------- verify
+    - name: List cert-manager pods
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Pod
+        namespace: "{{ certmanager_namespace }}"
+      register: certmanager_pods
+      tags: [verify]
+
+    - name: Assert cert-manager pods are running
+      ansible.builtin.assert:
+        that:
+          - certmanager_pods.resources | length > 0
+          - certmanager_pods.resources | map(attribute='status.phase') | unique == ['Running']
+        fail_msg: >-
+          cert-manager pods in namespace {{ certmanager_namespace }} are not all Running:
+          {{ certmanager_pods.resources | map(attribute='status.phase') | list }}
+        quiet: true
+      tags: [verify]
+
+    - name: Show the cert-manager pods
+      ansible.builtin.debug:
+        msg: "{{ certmanager_pods.resources | map(attribute='metadata.name') | list }}"
+      tags: [verify]

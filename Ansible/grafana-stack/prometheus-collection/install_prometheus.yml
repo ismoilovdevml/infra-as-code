@@ -1,8 +1,67 @@
 ---
-- name: Install Prometheus
+- name: Install and configure Prometheus
   hosts: prometheus_servers
   become: true
-  collections:
-    - prometheus.prometheus
-  roles:
-    - prometheus
+
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/CentOS Stream/Fedora/Amazon
+          Linux, openSUSE/SLES (Prometheus ships as a self-contained binary, so any systemd
+          Linux distribution works in practice).
+        quiet: true
+      tags: always
+
+  tasks:
+    - name: Build a scrape job for each enabled exporter from the target_servers group
+      ansible.builtin.set_fact:
+        prometheus_scrape_configs: "{{ prometheus_scrape_configs | default(prometheus_scrape_configs_base) + [scrape_job] }}"
+      vars:
+        scrape_job:
+          job_name: "{{ item.key }}"
+          static_configs:
+            - targets: >-
+                {{
+                  groups['target_servers']
+                  | map('extract', hostvars, ['ansible_host'])
+                  | map('regex_replace', '$', ':' ~ (item.value | string))
+                  | list
+                }}
+      loop: "{{ exporter_ports | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when:
+        - "'target_servers' in groups"
+        - exporters[item.key] | default(false)
+      tags: configure
+
+    - name: Install and configure Prometheus via the prometheus.prometheus.prometheus role
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.prometheus
+      vars:
+        prometheus_version: "{{ prometheus_version }}"
+        prometheus_web_listen_address: "{{ prometheus_web_listen_address }}"
+        prometheus_storage_retention: "{{ prometheus_storage_retention }}"
+        prometheus_external_labels: "{{ prometheus_external_labels }}"
+        prometheus_scrape_configs: "{{ prometheus_scrape_configs | default(prometheus_scrape_configs_base) }}"
+      tags:
+        - install
+        - configure
+
+  post_tasks:
+    - name: Verify Prometheus is ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ prometheus_http_port }}/-/ready"
+        status_code: 200
+      register: prometheus_ready
+      until: prometheus_ready.status == 200
+      retries: 10
+      delay: 5
+      tags: verify

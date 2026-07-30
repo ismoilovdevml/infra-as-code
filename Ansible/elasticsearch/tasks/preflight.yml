@@ -1,0 +1,58 @@
+---
+# Fail fast on platforms outside Elastic's support matrix for the 9.x line.
+# https://www.elastic.co/support/matrix
+
+- name: Assert supported OS family
+  ansible.builtin.fail:
+    msg: >-
+      {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+      Elasticsearch {{ elastic_major_version }}.x. Supported families: Debian, RedHat, Suse.
+  when: ansible_os_family not in ['Debian', 'RedHat', 'Suse']
+
+- name: Fail fast on Fedora (not in Elastic support matrix)
+  ansible.builtin.fail:
+    msg: >-
+      Fedora is not in Elastic's support matrix for Elasticsearch {{ elastic_major_version }}.x.
+      Use RHEL, Rocky Linux, AlmaLinux, Oracle Linux, or Amazon Linux 2023 instead.
+  when: ansible_distribution == 'Fedora'
+
+- name: Fail fast on CentOS Stream (not in Elastic support matrix)
+  ansible.builtin.fail:
+    msg: >-
+      CentOS Stream is not in Elastic's support matrix for Elasticsearch
+      {{ elastic_major_version }}.x. Use RHEL, Rocky Linux, AlmaLinux, or Oracle Linux instead.
+  when: ansible_distribution == 'CentOS' and 'Stream' in ansible_distribution_release
+
+- name: Fail fast on unsupported Debian/Ubuntu release
+  ansible.builtin.fail:
+    msg: >-
+      {{ ansible_distribution }} {{ ansible_distribution_version }} is below the minimum
+      supported release (Debian 12+, Ubuntu 20.04+).
+  when: >-
+    ansible_os_family == 'Debian' and (
+      (ansible_distribution == 'Debian' and ansible_distribution_major_version | int < 12) or
+      (ansible_distribution == 'Ubuntu' and ansible_distribution_major_version | int < 20)
+    )
+
+- name: Fail fast on unsupported Amazon Linux release
+  ansible.builtin.fail:
+    msg: >-
+      Amazon Linux {{ ansible_distribution_version }} is not supported. Only Amazon Linux 2023
+      is supported by Elasticsearch {{ elastic_major_version }}.x.
+  when: ansible_distribution == 'Amazon' and ansible_distribution_major_version != '2023'
+
+- name: Fail fast on unsupported RHEL-family release
+  ansible.builtin.fail:
+    msg: >-
+      {{ ansible_distribution }} {{ ansible_distribution_version }} is below the minimum
+      supported release (RHEL/Rocky Linux/AlmaLinux/Oracle Linux 8+).
+  when: >-
+    ansible_os_family == 'RedHat' and ansible_distribution != 'Amazon' and
+    ansible_distribution_major_version | int < 8
+
+- name: Fail fast on unsupported SUSE release
+  ansible.builtin.fail:
+    msg: >-
+      {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+      SLES/openSUSE 15 is required.
+  when: ansible_os_family == 'Suse' and ansible_distribution_major_version | int < 15

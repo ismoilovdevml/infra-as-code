@@ -1,0 +1,50 @@
+---
+# Destructive. Removes the keepalived package and, when keepalived_purge_data is true,
+# /etc/keepalived.
+- name: Uninstall Keepalived
+  hosts: keepalived_nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    keepalived_purge_data: false
+
+  tasks:
+    - name: Check whether keepalived is installed
+      ansible.builtin.stat:
+        path: /usr/sbin/keepalived
+      register: keepalived_binary
+      tags: [always]
+
+    - name: Stop keepalived
+      ansible.builtin.systemd_service:
+        name: "{{ keepalived_service_name }}"
+        state: stopped
+      failed_when: false
+      when: keepalived_binary.stat.exists
+      tags: [uninstall]
+
+    - name: Remove the keepalived package
+      ansible.builtin.package:
+        name: "{{ keepalived_package_name }}"
+        state: absent
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Purge the keepalived package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ keepalived_package_name }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the keepalived state directory
+      ansible.builtin.file:
+        path: /etc/keepalived
+        state: absent
+      when: keepalived_purge_data | bool
+      tags: [uninstall]

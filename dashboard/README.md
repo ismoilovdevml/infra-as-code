@@ -1,163 +1,88 @@
 # Ansible Dashboard
 
-Modern web dashboard for managing and running Ansible playbooks.
+Web UI for browsing, editing and running the playbooks in [../Ansible/](../Ansible/).
+FastAPI backend, React frontend.
 
-## Features
+## What it does
 
-- 📁 Browse all Ansible folders
-- 📝 Edit inventory.ini and vars.yml files
-- ▶️ Run playbooks with one click
-- 📊 Real-time execution output
-- 🔄 Auto-refresh job status
-- 🎨 Modern, responsive UI
+- Lists every module folder, including the nested ones (`Kubernetes/*`,
+  `grafana-stack/*`, `percona/*`)
+- Edits `inventory.ini` and `vars.yml` — comments and formatting are preserved
+- Runs a playbook, optionally as a `--check --diff` dry run, and streams the output
+- Keeps execution history and basic statistics
 
-## Prerequisites
+## Security
 
-- Python 3.11+
-- Node.js 20+
-- Docker & Docker Compose (for containerized deployment)
-- Ansible installed (for local development)
+This service executes `ansible-playbook` against real infrastructure and writes to
+files in the repository. Treat it as privileged.
 
-## Quick Start
+- **A bearer token is required on every `/api` route.** Set `DASHBOARD_TOKEN`. If it
+  is unset the backend generates one and logs it at startup, so the API is never
+  unauthenticated — but it changes on every restart.
+- **Bind it to localhost.** The compose file publishes the UI on `127.0.0.1:3000`
+  only. Put it behind an authenticating reverse proxy before exposing it further.
+- Folder and file names from the client are resolved against the Ansible directory
+  and rejected if they escape it.
+- `DASHBOARD_CHECK_MODE_ONLY=true` forces every run to `--check` — worth using on any
+  shared instance.
 
-### Using Docker Compose (Recommended)
+## Quick start
 
 ```bash
-cd dashboard
-docker-compose up -d
+cp .env.example .env
+echo "DASHBOARD_TOKEN=$(openssl rand -base64 32)" >> .env
+docker compose up -d --build
 ```
 
-Access the dashboard at:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
+Open `http://localhost:3000` and paste the token when prompted.
 
-### Local Development
-
-#### Backend
+### Local development
 
 ```bash
-cd dashboard/backend
-pip install -r requirements.txt
-python app.py
-```
+# backend
+cd backend
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+DASHBOARD_TOKEN=dev .venv/bin/python -m uvicorn app:app --port 8000 --reload
 
-Backend will run on http://localhost:8000
-
-#### Frontend
-
-```bash
-cd dashboard/frontend
+# frontend, in another shell
+cd frontend
 npm install
-npm run dev
+VITE_API_TARGET=http://127.0.0.1:8000 npm run dev
 ```
 
-Frontend will run on http://localhost:3000
+## Configuration
 
-## Tested Features ✅
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DASHBOARD_TOKEN` | generated | Bearer token for the API |
+| `ANSIBLE_BASE` | `../Ansible` | Playbook directory |
+| `DASHBOARD_DATA_DIR` | `backend/data` | Where history is persisted |
+| `ANSIBLE_VAULT_PASSWORD_FILE` | unset | Passed as `--vault-password-file` |
+| `DASHBOARD_CHECK_MODE_ONLY` | `false` | Force `--check` on every run |
+| `DASHBOARD_RUN_TIMEOUT` | `3600` | Seconds before a run is killed |
+| `DASHBOARD_CORS_ORIGINS` | `http://localhost:3000` | Allowed browser origins |
 
-The dashboard has been fully tested and verified working:
+## Vault
 
-- ✅ Docker Compose build and deployment
-- ✅ Backend API serving on port 8000
-- ✅ Frontend serving on port 3000 (Modern Dark/Green Theme)
-- ✅ Container networking (backend ↔ frontend proxy)
-- ✅ Ansible folder scanning (43 folders detected)
-- ✅ Inventory.ini parsing and editing
-- ✅ Vars.yml parsing and editing (Form + YAML mode)
-- ✅ Playbook listing and selection
-- ✅ Real-time job execution and output
+Playbooks in this repository keep secrets in Ansible Vault and `assert` on them
+before doing anything. Without `ANSIBLE_VAULT_PASSWORD_FILE` those playbooks stop at
+the assert with a clear message — that is correct behaviour, not a dashboard fault.
+Mount a password file and point the variable at it.
 
-### UI Features
+## Editing variables
 
-- 🎨 Modern dark theme with green accents
-- 🔍 Folder search functionality
-- 📝 Dual-mode variable editor (Form & YAML)
-- 💾 Save inventory and variables
-- ▶️ One-click playbook execution
-- 📊 Real-time execution output with status
-- 📱 Responsive design
+`vars.yml` files in this repository carry comments explaining each setting. The API
+therefore accepts **raw text only**: round-tripping through a YAML parser and dumper
+deletes every comment.
 
-### Test Results
+The Form view stays usable — edited scalars are patched back into the original text
+line by line. Lists and maps are shown read-only and must be edited in YAML mode.
 
-```bash
-# Backend API Test
-curl http://localhost:8000/api/folders | jq 'length'
-# Returns: 43
+## Notes
 
-# Keepalived Vars Test
-curl http://localhost:8000/api/folders/keepalived/vars | jq '.content | keys'
-# Returns: ["advert_int", "auth_pass", "interface", "master_priority",
-#           "slave_priority", "virtual_ipaddress", "virtual_router_id"]
-
-# Keepalived Inventory Test
-curl http://localhost:8000/api/folders/keepalived/inventory
-# Returns: master and slave groups with hosts
-```
-
-### Screenshots
-
-Frontend displays:
-- Left sidebar: 43 Ansible folders with search
-- Main panel: Playbook execution, variables editor, inventory editor
-- Terminal output: Real-time Ansible execution logs
-- Theme: Dark gray background with green highlights
-
-## Testing with Molecule (Optional)
-
-```bash
-cd dashboard
-pip install molecule molecule-docker ansible-core
-molecule test
-```
-
-## Usage
-
-1. **Select Folder**: Choose an Ansible folder from the left sidebar
-2. **Edit Variables**: Modify vars.yml using form or YAML editor
-3. **Edit Inventory**: Update inventory.ini file if needed
-4. **Select Playbook**: Choose which playbook to run
-5. **Run**: Click the Run button and watch real-time output
-
-## API Endpoints
-
-- `GET /api/folders` - List all Ansible folders
-- `GET /api/folders/{name}/inventory` - Get inventory content
-- `GET /api/folders/{name}/vars` - Get variables content
-- `POST /api/folders/{name}/inventory` - Update inventory
-- `POST /api/folders/{name}/vars` - Update variables
-- `POST /api/run` - Execute playbook
-- `GET /api/jobs/{id}` - Get job status
-- `GET /api/jobs` - List all jobs
-
-## Architecture
-
-```
-dashboard/
-├── backend/           # FastAPI backend
-│   ├── app.py        # Main API application
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/         # React + TypeScript frontend
-│   ├── src/
-│   │   ├── App.tsx  # Main component
-│   │   └── main.tsx
-│   ├── package.json
-│   └── Dockerfile
-├── molecule/         # Molecule tests
-│   └── default/
-│       ├── molecule.yml
-│       ├── converge.yml
-│       └── verify.yml
-└── docker-compose.yml
-```
-
-## Security Notes
-
-- This dashboard is intended for internal use only
-- Ensure proper network security and access controls
-- SSH keys should be properly managed
-- Inventory files may contain sensitive information
-
-## License
-
-MIT
+- The frontend image builds a static bundle and serves it with nginx, which also
+  proxies `/api` to the backend. The previous image ran the Vite dev server.
+- The backend container runs as a non-root user and does not publish a host port;
+  reach it through the frontend proxy.
+- `molecule/` holds a container-based test setup for the dashboard itself and is not
+  wired into compose.

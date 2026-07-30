@@ -1,0 +1,15 @@
+---
+# How long a cached apt package list is considered fresh before it is
+# refreshed again (seconds).
+update_upgrade_cache_valid_time: 3600
+
+update_upgrade_autoremove: true
+update_upgrade_clean_cache: true
+
+# Controlled reboot: off by default. Only takes effect when this play has
+# also detected that a reboot is actually required for the host's OS family
+# (see README "Variables" and "Notes").
+update_upgrade_reboot_if_required: false
+update_upgrade_reboot_timeout: 600
+update_upgrade_reboot_pre_delay: 5
+update_upgrade_reboot_post_delay: 30

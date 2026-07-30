@@ -1,79 +1,171 @@
 ---
-- name: Install Kibana dynamically based on OS
-  hosts: all
-  become: yes
+- name: Install Kibana
+  hosts: kibana
+  become: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart kibana
+      ansible.builtin.systemd_service:
+        name: kibana
+        state: restarted
+        daemon_reload: true
+
+  pre_tasks:
+    - name: Run preflight platform checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+
   tasks:
-    - name: Install required packages for Debian/Ubuntu
-      apt:
-        name: "{{ item }}"
+    # ---------------------------------------------------------------- Debian
+    - name: Install APT prerequisites
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - gnupg
+          - python3-debian
         state: present
-      loop:
-        - apt-transport-https
-        - wget
-        - gnupg
-      when: ansible_os_family == "Debian"
-      
-    - name: Download and add Kibana GPG key for Debian/Ubuntu
-      shell: |
-        wget -qO - {{ elastic_gpg_key }} | gpg --dearmor -o /usr/share/keyrings/elastic-keyring.gpg
-      args:
-        creates: /usr/share/keyrings/elastic-keyring.gpg
-      when: ansible_os_family == "Debian"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Add Kibana APT repository for Debian/Ubuntu
-      apt_repository:
-        repo: "deb [signed-by=/usr/share/keyrings/elastic-keyring.gpg] {{ elastic_repo_url_apt }} stable main"
+    - name: Ensure /etc/apt/keyrings exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Download Kibana APT signing key
+      ansible.builtin.get_url:
+        url: "{{ elastic_gpg_key_url }}"
+        dest: "{{ elastic_apt_keyring }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    # deb822_repository (not the deprecated apt_repository) - matches
+    # STANDARDS.md 4.6. signed_by points at the key already fetched above.
+    - name: Add Kibana APT repository
+      ansible.builtin.deb822_repository:
+        name: "elastic-{{ elastic_major_version }}.x"
+        types: deb
+        uris: "{{ elastic_repo_url_apt }}"
+        suites: stable
+        components: main
+        signed_by: "{{ elastic_apt_keyring }}"
         state: present
-      when: ansible_os_family == "Debian"
+      register: kibana_apt_repo
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Update APT cache for Debian/Ubuntu
-      apt:
-        update_cache: yes
-      when: ansible_os_family == "Debian"
+    - name: Update APT cache after adding the Kibana repository
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_os_family == 'Debian' and kibana_apt_repo is changed
+      tags: [install]
 
-    - name: Install Kibana for Debian/Ubuntu
-      apt:
+    - name: Install Kibana (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "{{ 'kibana=' + elastic_version if elastic_version | length > 0 else 'kibana' }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    # --------------------------------------------------------------- RedHat
+    - name: Import Kibana GPG key (RPM)
+      ansible.builtin.rpm_key:
+        key: "{{ elastic_gpg_key_url }}"
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    - name: Add Kibana YUM repository
+      ansible.builtin.yum_repository:
+        name: "kibana-{{ elastic_major_version }}.x"
+        description: "Kibana repository for {{ elastic_major_version }}.x packages"
+        baseurl: "{{ elastic_repo_url_yum }}"
+        gpgcheck: true
+        gpgkey: "{{ elastic_gpg_key_url }}"
+        # enabled: true matches Elastic's shipped kibana.repo - unlike
+        # Elasticsearch, Kibana's upstream repo is enabled by default.
+        enabled: true
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    - name: Install Kibana (RHEL/Rocky/AlmaLinux/Oracle/Amazon Linux)
+      ansible.builtin.dnf:
         name: kibana
         state: present
-      when: ansible_os_family == "Debian"
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Import Kibana GPG key for RedHat/CentOS
-      rpm_key:
+    # ----------------------------------------------------------------- SUSE
+    - name: Import Kibana GPG key (zypper)
+      ansible.builtin.rpm_key:
+        key: "{{ elastic_gpg_key_url }}"
         state: present
-        key: "{{ elastic_gpg_key }}"
-      when: ansible_os_family == "RedHat"
+      when: ansible_os_family == 'Suse'
+      tags: [install]
 
-    - name: Disable SELinux temporarily
-      command: setenforce 0
-      when: ansible_os_family == "RedHat"
-      
-    - name: Create Kibana repository file for RedHat/CentOS
-      template:
-        src: templates/kibana-yum.j2
-        dest: /etc/yum.repos.d/kibana.repo
-      when: ansible_os_family == "RedHat"
+    - name: Add Kibana zypper repository
+      community.general.zypper_repository:
+        name: "kibana-{{ elastic_major_version }}.x"
+        description: "Kibana repository for {{ elastic_major_version }}.x packages"
+        repo: "{{ elastic_repo_url_yum }}"
+        auto_import_keys: true
+        autorefresh: true
+        state: present
+      when: ansible_os_family == 'Suse'
+      tags: [install]
 
-    - name: Install Kibana for RedHat/CentOS
-      yum:
+    - name: Install Kibana (SUSE/openSUSE)
+      community.general.zypper:
         name: kibana
         state: present
-      when: ansible_os_family == "RedHat"
+      when: ansible_os_family == 'Suse'
+      tags: [install]
 
-    - name: Enable and start Kibana service
-      systemd:
-        name: kibana
-        enabled: yes
-        state: started
+    # ------------------------------------------------------------ Base config
+    # server.host/port/publicBaseUrl only - no elasticsearch.* keys here.
+    # Those are written by `kibana-setup --enrollment-token` in configure.yml;
+    # re-templating this file there would clobber the enrollment.
+    - name: Template base kibana.yml configuration
+      ansible.builtin.template:
+        src: templates/kibana.yml.j2
+        dest: /etc/kibana/kibana.yml
+        owner: root
+        group: kibana
+        mode: '0660'
+      tags: [configure]
 
-    - name: Verify Kibana is running
-      shell: |
-        systemctl status kibana | grep 'active (running)'
-      register: kibana_status
-      changed_when: false
+    # ------------------------------------------------------------- Verify
+    # The service is deliberately NOT started here - see configure.yml, which
+    # must run kibana-setup with an enrollment token before Kibana's first
+    # start, otherwise it sits unenrolled and unreachable indefinitely.
+    - name: Gather installed package facts
+      ansible.builtin.package_facts:
+        manager: auto
+      tags: [verify]
 
-    - name: Display Kibana status
-      debug:
-        msg: "Kibana is running: {{ kibana_status.stdout }}"
+    - name: Assert Kibana package is installed
+      ansible.builtin.assert:
+        that:
+          - "'kibana' in ansible_facts.packages"
+        fail_msg: "Kibana package was not found after install."
+        quiet: true
+      tags: [verify]
+
+    - name: Report installed Kibana version
+      ansible.builtin.debug:
+        msg: "Kibana package version: {{ ansible_facts.packages.kibana[0].version }}"
+      tags: [verify]

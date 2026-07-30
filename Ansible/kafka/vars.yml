@@ -1,0 +1,72 @@
+---
+# Kafka 4.x is KRaft-only — ZooKeeper mode was removed in 4.0. Every
+# zookeeper.* setting is dead config here.
+#
+# dlcdn.apache.org only serves currently-supported releases. When this version
+# ages out of the mirror window, either bump it or switch kafka_mirror_url to
+# https://archive.apache.org/dist/kafka.
+kafka_version: "4.3.1"
+kafka_scala_version: "2.13"          # 4.x ships Scala 2.13 only
+kafka_mirror_url: "https://dlcdn.apache.org/kafka"
+# Checksums always come from downloads.apache.org, never from a mirror.
+kafka_checksum_url: "https://downloads.apache.org/kafka"
+
+kafka_user: kafka
+kafka_group: kafka
+
+kafka_install_root: /opt
+kafka_dir: "{{ kafka_install_root }}/kafka"          # symlink -> versioned dir
+kafka_versioned_dir: "{{ kafka_install_root }}/kafka_{{ kafka_scala_version }}-{{ kafka_version }}"
+kafka_config_dir: "{{ kafka_dir }}/config"
+# The shipped default is /tmp/kraft-combined-logs, which does not survive a reboot.
+kafka_data_dir: /var/lib/kafka/data
+kafka_log_dir: /var/log/kafka
+
+# Broker requires Java 17+. Java 8 was removed in Kafka 4.0.
+kafka_java_packages:
+  Debian: openjdk-17-jre-headless
+  RedHat: java-17-openjdk-headless
+  Suse: java-17-openjdk-headless
+
+# --- KRaft topology -----------------------------------------------------------
+# "broker", "controller", or "broker,controller" (combined mode, fine for small
+# clusters; split roles for anything production-sized).
+kafka_process_roles: "broker,controller"
+
+kafka_broker_port: 9092
+kafka_controller_port: 9093
+
+# node.id must be unique per node. Derived from position in the kafka_nodes group.
+kafka_node_id: "{{ groups['kafka_nodes'].index(inventory_hostname) + 1 }}"
+
+# controller.quorum.voters is deprecated; bootstrap.servers is the current property.
+kafka_controller_quorum: >-
+  {{ groups['kafka_nodes']
+     | map('extract', hostvars, 'ansible_host')
+     | map('regex_replace', '^(.*)$', '\1:' ~ kafka_controller_port)
+     | join(',') }}
+
+kafka_advertised_host: "{{ ansible_host | default(inventory_hostname) }}"
+kafka_listen_address: "0.0.0.0"
+
+# Format the storage directory on first run. Every node in a cluster must share
+# one cluster ID. Leave empty to generate one on the first node of the group;
+# when ADDING a node to an existing cluster you must pass the existing ID here.
+kafka_cluster_id: ""
+
+# --- broker tuning ------------------------------------------------------------
+# Shipped defaults are 1. Replication factors above the broker count make topic
+# creation fail, so these track the size of the group by default.
+kafka_num_partitions: 3
+kafka_default_replication_factor: "{{ [groups['kafka_nodes'] | length, 3] | min }}"
+kafka_min_insync_replicas: "{{ [(groups['kafka_nodes'] | length) - 1, 1] | max }}"
+kafka_auto_create_topics_enable: false
+kafka_delete_topic_enable: true
+kafka_log_retention_hours: 168
+kafka_log_segment_bytes: 1073741824
+kafka_log_retention_check_interval_ms: 300000
+
+kafka_heap_opts: "-Xmx1G -Xms1G"
+
+# uninstall.yml: also delete the data directory.
+kafka_purge_data: false

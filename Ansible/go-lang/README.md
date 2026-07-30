@@ -1,77 +1,57 @@
-# 📋 Go Installation Playbook
+# Go
 
-This Ansible playbook installs a specified version of the Go programming language across multiple servers using the official **geerlingguy.go role**. It supports automatic version detection, platform-appropriate tarball downloads, and installation.
+Installs the Go programming language from the official upstream binary tarball
+(`go.dev/dl`), verified against the published SHA256 checksum. There is no vendor
+package repository for Go itself — this is upstream's own documented install method.
 
-## 🛠️ Usage
+## Supported platforms
 
-### Install Go
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Debian 11+, Ubuntu 20.04+ | tarball install, no distro repo used |
+| RedHat | RHEL/Rocky/Alma 8+, Fedora 40+, Amazon Linux 2023 | tarball install, no distro repo used |
+| Suse | openSUSE Leap 15.x, SLES 15 | tarball install, no distro repo used |
 
-Follow these steps to install Go on your servers:
+Go's upstream binaries are not distro-specific; the OS matrix above reflects what this
+repo asserts in preflight, not an upstream restriction. Anything else fails fast with an
+explicit message. Supported architectures: `amd64`, `arm64`, `armv6l` (covers ARMv6/ARMv7).
 
-1. Install the required Ansible role:
-   ```bash
-   ansible-galaxy role install geerlingguy.go
-   ```
-2. Run the playbook to install Go:
-   ```bash
-   ansible-playbook -i inventory.ini install_go.yml
-   ```
-The Go version can be customized in the playbook by setting the `go_version` variable.
+## Requirements
 
-### Example
+- Ansible core >= 2.15
+- No external collections (`ansible.builtin` only)
+- `sudo` on the target
 
-To install Go version `1.20.4`, set the `go_version` variable in the playbook as shown below:
+## Usage
 
-```yml
-vars:
-  go_version: "1.20.4"
-```
-The role will automatically download the appropriate tarball for your system based on the platform (Linux, macOS, etc.) and architecture (amd64, arm64, etc.).
-
-## Playbook Overview
-* **Role used:** geerlingguy.go
-* This role simplifies the Go installation process by:
-   * Downloading the correct version and architecture-specific tarball.
-   * Verifying the tarball's checksum to ensure file integrity.
-   * Installing Go to `/usr/local/go` and setting up the appropriate environment variables.
-
-### Playbook Example:
-Here’s an example playbook to install Go version `1.23.1:`
-
-```yml
----
-- hosts: go_servers
-  become: yes
-  vars:
-    go_version: "1.23.1"
-    go_platform: linux
-    go_arch: amd64
-    go_tarball: go{{ go_version }}.{{ go_platform }}-{{ go_arch }}.tar.gz
-    go_download_url: https://dl.google.com/go/{{ go_tarball }}
-    go_checksum: "550f9845451c0c94be679faf116291e7807a8d78b43149f9506c1b15eb89008c"  # Ensure the correct checksum is provided
-  roles:
-    - geerlingguy.go
+```bash
+ansible-playbook install_go.yml
+ansible-playbook install_go.yml --check --diff   # dry-run
+ansible-playbook uninstall_go.yml
 ```
 
-### Playbook Explanation
+## Variables
 
-* **Role used:** [geerlingguy.go](https://github.com/geerlingguy/ansible-role-go)
-* This role simplifies the Go installation by downloading the appropriate Go tarball for your system's platform and architecture.
+| Variable | Default | Description |
+|---|---|---|
+| `go_version` | `1.26.5` | Version to install. Update together with `go_checksums` |
+| `go_checksums` | see `vars.yml` | SHA256 per arch, from `https://go.dev/dl/?mode=json` |
+| `go_install_root` | `/usr/local` | Extraction target; matches upstream's own convention |
+| `go_gopath` | `""` | Empty = leave `GOPATH` at the toolchain default (`$HOME/go`) |
+| `go_purge_gopath` | `false` | `uninstall_go.yml` only — also delete `~/go` |
 
-# 💻 Supported Linux Operating Systems
-This playbook supports the following Linux distributions:
-* 🐧 **Debian:** 10,11
-* 🐧 **Ubuntu:** 20.04,22.04
-* 🐧 **CentOS:** 7,8
+## Verify
 
-# ⚙️ Supported Ansible Versions
-* ✅ ansible-core 2.11.0
-* ✅  ansible-core 2.12.5
-* ❗️ ansible [core 2.17.3] (compatibility issues)
+```bash
+/usr/local/go/bin/go version
+```
 
-> Note: Ensure you run the playbook with sufficient privileges, such as using become: yes or executing as root.
+## Notes
 
-### Resources
-
-* [Ansible Galaxy - geerlingguy.go Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/go/documentation/)
-* [GitHub - geerlingguy/ansible-role-go](https://github.com/geerlingguy/ansible-role-go)
+- Upstream is explicit that a new release must never be untarred over an existing
+  `/usr/local/go` tree — this playbook always removes it first when the installed
+  version differs from `go_version`.
+- Bumping `go_version` without updating `go_checksums` will fail the download step
+  (`get_url` checksum mismatch) by design — never skip the checksum.
+- `go_gopath` left empty relies on the Go toolchain's own default (`$HOME/go`); only set
+  it if your fleet needs a shared, non-default `GOPATH`.

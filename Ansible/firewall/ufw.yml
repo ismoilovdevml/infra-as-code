@@ -1,94 +1,114 @@
 ---
-- name: UFW management on Debian/Ubuntu based systems
+# UFW management for Debian/Ubuntu. Importable standalone (`ansible-playbook
+# ufw.yml`) or via configure.yml, which dispatches by OS family. Every task is
+# gated on ansible_os_family so this file is a safe no-op on non-Debian hosts.
+- name: Manage UFW on Debian/Ubuntu
   hosts: all
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  vars:
-    install_ufw: "{{ ufw_vars.install_ufw }}"
-    open_ports: "{{ ufw_vars.open_ports }}"
-    close_ports: "{{ ufw_vars.close_ports }}"
 
   tasks:
+    # CRITICAL SAFETY: refuse to run if there is no SSH allow rule. Applying a
+    # default-deny incoming policy without one locks out the current connection.
+    - name: Assert firewall_rules includes an SSH allow rule
+      ansible.builtin.assert:
+        that:
+          - firewall_rules
+              | selectattr('rule', 'equalto', 'allow')
+              | map(attribute='port') | map('string') | list
+              | intersect([firewall_ssh_port | string])
+              | length > 0
+        fail_msg: >-
+          firewall_rules has no allow rule for port {{ firewall_ssh_port }} (SSH).
+          Applying a default-deny incoming policy without an SSH allow rule locks
+          out the current connection. Add one to firewall_rules before running
+          this play.
+        quiet: true
+      when: ansible_os_family == 'Debian'
+      tags: [always]
 
-    - name: Gather installed packages
-      ansible.builtin.package_facts:
-
-    - name: Check if UFW is installed (only on Debian-based systems)
-      set_fact:
-        ufw_installed: "{{ 'ufw' in ansible_facts.packages }}"
-      when: ansible_facts.os_family == "Debian"
-
-    - name: Ensure ufw_installed is defined for all OS
-      set_fact:
-        ufw_installed: false
-      when: ufw_installed is not defined
-
-    - name: Display message if UFW is not installed and install_ufw is false
-      debug:
-        msg: "UFW is not installed, install_ufw is false, skipping all tasks."
-      when: not ufw_installed and install_ufw == false and ansible_facts.os_family == "Debian"
-
-    - name: Install UFW if not installed and install_ufw is true (Debian/Ubuntu)
-      apt:
+    - name: Install ufw
+      ansible.builtin.apt:
         name: ufw
         state: present
-        update_cache: yes
-      when: not ufw_installed and install_ufw == true and ansible_facts.os_family == "Debian"
-      tags: ufw_install
-
-    - name: Skip remaining tasks if UFW is not installed on this host (Debian/Ubuntu)
-      meta: end_play
-      when: not ufw_installed and install_ufw == false and ansible_facts.os_family == "Debian"
-
-    - name: Check UFW status (Debian/Ubuntu)
-      command: ufw status
-      register: ufw_status
-      ignore_errors: yes
-      changed_when: false
-      when: ansible_facts.os_family == "Debian"
-
-    - name: Display UFW status (Debian/Ubuntu)
-      debug:
-        msg: "{{ ufw_status.stdout }}"
-      when: ansible_facts.os_family == "Debian"
-
-    - name: Enable UFW if not active (Debian/Ubuntu)
-      community.general.ufw:
-        state: enabled
-        policy: allow
+        update_cache: true
+        cache_valid_time: 3600
       when:
-        - ansible_facts.os_family == "Debian"
-        - "'inactive' in ufw_status.stdout"
+        - ansible_os_family == 'Debian'
+        - firewall_install | bool
+      tags: [install]
 
-    - name: Open necessary ports (Debian/Ubuntu)
+    # Allow rules are applied first and unconditionally: they only ever widen
+    # access, so staging them before the default policy changes is always safe
+    # and is what keeps the SSH session alive once incoming traffic is denied.
+    - name: Apply allow rules
       community.general.ufw:
         rule: allow
-        port: "{{ item }}"
-        proto: tcp
-      loop: "{{ open_ports }}"
-      when: ansible_facts.os_family == "Debian"
+        proto: "{{ item.proto | default('tcp') }}"
+        port: "{{ item.port | string }}"
+        from_ip: "{{ item.src | default('any') }}"
+        comment: "{{ item.name | default(omit) }}"
+      loop: "{{ firewall_rules | selectattr('rule', 'equalto', 'allow') | list }}"
+      loop_control:
+        label: "{{ item.name | default(item.port) }}"
+      when: ansible_os_family == 'Debian'
+      tags: [configure]
 
-    - name: Close unnecessary ports (Debian/Ubuntu)
+    - name: Apply deny rules
       community.general.ufw:
         rule: deny
-        port: "{{ item }}"
-        proto: tcp
-      loop: "{{ close_ports }}"
-      when: ansible_facts.os_family == "Debian"
+        proto: "{{ item.proto | default('tcp') }}"
+        port: "{{ item.port | string }}"
+        from_ip: "{{ item.src | default('any') }}"
+        comment: "{{ item.name | default(omit) }}"
+      loop: "{{ firewall_deny_rules }}"
+      loop_control:
+        label: "{{ item.name | default(item.port) }}"
+      when: ansible_os_family == 'Debian'
+      tags: [configure]
 
-    - name: Reload UFW configuration (Debian/Ubuntu)
+    - name: Set default outgoing policy
       community.general.ufw:
-        state: reloaded
-      when: ansible_facts.os_family == "Debian"
+        default: "{{ firewall_default_outgoing }}"
+        direction: outgoing
+      when: ansible_os_family == 'Debian'
+      tags: [configure]
 
-    - name: Show UFW status and opened ports (Debian/Ubuntu)
-      command: ufw status
-      register: final_ufw_status
+    # Incoming default-deny is applied last, after every allow/deny rule above
+    # is already in place — never before the SSH allow rule exists.
+    - name: Set default incoming policy
+      community.general.ufw:
+        default: "{{ firewall_default_incoming }}"
+        direction: incoming
+      when: ansible_os_family == 'Debian'
+      tags: [configure]
+
+    - name: Set logging level
+      community.general.ufw:
+        logging: "{{ ufw_logging }}"
+      when: ansible_os_family == 'Debian'
+      tags: [configure]
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+      when:
+        - ansible_os_family == 'Debian'
+        - firewall_enable | bool
+      tags: [service]
+
+    - name: Read ufw status
+      ansible.builtin.command: ufw status verbose
+      register: firewall_ufw_status
       changed_when: false
-      when: ansible_facts.os_family == "Debian"
+      check_mode: false
+      when: ansible_os_family == 'Debian'
+      tags: [verify]
 
-    - name: Display final UFW status and list of opened ports (Debian/Ubuntu)
-      debug:
-        msg: "{{ final_ufw_status.stdout }}"
-      when: ansible_facts.os_family == "Debian"
+    - name: Show ufw status
+      ansible.builtin.debug:
+        var: firewall_ufw_status.stdout_lines
+      when: ansible_os_family == 'Debian'
+      tags: [verify]

@@ -1,0 +1,52 @@
+---
+# Destructive when certbot_purge_certs is true: removes every certificate Certbot
+# ever issued on this host.
+- name: Uninstall Certbot
+  hosts: certbot_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Disable the renewal timer
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ certbot_renew_timer_candidates }}"
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the certbot snap
+      community.general.snap:
+        name: certbot
+        state: absent
+      when: certbot_install_method == 'snap'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the certbot symlink
+      ansible.builtin.file:
+        path: /usr/local/bin/certbot
+        state: absent
+      when: certbot_install_method == 'snap'
+      tags: [uninstall]
+
+    - name: Remove certbot and the webserver plugins (package method)
+      ansible.builtin.package:
+        name:
+          - certbot
+          - python3-certbot-nginx
+          - python3-certbot-apache
+        state: absent
+      when: certbot_install_method == 'package'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove issued certificates and renewal config
+      ansible.builtin.file:
+        path: /etc/letsencrypt
+        state: absent
+      when: certbot_purge_certs | bool
+      tags: [uninstall]

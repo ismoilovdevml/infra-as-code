@@ -1,0 +1,72 @@
+---
+- name: Uninstall Semaphore UI
+  hosts: semaphore
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable semaphore
+      ansible.builtin.systemd_service:
+        name: semaphore
+        state: stopped
+        enabled: false
+      failed_when: false
+      when: semaphore_install_method != 'docker'
+      tags: [uninstall]
+
+    - name: Remove the systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/semaphore.service
+        state: absent
+      when: semaphore_install_method != 'docker'
+      tags: [uninstall]
+
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: semaphore_install_method != 'docker'
+      tags: [uninstall]
+
+    - name: Remove the Semaphore package
+      ansible.builtin.package:
+        name: semaphore
+        state: absent
+      failed_when: false
+      when: semaphore_install_method == 'package'
+      tags: [uninstall]
+
+    - name: Remove the Semaphore container
+      community.docker.docker_container:
+        name: "{{ semaphore_container_name }}"
+        state: absent
+      when: semaphore_install_method == 'docker'
+      tags: [uninstall]
+
+    - name: Remove the Semaphore installation
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ semaphore_install_dir }}"
+        - "{{ semaphore_config_dir }}"
+      tags: [uninstall]
+
+    - name: Remove the Semaphore data
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ semaphore_data_dir }}"
+        - "{{ semaphore_tmp_dir }}"
+      when: semaphore_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the semaphore user
+      ansible.builtin.user:
+        name: "{{ semaphore_user }}"
+        state: absent
+        remove: false
+      failed_when: false
+      tags: [uninstall]

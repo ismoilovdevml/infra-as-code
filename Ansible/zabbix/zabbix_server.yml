@@ -1,8 +1,138 @@
 ---
 - name: Install Zabbix Server
   hosts: zabbix_server
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  roles:
-    - role: community.zabbix.zabbix_server
+
+  handlers:
+    - name: Restart zabbix-server
+      ansible.builtin.systemd_service:
+        name: zabbix-server
+        state: restarted
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+          supported. Zabbix {{ zabbix_series }} publishes repo.zabbix.com
+          packages for Debian/Ubuntu and RHEL family; SLES support is not
+          implemented by this playbook.
+        quiet: true
+      tags: [always]
+
+    - name: Assert the DB password is set
+      ansible.builtin.assert:
+        that:
+          - zabbix_server_dbpassword | length > 0
+        fail_msg: >-
+          zabbix_server_dbpassword is empty. Set vault_zabbix_server_dbpassword
+          via ansible-vault before running this playbook. The database and its
+          user/schema-less DB must already exist and be reachable at
+          {{ zabbix_server_dbhost }} — this playbook does not provision MySQL
+          or PostgreSQL.
+        quiet: true
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Install the Zabbix release package (Debian family)
+      ansible.builtin.apt:
+        deb: "{{ zabbix_deb_release_url }}"
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    # ------------------------------------------------------------- repo: RedHat
+    # The release rpm itself installs the Zabbix GPG key; gpgcheck is disabled
+    # only for this one bootstrap package, matching how epel-release/docker-ce
+    # etc. are typically installed before their key is trusted.
+    - name: Install the Zabbix release package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ zabbix_rpm_release_url }}"
+        state: present
+        disable_gpg_check: true
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    # ------------------------------------------------------------------ install
+    - name: Install the Zabbix server, frontend and SQL scripts
+      ansible.builtin.package:
+        name:
+          - "{{ zabbix_server_package }}"
+          - "{{ zabbix_webconf_package }}"
+          - "{{ zabbix_frontend_package[ansible_os_family] }}"
+          - zabbix-sql-scripts
+          - "{{ 'mysql-client' if zabbix_db_type == 'mysql' and ansible_os_family == 'Debian'
+               else 'postgresql-client' if ansible_os_family == 'Debian'
+               else 'mysql' if zabbix_db_type == 'mysql'
+               else 'postgresql' }}"
+        state: present
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Write zabbix_server.conf
+      ansible.builtin.template:
+        src: zabbix_server.conf.j2
+        dest: "{{ zabbix_conf_dir }}/zabbix_server.conf"
+        owner: zabbix
+        group: zabbix
+        mode: '0640'
+      notify: Restart zabbix-server
+      tags: [configure]
+
+    # The schema is not re-importable without dropping the database first, so
+    # this is guarded by a marker file rather than run unconditionally. The
+    # marker is written by the same command so a partial failure never leaves
+    # a marker behind without a successful import.
+    - name: Import the database schema
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          {{ 'zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz | mysql --default-character-set=utf8mb4'
+             if zabbix_db_type == 'mysql'
+             else 'zcat /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz | psql' }}
+          -h {{ zabbix_server_dbhost }} -u {{ zabbix_server_dbuser }} {{ zabbix_server_dbname }}
+          && install -o zabbix -g zabbix -m 0640 /dev/null {{ zabbix_db_schema_imported_marker }}
+        executable: /bin/bash
+      environment:
+        MYSQL_PWD: "{{ zabbix_server_dbpassword }}"
+        PGPASSWORD: "{{ zabbix_server_dbpassword }}"
+      register: zabbix_schema_import
+      changed_when: zabbix_schema_import.rc == 0
+      no_log: true
+      args:
+        creates: "{{ zabbix_db_schema_imported_marker }}"
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start zabbix-server
+      ansible.builtin.systemd_service:
+        name: zabbix-server
+        enabled: true
+        state: started
+      tags: [service]
+
+    - name: Enable and start the web server
+      ansible.builtin.systemd_service:
+        name: "{{ zabbix_web_server }}"
+        enabled: true
+        state: started
+      tags: [service]
+
+    - name: Wait for the trapper port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ zabbix_server_listen_port }}"
+        timeout: 90
+      tags: [verify]
+
+    - name: Show the server status
+      ansible.builtin.debug:
+        msg: "Zabbix server {{ zabbix_series }} listening on {{ inventory_hostname }}:{{ zabbix_server_listen_port }}"
+      tags: [verify]

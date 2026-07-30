@@ -1,0 +1,49 @@
+---
+# Path to the kubeconfig used for every kubernetes.core task in this module.
+kubeconfig_path: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+# stable: recommended for production (upstream's own guidance).
+# latest: newer, CI-validated builds — testing only, not production, per upstream.
+# prime:  SUSE Rancher Prime, subscription-entitled; requires registry.rancher.com
+#         image-pull credentials, not wired up by this module beyond the repo URL.
+rancher_channel: stable
+rancher_chart_repo_urls:
+  stable: "https://releases.rancher.com/server-charts/stable"
+  latest: "https://releases.rancher.com/server-charts/latest"
+  alpha: "https://releases.rancher.com/server-charts/alpha"
+  prime: "https://charts.rancher.com/server-charts/prime"
+
+# Verified against https://releases.rancher.com/server-charts/stable/index.yaml on
+# 2026-07-31. Certified Kubernetes range for this release: v1.33 - v1.35 (see README) —
+# note this is behind ../kubectl/'s current default (1.36).
+rancher_version: "2.14.3"
+
+rancher_namespace: "cattle-system"
+rancher_release_name: rancher
+rancher_chart_ref: "rancher/rancher"
+
+rancher_hostname: "rancher.example.com"
+# Must be a real address; Rancher's own Let's Encrypt integration needs it.
+rancher_letsencrypt_email: ""
+# >= 12 characters, no plaintext default — asserted non-empty and long enough.
+rancher_bootstrap_password: "{{ vault_rancher_bootstrap_password | default('') }}"
+
+rancher_ingress_tls_source: letsEncrypt
+rancher_ingress_class: nginx
+
+rancher_wait: true
+rancher_wait_timeout: "600s"
+
+# --- expose_rancher_ui.yml (alternative to the built-in Let's Encrypt integration) --
+# Use this Ingress path instead of rancher_ingress_tls_source=letsEncrypt when
+# cert-manager (not Rancher itself) should issue the certificate.
+rancher_ingress_name: "rancher-ingress"
+rancher_ingress_tls_secret_name: "rancher-tls"
+rancher_cluster_issuer_name: "letsencrypt-prod"
+rancher_service_name: "rancher"
+rancher_service_port: 80
+
+# --- uninstall.yml ------------------------------------------------------------------
+rancher_fleet_namespace_local: "cattle-fleet-local-system"
+rancher_fleet_namespace: "cattle-fleet-system"
+rancher_capi_namespace: "cattle-provisioning-capi-system"

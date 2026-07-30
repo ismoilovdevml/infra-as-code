@@ -1,11 +1,38 @@
 ---
+# Apache Artemis is a pure-JVM broker; upstream publishes no OS matrix, only a Java
+# requirement. Java 17 has been required since Artemis 2.39.0 (embedded Jetty 12).
+# https://artemis.apache.org/components/artemis/documentation/latest/versions.html
 java_packages:
-  Debian: "openjdk-17-jdk"
-  RedHat: "java-17-openjdk"
-artemis_version: "2.38.0"
-artemis_url: "https://downloads.apache.org/activemq/activemq-artemis/{{ artemis_version }}/apache-artemis-{{ artemis_version }}-bin.tar.gz"
-artemis_install_dir: "/opt/artemis"
+  Debian: openjdk-17-jdk
+  RedHat: java-17-openjdk
+  Suse: java-17-openjdk
+
+# dlcdn only serves currently-supported releases; point artemis_mirror_url at
+# archive.apache.org/dist/activemq/activemq-artemis when this version ages out.
+artemis_version: "2.55.0"
+artemis_mirror_url: "https://dlcdn.apache.org/activemq/activemq-artemis"
+# Checksums are published under a different path segment (artemis/artemis/..., not
+# activemq/activemq-artemis/...) and always come from downloads.apache.org, never
+# from a mirror.
+artemis_checksum_url: "https://downloads.apache.org/artemis/artemis"
+artemis_tarball: "apache-artemis-{{ artemis_version }}-bin.tar.gz"
+
+artemis_install_root: /opt
+artemis_versioned_dir: "{{ artemis_install_root }}/apache-artemis-{{ artemis_version }}"
+artemis_install_dir: "{{ artemis_install_root }}/artemis"        # symlink -> versioned dir
+# Upstream recommends the instance directory NOT live under ARTEMIS_HOME, so a new
+# distribution version can be installed without touching the running instance.
 artemis_instance_dir: "/opt/artemis-instance"
-artemis_user: "artemis"
-artemis_group: "artemis"
-artemis_password: "329awfas"
+
+artemis_user: artemis
+artemis_group: artemis
+
+artemis_admin_user: admin
+artemis_admin_password: "{{ vault_artemis_admin_password | default('') }}"
+
+artemis_web_bind_address: "0.0.0.0"
+artemis_web_port: 8161
+artemis_acceptor_port: 61616
+
+# uninstall.yml: also delete the instance's data directory (the message journal).
+artemis_purge_data: false

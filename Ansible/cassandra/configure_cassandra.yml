@@ -1,59 +1,120 @@
 ---
-- name: Configure Cassandra for external access and authentication
+# Re-renders cassandra.yaml with the current listen/rpc address and auth settings,
+# sets the default superuser's password (Cassandra ships the well-known
+# cassandra/cassandra credentials and PasswordAuthenticator/CassandraAuthorizer do
+# not disable that account on their own), and optionally opens firewalld. Run
+# install.yml first — this play assumes Cassandra is already installed.
+- name: Configure Cassandra
   hosts: cassandra_nodes
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
-  tasks:
-    - name: Ensure Cassandra is configured to listen on 0.0.0.0
-      lineinfile:
-        path: /etc/cassandra/cassandra.yaml
-        regexp: '^(listen_address|rpc_address|broadcast_address):.*'
-        line: "{{ item }}"
-        state: present
-      loop:
-        - "listen_address: 0.0.0.0"
-        - "rpc_address: 0.0.0.0"
-        - "broadcast_address: {{ broadcast_address }}"
-
-    - name: Enable Cassandra authentication and authorization
-      lineinfile:
-        path: /etc/cassandra/cassandra.yaml
-        regexp: '^(authenticator|authorizer):.*'
-        line: "{{ item }}"
-        state: present
-      loop:
-        - "authenticator: PasswordAuthenticator"
-        - "authorizer: CassandraAuthorizer"
-
-    - name: Restart Cassandra to apply configuration
-      service:
-        name: cassandra
+  handlers:
+    - name: Restart cassandra
+      ansible.builtin.systemd_service:
+        name: "{{ cassandra_service_name }}"
         state: restarted
 
-    - name: Set password for Cassandra user and enable external access
-      community.cassandra.cassandra_role:
-        name: "{{ cassandra_user }}"
-        password: "{{ cassandra_password }}"
-        super_user: yes
-        state: present
-        login_host: "{{ ansible_host }}"
-        login_password: "{{ cassandra_password }}"
+  tasks:
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        quiet: true
+      tags: [always]
 
-    - name: Open firewall for external access to Cassandra ports
-      firewalld:
+    # A non-loopback rpc_address with the well-known default cassandra/cassandra
+    # credentials still in place is an open, unauthenticated database. Refuse that.
+    - name: Assert a password is set before opening rpc_address beyond loopback
+      ansible.builtin.assert:
+        that:
+          - cassandra_admin_password | length > 0
+        fail_msg: >-
+          cassandra_rpc_address is set to {{ cassandra_rpc_address }} but
+          cassandra_admin_password is empty. Set vault_cassandra_admin_password
+          (vaulted) before exposing Cassandra beyond 127.0.0.1.
+        quiet: true
+      when: cassandra_rpc_address != '127.0.0.1'
+      no_log: true
+      tags: [configure]
+
+    - name: Write cassandra.yaml
+      ansible.builtin.template:
+        src: cassandra.yaml.j2
+        dest: "{{ cassandra_config_path }}"
+        owner: cassandra
+        group: cassandra
+        mode: '0640'
+      notify: Restart cassandra
+      tags: [configure]
+
+    - name: Apply the configuration now
+      ansible.builtin.meta: flush_handlers
+      tags: [configure]
+
+    - name: Wait for the native transport port
+      ansible.builtin.wait_for:
+        host: "{{ cassandra_rpc_address }}"
+        port: "{{ cassandra_native_transport_port }}"
+        timeout: 120
+      tags: [configure]
+
+    # ------------------------------------------------------------- admin user
+    # Guarded by a marker file: cqlsh has no built-in idempotent "set password
+    # only if different" primitive, so this only runs once per host rather than
+    # on every play run.
+    - name: Check whether the superuser password has already been set
+      ansible.builtin.stat:
+        path: /etc/cassandra/.admin_password_set
+      register: cassandra_password_marker
+      tags: [configure]
+
+    - name: Set the default superuser password
+      ansible.builtin.command:
+        argv:
+          - cqlsh
+          - "{{ cassandra_rpc_address }}"
+          - -u
+          - "{{ cassandra_admin_user }}"
+          - -p
+          - cassandra
+          - -e
+          - "ALTER ROLE {{ cassandra_admin_user }} WITH PASSWORD = '{{ cassandra_admin_password }}';"
+      when:
+        - cassandra_admin_password | length > 0
+        - not cassandra_password_marker.stat.exists
+      changed_when: true
+      no_log: true
+      tags: [configure]
+
+    - name: Record that the superuser password has been set
+      ansible.builtin.file:
+        path: /etc/cassandra/.admin_password_set
+        state: touch
+        mode: '0600'
+      when:
+        - cassandra_admin_password | length > 0
+        - not cassandra_password_marker.stat.exists
+      tags: [configure]
+
+    # ------------------------------------------------------------------ firewall
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: [configure]
+
+    - name: Open the Cassandra ports in firewalld
+      ansible.posix.firewalld:
         port: "{{ item }}/tcp"
-        permanent: yes
+        permanent: true
+        immediate: true
         state: enabled
       loop:
-        - 9042  # CQL native transport port
-        - 7000  # Internode communication
-        - 7001  # SSL internode communication
-        - 7199  # JMX monitoring port
-
-    - name: Reload firewall to apply changes
-      firewalld:
-        immediate: yes
-        permanent: yes
-        state: reloaded
+        - "{{ cassandra_native_transport_port }}"
+        - "{{ cassandra_storage_port }}"
+        - "{{ cassandra_ssl_storage_port }}"
+        - "{{ cassandra_jmx_port }}"
+      when: "'firewalld.service' in ansible_facts.services"
+      tags: [configure]

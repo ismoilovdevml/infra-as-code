@@ -1,46 +1,56 @@
 ---
-- name: Configure Cert-Manager with Let's Encrypt ClusterIssuer
-  hosts: all
-  become: yes
-  vars:
-    email: "teshmat@gmail.com"  # Use your real email address here!
-    cert_manager_namespace: "cert-manager"
-    version: "v1.15.3"  # Cert-manager version
+- name: Configure cert-manager with a Let's Encrypt ClusterIssuer
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Create clusterissuer configuration file
-      ansible.builtin.copy:
-        dest: /tmp/clusterissuer.yaml
-        content: |
-          apiVersion: cert-manager.io/v1
-          kind: ClusterIssuer
-          metadata:
-            name: letsencrypt-prod
-          spec:
-            acme:
-              server: https://acme-v02.api.letsencrypt.org/directory
-              email: {{ email }}
-              privateKeySecretRef:
-                name: letsencrypt-prod
-              solvers:
-              - http01:
-                  ingress:
-                    class: nginx
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert an ACME email address was provided
+          ansible.builtin.assert:
+            that:
+              - certmanager_acme_email | length > 0
+            fail_msg: >-
+              certmanager_acme_email is empty. Let's Encrypt uses this address for
+              expiry notices; set -e certmanager_acme_email=<you@example.com>.
+            quiet: true
 
-    - name: Apply ClusterIssuer configuration
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/clusterissuer.yaml
-      register: clusterissuer_apply_output
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+            name: "{{ certmanager_namespace }}"
+          register: certmanager_ns_check
 
-    - name: Show ClusterIssuer apply output
-      debug:
-        var: clusterissuer_apply_output.stdout
+        - name: Fail if the cert-manager namespace does not exist
+          ansible.builtin.assert:
+            that:
+              - certmanager_ns_check.resources | length > 0
+            fail_msg: >-
+              Namespace {{ certmanager_namespace }} not found. Run install_certmanager.yml first.
+            quiet: true
 
-    - name: Get secrets in cert-manager namespace
-      ansible.builtin.command:
-        cmd: kubectl get secret -n {{ cert_manager_namespace }}
-      register: cert_manager_secrets
+    - name: Apply the ClusterIssuer
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        template: templates/clusterissuer.yaml.j2
+      tags: [configure]
 
-    - name: Show cert-manager secrets
-      debug:
-        var: cert_manager_secrets.stdout
+    - name: Show the ClusterIssuer status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        api_version: cert-manager.io/v1
+        kind: ClusterIssuer
+        name: "{{ certmanager_cluster_issuer_name }}"
+      register: certmanager_cluster_issuer
+      tags: [verify]
+
+    - name: Show the ClusterIssuer conditions
+      ansible.builtin.debug:
+        var: certmanager_cluster_issuer.resources[0].status
+      tags: [verify]

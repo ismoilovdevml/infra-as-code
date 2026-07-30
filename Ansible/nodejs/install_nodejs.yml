@@ -1,7 +1,149 @@
 ---
-- hosts: nodejs_servers
-  become: yes
-  vars:
-    nodejs_version: "21.x"
-  roles:
-    - geerlingguy.nodejs
+# System-wide Node.js install from the official NodeSource repository. Debian/RHEL only —
+# NodeSource publishes no SUSE packages; use install_nodejs_nvm.yml there (see README).
+- name: Install Node.js system-wide from the NodeSource repository
+  hosts: nodejs_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          NodeSource's DEB/RPM repositories (Debian/Ubuntu and RHEL/Fedora/Amazon only).
+          Use install_nodejs_nvm.yml for openSUSE/SLES or any other platform.
+        quiet: true
+      tags: [always]
+
+    - name: Resolve the NodeSource architecture token
+      ansible.builtin.set_fact:
+        nodejs_deb_arch: "{{ nodejs_deb_arch_map[ansible_architecture] | default('') }}"
+      when: ansible_os_family == 'Debian'
+      tags: [always]
+
+    - name: Assert the architecture is supported (Debian family)
+      ansible.builtin.assert:
+        that:
+          - nodejs_deb_arch | length > 0
+        fail_msg: >-
+          {{ ansible_architecture }} is not supported by NodeSource's DEB repository.
+          Supported: {{ nodejs_deb_arch_map.keys() | list | join(', ') }}.
+        quiet: true
+      when: ansible_os_family == 'Debian'
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian family
+    - name: Configure the NodeSource repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - curl
+              - python3-debian    # required by ansible.builtin.deb822_repository
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the NodeSource GPG key
+          ansible.builtin.get_url:
+            url: "{{ nodejs_deb_gpg_key_url }}"
+            dest: "{{ nodejs_deb_keyring }}"
+            mode: '0644'
+
+        # NodeSource's own repository file, reproduced exactly (Types/URIs/Suites/
+        # Components/Architectures/Signed-By) rather than a shell-appended one-liner.
+        - name: Add the NodeSource repository
+          ansible.builtin.deb822_repository:
+            name: nodesource
+            types: [deb]
+            uris: "{{ nodejs_deb_repo_uri }}"
+            suites: [nodistro]
+            components: [main]
+            architectures: ["{{ nodejs_deb_arch }}"]
+            signed_by: "{{ nodejs_deb_keyring }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+        # NodeSource pins `nodejs`/`nsolid` above the distro's own, older package —
+        # reproduced from NodeSource's own setup script.
+        - name: Pin the nodejs package to the NodeSource origin
+          ansible.builtin.copy:
+            dest: /etc/apt/preferences.d/nodejs
+            content: |
+              Package: nodejs
+              Pin: origin deb.nodesource.com
+              Pin-Priority: 600
+            owner: root
+            group: root
+            mode: '0644'
+
+    # ------------------------------------------------------------- repo: RedHat family
+    - name: Configure the NodeSource repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      ansible.builtin.yum_repository:
+        name: nodesource-nodejs
+        description: "Node.js Packages for Linux RPM based distros - $basearch"
+        baseurl: "{{ nodejs_rpm_baseurl }}"
+        gpgkey: "{{ nodejs_rpm_gpg_key_url }}"
+        gpgcheck: true
+        enabled: true
+        priority: 9
+        module_hotfixes: true
+
+    # ------------------------------------------------------------------ install
+    - name: Install Node.js (Debian family)
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install Node.js (RedHat family)
+      ansible.builtin.dnf:
+        name: nodejs
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed Node.js and npm versions
+      ansible.builtin.command: "{{ item }}"
+      register: nodejs_verify
+      changed_when: false
+      check_mode: false
+      loop:
+        - node --version
+        - npm --version
+      tags: [verify]
+
+    - name: Show the installed versions
+      ansible.builtin.debug:
+        msg: "{{ nodejs_verify.results | map(attribute='stdout') | list }}"
+      tags: [verify]

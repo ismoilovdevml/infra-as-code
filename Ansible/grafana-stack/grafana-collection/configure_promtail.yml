@@ -1,25 +1,38 @@
 ---
+# Re-renders /etc/promtail/config.yml on hosts where install_promtail.yml already deployed the
+# grafana.grafana.promtail role, and restarts the service if the rendered file changed.
+# Promtail is END OF LIFE upstream since 2026-03-02 — see README.md.
 - name: Configure Promtail
   hosts: promtail_servers
   become: true
-  collections:
-    - grafana.grafana
 
-  vars:
-    config_file_path: "./promtail_config/{{ promtail_config_file_name }}"  # define the file name yourself
-    promtail_service_name: promtail
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart promtail service
+      ansible.builtin.systemd_service:
+        name: promtail
+        state: restarted
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook.
+        quiet: true
+      tags: always
 
   tasks:
-    - name: Copy Promtail config file to the server
-      ansible.builtin.copy:
-        src: "{{ config_file_path }}"
-        dest: /etc/promtail/config.yml  # Default configuration path
+    - name: Template Promtail configuration file
+      ansible.builtin.template:
+        src: "{{ promtail_config_template }}"
+        dest: /etc/promtail/config.yml
         owner: root
         group: root
         mode: '0644'
-
-    - name: Restart Promtail service to apply new configuration
-      ansible.builtin.service:
-        name: "{{ promtail_service_name }}"
-        state: restarted
-        enabled: true
+      notify: Restart promtail service
+      tags: configure

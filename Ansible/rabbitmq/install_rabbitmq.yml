@@ -2,17 +2,181 @@
 - name: Install RabbitMQ
   hosts: rabbitmq_servers
   become: true
-  roles:
-    - name: geerlingguy.repo-epel
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Restart rabbitmq-server
+      ansible.builtin.systemd_service:
+        name: "{{ rabbitmq_service_name }}"
+        state: restarted
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+          Team RabbitMQ publishes no maintained SUSE/zypper repository for stable
+          releases (only alpha/dev packagecloud builds exist for openSUSE). Supported:
+          Debian/Ubuntu and RHEL/Rocky/Alma/Fedora/Amazon Linux.
+        quiet: true
+      tags: [always]
+
+    - name: Assert the apt repository architecture is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == 'x86_64'
+        fail_msg: >-
+          Team RabbitMQ's apt repository only publishes amd64 packages. arm64
+          Debian/Ubuntu hosts require the Launchpad PPA path, which this playbook
+          does not implement.
+        quiet: true
+      when: ansible_os_family == 'Debian'
+      tags: [always]
+
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - rabbitmq_admin_password | length > 0
+        fail_msg: >-
+          rabbitmq_admin_password is empty. Set vault_rabbitmq_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the Erlang and RabbitMQ repositories (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian    # required by ansible.builtin.deb822_repository
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the Team RabbitMQ signing key
+          ansible.builtin.get_url:
+            url: "{{ rabbitmq_apt_key_url }}"
+            dest: "{{ rabbitmq_apt_keyring }}"
+            mode: '0644'
+
+        # Erlang and RabbitMQ must come from this same paired repo generation —
+        # see the note in vars.yml. Both mirrors are listed for redundancy, matching
+        # upstream's own quick-start script.
+        - name: Add the Erlang repository
+          ansible.builtin.deb822_repository:
+            name: rabbitmq-erlang
+            types: [deb]
+            uris: "{{ rabbitmq_apt_mirrors | map('regex_replace', '^(.*)$', 'https://\\1/rabbitmq-erlang/' ~ rabbitmq_apt_repo_os) | list }}"
+            suites: ["{{ rabbitmq_apt_suite }}"]
+            components: [main]
+            architectures: ["{{ rabbitmq_apt_arch }}"]
+            signed_by: "{{ rabbitmq_apt_keyring }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Add the RabbitMQ server repository
+          ansible.builtin.deb822_repository:
+            name: rabbitmq-server
+            types: [deb]
+            uris: "{{ rabbitmq_apt_mirrors | map('regex_replace', '^(.*)$', 'https://\\1/rabbitmq-server/' ~ rabbitmq_apt_repo_os) | list }}"
+            suites: ["{{ rabbitmq_apt_suite }}"]
+            components: [main]
+            architectures: ["{{ rabbitmq_apt_arch }}"]
+            signed_by: "{{ rabbitmq_apt_keyring }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the Erlang and RabbitMQ repositories (RedHat family)
       when: ansible_os_family == 'RedHat'
-    - geerlingguy.rabbitmq
-  vars:
-    - rabbitmq_daemon: rabbitmq-server
-    - rabbitmq_enabled: true
-    - rabbitmq_version: "3.10.0"
-    - rabbitmq_rpm: "rabbitmq-server-{{ rabbitmq_version }}-1.el{{ ansible_distribution_major_version }}.noarch.rpm"
-    - rabbitmq_rpm_url: "https://packagecloud.io/rabbitmq/rabbitmq-server/packages/el/{{ ansible_distribution_major_version }}/{{ rabbitmq_rpm }}/download"
-    - rabbitmq_apt_repository: "deb [signed-by=/etc/apt/trusted.gpg.d/rabbitmq-9F4587F226208342.gpg] https://ppa1.novemberain.com/rabbitmq/rabbitmq-server/deb/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main"
-    - rabbitmq_apt_gpg_url: "https://ppa.novemberain.com/gpg.9F4587F226208342.key"
-    - erlang_apt_repository: "deb [signed-by=/etc/apt/trusted.gpg.d/erlang-E495BB49CC4BBE5B.gpg] https://ppa2.novemberain.com/rabbitmq/rabbitmq-erlang/deb/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main"
-    - erlang_apt_gpg_url: "https://ppa.novemberain.com/gpg.E495BB49CC4BBE5B.key"
+      tags: [install]
+      block:
+        - name: Import the Team RabbitMQ signing keys
+          ansible.builtin.rpm_key:
+            key: "{{ item }}"
+            state: present
+          loop: "{{ rabbitmq_rpm_signing_keys }}"
+
+        - name: Add the Erlang repository
+          ansible.builtin.yum_repository:
+            name: rabbitmq-erlang
+            file: rabbitmq
+            description: "Team RabbitMQ Erlang - $basearch"
+            baseurl: "{{ rabbitmq_yum_erlang_baseurl }}"
+            gpgcheck: true
+            gpgkey: "{{ rabbitmq_rpm_signing_keys | join(' ') }}"
+            enabled: true
+
+        - name: Add the RabbitMQ server repository
+          ansible.builtin.yum_repository:
+            name: rabbitmq-server
+            file: rabbitmq
+            description: "Team RabbitMQ Server - $basearch"
+            baseurl: "{{ rabbitmq_yum_server_baseurl }}"
+            gpgcheck: true
+            gpgkey: "{{ rabbitmq_rpm_signing_keys | join(' ') }}"
+            enabled: true
+
+    # ------------------------------------------------------------------ install
+    - name: Install Erlang and RabbitMQ
+      ansible.builtin.package:
+        name:
+          - "{{ rabbitmq_erlang_package }}"
+          - "{{ rabbitmq_package_name }}"
+        state: present
+      tags: [install]
+
+    # ------------------------------------------------------------------ service
+    # rabbitmq.conf, the management plugin and the admin user are handled by
+    # configure_rabbitmq.yml, which is run after this playbook.
+    - name: Enable and start rabbitmq-server
+      ansible.builtin.systemd_service:
+        name: "{{ rabbitmq_service_name }}"
+        enabled: true
+        state: started
+      tags: [service]
+
+    - name: Wait for the AMQP port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ rabbitmq_amqp_port }}"
+        timeout: 90
+      tags: [verify]
+
+    - name: Report the RabbitMQ status
+      ansible.builtin.command: rabbitmqctl status
+      register: rabbitmq_status
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the RabbitMQ status
+      ansible.builtin.debug:
+        msg: "RabbitMQ is running on {{ inventory_hostname }}, AMQP port {{ rabbitmq_amqp_port }}"
+      when: rabbitmq_status.rc == 0
+      tags: [verify]

@@ -1,5 +1,7 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-PyYAML==6.0.1
-python-multipart==0.0.6
+# Lower bounds, not exact pins: the previous exact pins (fastapi 0.104.1,
+# pydantic 2.5.0) no longer build on current Python.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+pydantic>=2.10,<3.0
+PyYAML>=6.0.2,<7.0
+python-multipart>=0.0.20,<1.0

@@ -1,99 +1,63 @@
-# Cert-Manager Setup with Ansible 🚀
+# cert-manager
 
-![Ansible](https://img.shields.io/badge/Ansible-Playbook-blue?logo=ansible)
-![Cert-Manager](https://img.shields.io/badge/Cert--Manager-Installation-yellowgreen)
+Installs cert-manager on a Kubernetes cluster via the official Jetstack Helm chart
+(`kubernetes.core.helm`), with CRDs installed and lifecycle-managed by the chart
+itself (`crds.enabled=true` — the current upstream method, replacing the older
+"apply CRDs manually, then `helm install`" flow). A separate playbook configures a
+Let's Encrypt `ClusterIssuer`.
 
-This repository contains Ansible playbooks to **install**, **configure**, and **uninstall** Cert-Manager on a Kubernetes cluster using Helm. The playbooks also include configuring a Let's Encrypt ClusterIssuer to automate SSL certificate management.
+This module talks to the cluster over the Kubernetes API, not SSH: every play targets
+`localhost` with a kubeconfig (see `inventory.ini`). Run it from an admin workstation,
+a bastion, or a control-plane node used as the Ansible controller — any host with a
+working kubeconfig, `helm`, and network access to the API server.
 
-## Purpose 🎯
+## Requirements
 
-- **Install Cert-Manager** in a Kubernetes cluster for managing TLS certificates.
-- **Configure Let's Encrypt** using ClusterIssuer to obtain certificates automatically.
-- **Uninstall Cert-Manager** and clean up associated resources.
+- Ansible core >= 2.15
+- Collections: `kubernetes.core` (`ansible-galaxy collection install -r requirements.yml`)
+- Python `kubernetes` client library on the controller (`pip install kubernetes`)
+- `helm` >= 3.8 on the controller (see `../helm/`)
+- A kubeconfig with cluster-admin (or equivalent) access
 
-## Requirements 📋
-
-- Ansible installed on your system.
-- A Kubernetes cluster with Helm and kubectl configured.
-- Ensure the `helm` and `kubectl` commands are accessible on the control node.
-
-## Variables 📂
-
-- `version`: The version of Cert-Manager to install (e.g., `v1.15.3`).
-- `namespace`: The Kubernetes namespace for Cert-Manager (default: `cert-manager`).
-- `email`: Email address for Let's Encrypt configuration (for certificate notifications).
-
-## Playbook Overview 📝
-
-### 1. Install Cert-Manager
-
-This playbook installs Cert-Manager using Helm and applies the necessary CRDs.
-
-- **Playbook File:** `install_certmanager.yml`
-- **Tasks:**
-  - Apply Cert-Manager CRDs.
-  - Add and update the Jetstack Helm repository.
-  - Install Cert-Manager using Helm.
-  - Wait for Cert-Manager pods to start.
-  - Display Cert-Manager resources.
-  
-#### Usage:
+## Usage
 
 ```bash
-ansible-playbook -i inventory.ini install_certmanager.yml
+ansible-playbook install_certmanager.yml
+ansible-playbook configure_certmanager.yml -e certmanager_acme_email=you@example.com
+ansible-playbook install_certmanager.yml --check --diff
+ansible-playbook uninstall_certmanager.yml
 ```
 
-### 2. Configure Cert-Manager with Let's Encrypt ClusterIssuer
+## Variables
 
-This playbook configures Cert-Manager with Let's Encrypt by creating a ClusterIssuer, allowing the automation of TLS certificates using ACME challenges.
+| Variable | Default | Description |
+|---|---|---|
+| `kubeconfig_path` | `$KUBECONFIG` or `~/.kube/config` | Kubeconfig used for every task |
+| `certmanager_version` | `v1.21.1` | Chart version; matches the app version upstream |
+| `certmanager_namespace` | `cert-manager` | Release namespace |
+| `certmanager_crds_enabled` | `true` | Installs/manages CRDs via the chart |
+| `certmanager_acme_email` | `""` | Required by `configure_certmanager.yml`; asserted non-empty |
+| `certmanager_acme_server` | production ACME v2 directory | Switch to the staging directory while testing |
+| `certmanager_cluster_issuer_name` | `letsencrypt-prod` | `ClusterIssuer` name |
+| `certmanager_ingress_class` | `nginx` | Must match the cluster's ingress controller (see `../ingress-nginx/`) |
 
-* **Playbook File:** configure_certmanager.yml
-* **Tasks:**
-    * Create and apply a ClusterIssuer configuration file.
-    * Display secrets in the Cert-Manager namespace.
-
-### Usage:
-
-```
-ansible-playbook -i inventory configure_certmanager.yml
-```
-### 3. Uninstall Cert-Manager and Clean Up
-This playbook uninstalls Cert-Manager and deletes the associated Kubernetes resources, including CRDs and namespaces.
-
-* **Playbook File:** uninstall_certmanager.yml
-* **Tasks:**
-    * Uninstall Cert-Manager Helm release.
-    * Delete the Cert-Manager namespace.
-    * Remove Cert-Manager CRDs.
-### Usage:
-
-```
-ansible-playbook -i inventory uninstall_certmanager.yml
-```
-### Inventory Setup ⚙️
-Prepare an inventory file to specify the target Kubernetes nodes:
-
-```ini
-[all]
-kubernetes-node ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
-```
-
-### Testing 🧪
-1. **Verify Cert-Manager Installation:** After installation, check the Cert-Manager resources in the namespace:
-```bash
-kubectl get all -n cert-manager
-```
-2. **Check Let's Encrypt ClusterIssuer:** Ensure the ClusterIssuer is applied correctly:
+## Verify
 
 ```bash
+kubectl get pods -n cert-manager
 kubectl describe clusterissuer letsencrypt-prod
+kubectl get certificate -A
 ```
-3. **Uninstall and Cleanup:** Once done, verify that the Cert-Manager namespace and CRDs are deleted:
 
-```bash
-kubectl get namespaces
-kubectl get crds | grep cert-manager
-```
-### Supported Platforms 🖥️
-* Kubernetes clusters (compatible with both cloud and on-premises).
-* Requires Helm and kubectl access.
+## Notes
+
+- `crds.enabled=true` must be passed on every install/upgrade, not just the first one,
+  or Helm stops managing CRD lifecycle consistently.
+- The cert-manager chart annotates its CRDs to survive `helm uninstall` (data-loss
+  protection for existing `Certificate` resources). `uninstall_certmanager.yml` does
+  not delete CRDs; remove them manually (`kubectl delete crd -l app=cert-manager`)
+  only once nothing depends on them.
+- The HTTP-01 solver requires a running ingress controller with a matching
+  `IngressClass` before certificates can be issued.
+- Use the staging ACME server first (`certmanager_acme_server`) — Let's Encrypt's
+  production rate limits are easy to hit while testing.

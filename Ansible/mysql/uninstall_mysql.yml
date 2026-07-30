@@ -1,0 +1,63 @@
+---
+- name: Uninstall MySQL
+  hosts: mysql_servers
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        quiet: true
+      tags: [always]
+
+    - name: Stop and disable MySQL service
+      ansible.builtin.systemd_service:
+        name: "{{ mysql_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove MySQL packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - mysql-community-server
+          - mysql-community-client
+        state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove MySQL packages (RHEL family)
+      ansible.builtin.dnf:
+        name:
+          - mysql-community-server
+          - mysql-community-client
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove MySQL packages (SUSE)
+      community.general.zypper:
+        name:
+          - mysql-community-server
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]
+
+    - name: Remove root password bootstrap marker
+      ansible.builtin.file:
+        path: /etc/mysql_root_configured
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove MySQL data directory
+      ansible.builtin.file:
+        path: /var/lib/mysql
+        state: absent
+      when: mysql_uninstall_purge_data | bool
+      tags: [uninstall]

@@ -1,0 +1,22 @@
+{{ ansible_managed | comment }}
+# Hardening drop-in. Applied before the rest of /etc/ssh/sshd_config because
+# sshd uses the first value seen for each keyword and Include is at the top of
+# the main file. Validated with `sshd -t -f %s` before being written.
+
+Port {{ security_ssh_port }}
+PermitRootLogin {{ security_ssh_permit_root_login }}
+PasswordAuthentication {{ security_ssh_password_authentication | ternary('yes', 'no') }}
+KbdInteractiveAuthentication {{ security_ssh_kbd_interactive_authentication | ternary('yes', 'no') }}
+PermitEmptyPasswords {{ security_ssh_permit_empty_passwords | ternary('yes', 'no') }}
+X11Forwarding {{ security_ssh_x11_forwarding | ternary('yes', 'no') }}
+UseDNS {{ security_ssh_use_dns | ternary('yes', 'no') }}
+GSSAPIAuthentication {{ security_ssh_gssapi_authentication | ternary('yes', 'no') }}
+MaxAuthTries {{ security_ssh_max_auth_tries }}
+ClientAliveInterval {{ security_ssh_client_alive_interval }}
+ClientAliveCountMax {{ security_ssh_client_alive_count_max }}
+{% if security_ssh_allowed_users | length > 0 %}
+AllowUsers {{ security_ssh_allowed_users | join(' ') }}
+{% endif %}
+{% if security_ssh_allowed_groups | length > 0 %}
+AllowGroups {{ security_ssh_allowed_groups | join(' ') }}
+{% endif %}

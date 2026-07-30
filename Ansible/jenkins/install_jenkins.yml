@@ -1,90 +1,198 @@
 ---
-- name: Install Jenkins on multiple OS
+- name: Install Jenkins
   hosts: jenkins_servers
   become: true
-  vars:
-    java_package_debian: openjdk-17-jre
-    java_package_rhel: java-17-openjdk
-    jenkins_repo_debian: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
-    jenkins_repo_rhel: https://pkg.jenkins.io/redhat-stable/jenkins.repo
-    jenkins_key_rhel: https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Restart jenkins
+      ansible.builtin.systemd_service:
+        name: jenkins
+        state: restarted
 
   tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          Jenkins. Upstream ships Debian-format, Red Hat rpm-format and openSUSE rpm-format
+          repositories only.
+        quiet: true
+      tags: [always]
 
-    - name: Install wget on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      apt:
-        update_cache: yes
-        name: wget
+    - name: Assert a Java package mapping exists for this platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in jenkins_java_packages
+        fail_msg: >-
+          No Java package mapping for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ jenkins_java_packages.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the Jenkins repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Remove the legacy keyring path used by older versions of this playbook
+          ansible.builtin.file:
+            path: /usr/share/keyrings/jenkins-keyring.asc
+            state: absent
+
+        - name: Fetch the Jenkins GPG key
+          ansible.builtin.get_url:
+            url: "{{ jenkins_apt_key_url }}"
+            dest: /etc/apt/keyrings/jenkins-keyring.asc
+            mode: '0644'
+
+        - name: Add the Jenkins repository
+          ansible.builtin.deb822_repository:
+            name: jenkins
+            types: [deb]
+            uris: "{{ jenkins_apt_repo_url }}"
+            suites: ["binary/"]
+            signed_by: /etc/apt/keyrings/jenkins-keyring.asc
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the Jenkins repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Import the Jenkins GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ jenkins_yum_key_url }}"
+            state: present
+
+        - name: Fetch the Jenkins repo file
+          ansible.builtin.get_url:
+            url: "{{ jenkins_yum_repo_file_url }}"
+            dest: /etc/yum.repos.d/jenkins.repo
+            mode: '0644'
+
+    # --------------------------------------------------------------- repo: SUSE
+    - name: Configure the Jenkins repository (SUSE)
+      when: ansible_os_family == 'Suse'
+      tags: [install]
+      block:
+        - name: Import the Jenkins GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ jenkins_yum_key_url }}"
+            state: present
+
+        # openSUSE consumes the same rpm-format repository as RHEL.
+        # https://pkg.jenkins.io/opensuse-stable/
+        - name: Add the Jenkins repository
+          community.general.zypper_repository:
+            name: jenkins
+            repo: "{{ jenkins_yum_repo_url }}"
+            auto_import_keys: true
+            state: present
+
+    # ------------------------------------------------------------------ install
+    - name: Install Java, fontconfig and Jenkins (Debian family)
+      ansible.builtin.apt:
+        name: "{{ jenkins_extra_packages[ansible_os_family] + [jenkins_java_packages[ansible_os_family], 'jenkins'] }}"
         state: present
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Install wget on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      yum:
-        name: wget
+    - name: Install Java, fontconfig and Jenkins (RedHat/SUSE family)
+      ansible.builtin.package:
+        name: "{{ jenkins_extra_packages[ansible_os_family] + [jenkins_java_packages[ansible_os_family], 'jenkins'] }}"
         state: present
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [install]
 
-    - name: Install Jenkins on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      apt:
-        update_cache: yes
-        name:
-          - fontconfig
-          - "{{ java_package_debian }}"
-        state: present
+    # ---------------------------------------------------------------- configure
+    - name: Ensure JENKINS_HOME exists with the right ownership
+      ansible.builtin.file:
+        path: "{{ jenkins_home }}"
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: '0750'
+      tags: [configure]
 
-    - name: Add Jenkins keyring for Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      ansible.builtin.command:
-        cmd: wget -O /usr/share/keyrings/jenkins-keyring.asc "{{ jenkins_repo_debian }}"
+    - name: Create the systemd drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/jenkins.service.d
+        state: directory
+        mode: '0755'
+      tags: [configure]
 
-    - name: Add Jenkins repo to sources.list on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      ansible.builtin.shell: |
-        echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | tee /etc/apt/sources.list.d/jenkins.list
+    # Since Jenkins 2.335 / 2.332.1 the packages are systemd-managed; JENKINS_PORT
+    # and JAVA_OPTS are no longer read from /etc/default/jenkins (Debian) or
+    # /etc/sysconfig/jenkins (RHEL) — a systemd override is the documented method.
+    - name: Write the systemd override
+      ansible.builtin.template:
+        src: jenkins-override.conf.j2
+        dest: /etc/systemd/system/jenkins.service.d/override.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - Reload systemd
+        - Restart jenkins
+      tags: [configure]
 
-    - name: Install Jenkins on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      apt:
-        update_cache: yes
+    # ------------------------------------------------------------------ service
+    - name: Enable and start jenkins
+      ansible.builtin.systemd_service:
         name: jenkins
-        state: present
+        enabled: "{{ jenkins_service_enabled }}"
+        state: "{{ jenkins_service_state }}"
+        daemon_reload: true
+      tags: [service]
 
-    - name: Enable and start Jenkins on Debian/Ubuntu
-      when: ansible_os_family == "Debian"
-      systemd:
-        name: jenkins
-        enabled: yes
-        state: started
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the Jenkins HTTP port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ jenkins_http_port }}"
+        timeout: 180
+      tags: [verify]
 
-    - name: Install Jenkins on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      ansible.builtin.command:
-        cmd: wget -O /etc/yum.repos.d/jenkins.repo "{{ jenkins_repo_rhel }}"
+    - name: Check whether the initial admin password file exists
+      ansible.builtin.stat:
+        path: "{{ jenkins_home }}/secrets/initialAdminPassword"
+      register: jenkins_initial_password
+      tags: [verify]
 
-    - name: Import Jenkins key on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      ansible.builtin.command:
-        cmd: rpm --import "{{ jenkins_key_rhel }}"
-
-    - name: Upgrade packages on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      ansible.builtin.yum:
-        name: "*"
-        state: latest
-
-    - name: Install required dependencies on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      ansible.builtin.yum:
-        name:
-          - fontconfig
-          - "{{ java_package_rhel }}"
-          - jenkins
-        state: present
-
-    - name: Enable and start Jenkins on Red Hat/Fedora/Alma/Rocky
-      when: ansible_os_family == "RedHat"
-      systemd:
-        name: jenkins
-        enabled: yes
-        state: started
+    - name: Show where to find the initial admin password
+      ansible.builtin.debug:
+        msg: >-
+          Jenkins is listening on port {{ jenkins_http_port }}. Read
+          {{ jenkins_home }}/secrets/initialAdminPassword on the target host to complete
+          the setup wizard (file present: {{ jenkins_initial_password.stat.exists }}).
+      tags: [verify]

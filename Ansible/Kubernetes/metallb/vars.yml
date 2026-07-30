@@ -1,0 +1,33 @@
+---
+# Path to the kubeconfig used for every kubernetes.core task in this module.
+kubeconfig_path: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+# Chart version has no "v" prefix; app version does — verified against
+# https://metallb.github.io/metallb/index.yaml on 2026-07-31.
+metallb_chart_version: "0.16.1"
+metallb_app_version: "v0.16.1"
+
+metallb_namespace: "metallb-system"
+metallb_chart_repo_name: metallb
+metallb_chart_repo_url: "https://metallb.github.io/metallb"
+metallb_release_name: metallb
+metallb_chart_ref: "metallb/metallb"
+
+metallb_wait: true
+metallb_wait_timeout: "300s"
+
+# Merged into the Helm values as-is, e.g. to disable the FRR-K8s BGP backend when
+# only Layer 2 mode is used: {speaker: {frr: {enabled: false}}, frrk8s: {enabled: false}}
+metallb_extra_values: {}
+
+# Restart the kube-proxy DaemonSet after flipping strictARP. A ConfigMap edit alone
+# does not reload a running kube-proxy process; without a restart, MetalLB's Layer 2
+# mode will not reliably own ARP for service IPs. Causes a brief kube-proxy blip
+# cluster-wide — see README.
+metallb_restart_kube_proxy: true
+
+# --- configure_metallb.yml (IPAddressPool / L2Advertisement) -----------------------
+# RFC1918 placeholders — replace with a real, routable-on-your-LAN range before use.
+metallb_ip_pool_name: "first-pool"
+metallb_ip_pool_start: "10.0.0.200"
+metallb_ip_pool_end: "10.0.0.220"

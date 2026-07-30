@@ -1,0 +1,61 @@
+---
+- name: Uninstall PostgreSQL
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        quiet: true
+      tags: [always]
+
+    - name: Stop and disable PostgreSQL service
+      ansible.builtin.systemd_service:
+        name: "{{ postgresql_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove PostgreSQL packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - "postgresql-{{ postgresql_version }}"
+          - "postgresql-client-{{ postgresql_version }}"
+          - "postgresql-contrib"
+        state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove PostgreSQL packages (RHEL family)
+      ansible.builtin.dnf:
+        name:
+          - "postgresql{{ postgresql_version }}-server"
+          - "postgresql{{ postgresql_version }}"
+          - "postgresql{{ postgresql_version }}-contrib"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove PostgreSQL packages (SUSE)
+      community.general.zypper:
+        name:
+          - "postgresql{{ postgresql_version }}-server"
+          - "postgresql{{ postgresql_version }}"
+          - "postgresql{{ postgresql_version }}-contrib"
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]
+
+    - name: Remove PostgreSQL data directory
+      ansible.builtin.file:
+        path: "{{ postgresql_data_dir }}"
+        state: absent
+      when: postgresql_uninstall_purge_data | bool
+      tags: [uninstall]

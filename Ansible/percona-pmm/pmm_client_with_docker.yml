@@ -1,34 +1,58 @@
 ---
-- name: Setup PMM Client using Docker with Host Path
+- name: Set up the PMM Client using Docker
   hosts: pmm_clients
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Check if Docker is installed
-      shell: "command -v docker"
-      register: docker_check
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - admin_password | length > 0
+        fail_msg: >-
+          admin_password is empty. Set vault_pmm_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
+
+    # `command -v` requires a shell, so this uses ansible.builtin.command
+    # against `which` instead of ansible.builtin.shell.
+    - name: Check whether Docker is installed
+      ansible.builtin.command: which docker
+      register: pmm_docker_check
       changed_when: false
       failed_when: false
+      check_mode: false
+      tags: [always]
 
-    - name: Display message if Docker is not installed
-      debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
+    - name: Assert Docker is present
+      ansible.builtin.assert:
+        that:
+          - pmm_docker_check.rc == 0
+        fail_msg: >-
+          Docker is not installed on {{ inventory_hostname }}. Install it first
+          (see ../docker/install_docker.yml).
+        quiet: true
+      tags: [always]
 
-    - name: Skip host if either Docker is missing
-      meta: end_host
-      when: docker_check.rc != 0
+    - name: Create the PMM client data directory
+      ansible.builtin.file:
+        path: "{{ pmm_data_host_path }}"
+        state: directory
+        mode: '0750'
+      tags: [install]
 
-    - name: Pull PMM client Docker image
-      docker_image:
+    - name: Pull the PMM Client image
+      community.docker.docker_image:
         name: "{{ pmm_client_docker_image }}"
         tag: "{{ pmm_client_docker_tag }}"
         source: pull
+      tags: [install]
 
-    - name: Run PMM client container in setup mode with host path for persistence
-      docker_container:
+    - name: Run the PMM Client container in setup mode
+      community.docker.docker_container:
         name: "{{ pmm_client_container }}"
         image: "{{ pmm_client_docker_image }}:{{ pmm_client_docker_tag }}"
         env:
@@ -41,13 +65,19 @@
         volumes:
           - "{{ pmm_data_host_path }}:/srv"
         state: started
-        restart_policy: no
+        restart_policy: unless-stopped
+      no_log: true
+      tags: [install]
 
-    - name: Check PMM client status
-      command: docker exec "{{ pmm_client_container }}" pmm-admin status
+    - name: Check the PMM client status
+      ansible.builtin.command: "docker exec {{ pmm_client_container }} pmm-admin status"
       register: pmm_status
-      ignore_errors: true
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Display PMM client status
-      debug:
-        var: pmm_status.stdout
+    - name: Show the PMM client status
+      ansible.builtin.debug:
+        var: pmm_status.stdout_lines
+      tags: [verify]

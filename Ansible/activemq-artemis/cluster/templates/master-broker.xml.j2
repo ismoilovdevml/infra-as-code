@@ -26,7 +26,7 @@ under the License.
    <core xmlns="urn:activemq:core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="urn:activemq:core ">
 
-      <name>0.0.0.0</name>
+      <name>{{ inventory_hostname }}</name>
 
 
       <persistence-enabled>true</persistence-enabled>
@@ -149,19 +149,22 @@ under the License.
          {% endfor %}
       </connectors>
 
+      <!-- primary/backup is the current shared-store terminology; the legacy
+           master/slave tags are deprecated upstream (still honoured, not used
+           here). https://activemq.apache.org/components/artemis/documentation/latest/ha -->
       <ha-policy>
          <shared-store>
-            <master>
+            <primary>
                   <failover-on-shutdown>true</failover-on-shutdown>
                   <wait-for-activation>true</wait-for-activation>
-            </master>
+            </primary>
          </shared-store>
       </ha-policy>
 
       <cluster-connections>
          <cluster-connection name="activemq-artemis-cluster">
             <address>jms</address>
-            <connector-ref>master</connector-ref>
+            <connector-ref>{{ inventory_hostname }}</connector-ref>
             <static-connectors>
       {% for name in connectors.keys() %}
                   <connector-ref>{{ name }}</connector-ref>

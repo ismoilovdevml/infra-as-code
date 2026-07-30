@@ -1,0 +1,23 @@
+{{ ansible_managed | comment }}
+# Upstream ships no systemd unit; this one is authored by this repository.
+[Unit]
+Description=Apache Kafka (KRaft)
+Documentation=https://kafka.apache.org/documentation/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ kafka_user }}
+Group={{ kafka_group }}
+Environment="KAFKA_HEAP_OPTS={{ kafka_heap_opts }}"
+Environment="LOG_DIR={{ kafka_log_dir }}"
+ExecStart={{ kafka_dir }}/bin/kafka-server-start.sh {{ kafka_config_dir }}/server.properties
+ExecStop={{ kafka_dir }}/bin/kafka-server-stop.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target

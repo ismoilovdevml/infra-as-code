@@ -1,7 +1,27 @@
 ---
+# "Sonatype Nexus Repository Community Edition" (renamed from "OSS" in 3.77.0).
+# https://help.sonatype.com/en/download.html
 nexus_image: "sonatype/nexus3:latest"
-nexus_data_dir: "/mnt/nexus/nexus-data"
-nexus_container_name: "nexus"
+nexus_container_name: nexus
 nexus_port: 8081
-nexus_admin_password_file: "/nexus-data/admin.password"
-nexus_parent_dir: "/mnt/nexus"
+
+nexus_parent_dir: /mnt/nexus
+nexus_data_dir: "{{ nexus_parent_dir }}/nexus-data"
+
+# The image's entrypoint runs as this UID; the bind-mounted data directory must be
+# owned by it. https://github.com/sonatype/docker-nexus3
+nexus_data_uid: 200
+
+# Generated on first boot; the image removes this file once the admin password is
+# changed for the first time. Not a variable this repo sets — see README Notes.
+nexus_admin_password_file: /nexus-data/admin.password
+
+nexus_restart_policy: unless-stopped
+
+# Since 3.77.0 the Community Edition onboarding wizard requires accepting an updated
+# EULA before component fetch/upload works. This automates the documented REST API
+# instead of the interactive wizard. https://help.sonatype.com/en/eula-rest-api.html
+nexus_accept_eula: true
+
+# cleanup_nexus_docker.yml only: also delete the data directory.
+nexus_purge_data: false

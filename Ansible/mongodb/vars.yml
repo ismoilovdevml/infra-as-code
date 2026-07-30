@@ -1,0 +1,49 @@
+---
+# MongoDB Community Edition, installed from the official repo.mongodb.org repository.
+#
+# MongoDB now ships production-grade minor releases within a major line (8.0, 8.2,
+# 8.3 are all "as stable as major releases"). This pins the conservative `.0` release
+# of the current major; bump to 8.2/8.3 explicitly if you need a newer minor —
+# minor releases must be upgraded sequentially (8.0 -> 8.1 -> 8.2, no skipping).
+mongodb_series: "8.0"
+
+# The GPG key is published per MAJOR line only — there is no server-8.2.asc or
+# server-8.3.asc, only server-8.0.asc, even when mongodb_series is 8.2/8.3.
+# Never derive this from mongodb_series directly; always floor to "<major>.0".
+mongodb_gpg_key_url: "https://pgp.mongodb.com/server-8.0.asc"
+mongodb_apt_keyring_path: /etc/apt/keyrings/mongodb-server-8.0.gpg
+
+mongodb_packages:
+  - mongodb-org
+  - mongodb-org-server
+  - mongodb-org-mongos
+  - mongodb-org-tools
+  - mongodb-mongosh
+
+# RHEL 7 is not supported by the 8.x series (only 8/9 are).
+mongodb_rpm_supported_majors: ['8', '9']
+
+mongodb_service_name: mongod
+mongodb_config_path: /etc/mongod.conf
+
+# Data/log paths differ by package family.
+mongodb_data_dir_map:
+  Debian: /var/lib/mongodb
+  RedHat: /var/lib/mongo
+
+mongodb_log_dir: /var/log/mongodb
+
+mongodb_port: 27017
+mongodb_bind_address: "127.0.0.1"
+
+# Empty by default; configure_mongodb.yml refuses to enable auth without this set.
+# Provide via vault: vault_mongodb_admin_password.
+mongodb_admin_user: admin
+mongodb_admin_password: "{{ vault_mongodb_admin_password | default('') }}"
+mongodb_admin_database: admin
+
+mongodb_service_enabled: true
+mongodb_service_state: started
+
+# uninstall.yml: also delete the data and log directories.
+mongodb_purge_data: false

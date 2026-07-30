@@ -1,0 +1,73 @@
+---
+# Destructive when vault_purge_data is true: removes the config, raft data and log
+# directories, i.e. every secret Vault held on this host.
+- name: Uninstall HashiCorp Vault
+  hosts: vault_nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable vault
+      ansible.builtin.systemd_service:
+        name: vault
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Vault package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ vault_package_name }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Vault package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ vault_package_name }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the HashiCorp repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/hashicorp.sources
+        - /etc/apt/sources.list.d/hashicorp.list
+        - /etc/apt/keyrings/hashicorp-archive-keyring.asc
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the HashiCorp repository (RedHat family)
+      ansible.builtin.yum_repository:
+        name: hashicorp
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Vault configuration, data and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ vault_config_path }}"
+        - "{{ vault_data_path }}"
+        - "{{ vault_log_path }}"
+      when: vault_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the operator init handoff file
+      ansible.builtin.file:
+        path: "{{ vault_init_output_path }}"
+        state: absent
+      when: vault_purge_data | bool
+      tags: [uninstall]

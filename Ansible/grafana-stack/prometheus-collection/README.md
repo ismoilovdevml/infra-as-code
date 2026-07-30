@@ -1,79 +1,81 @@
-# ⚙️ Ansible Setup for Prometheus and Exporters
+# Prometheus and Exporters
 
-This repository contains Ansible playbooks for installing **Prometheus** and a variety of **Prometheus exporters**.
+Installs Prometheus and a selectable set of Prometheus exporters as self-contained binaries
+from GitHub releases (`prometheus.prometheus` collection), and wires the Prometheus server's
+scrape config to every enabled exporter across the `target_servers` inventory group.
 
-## 📋 Prerequisites
+## Supported platforms
 
-Before starting, ensure you have **Ansible** installed and set up. You also need to install the **Prometheus Ansible collection**:
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Debian 11+, Ubuntu 20.04+ | binary install, no distro package |
+| RedHat | RHEL/Rocky/Alma 8+, CentOS Stream 9+, Fedora 40+, Amazon Linux 2023 | binary install, no distro package |
+| Suse | openSUSE Leap 15.x, SLES 15 | binary install, no distro package |
 
-```bash
-ansible-galaxy collection install prometheus.prometheus
-```
-## 🗂️ Inventory Setup
-Make sure your `inventory.ini` is configured properly for your target servers. Here’s an example:
+All roles in this collection ship self-contained Go binaries with a generated systemd unit,
+so any systemd-based Linux works in practice; the preflight check still fails fast on anything
+outside the families above so unsupported platforms are not silently attempted.
 
-```
-[prometheus_servers]
-server1 ansible_host=10.128.0.47 ansible_user=root
-server2 ansible_host=10.128.0.48 ansible_user=root
-server3 ansible_host=10.128.0.45 ansible_user=root
+## Requirements
 
-[target_servers]
-server1 ansible_host=10.128.0.47 ansible_user=root
-server2 ansible_host=10.128.0.48 ansible_user=root
-server3 ansible_host=10.128.0.45 ansible_user=root
-```
+- Ansible core >= 2.15
+- Collections: `ansible-galaxy collection install -r requirements.yml`
+- Target has `sudo`/root access and outbound HTTPS to github.com (binaries are downloaded
+  directly from GitHub releases and verified against the release's `sha256sums.txt`)
 
-## ⚙️ Installing Prometheus
-To install **Prometheus** on your target servers, run the following playbook:
+## Usage
 
 ```bash
-ansible-playbook -i inventory.ini install_prometheus.yml
-```
-This will install and configure Prometheus on the servers listed under `prometheus_servers`.
-
-## 📊 Installing Prometheus Exporters
-The playbook `prometheus_exporters.yml` allows you to selectively install multiple exporters. You can control which exporters to install by editing the `vars.yml` file and setting each exporter to `true` or `false`.
-
-For example:
-
-```yml
-# vars.yml
-exporters:
-  node_exporter: true
-  alertmanager: true
-  bind_exporter: false
-  blackbox_exporter: true
-  cadvisor: false
-  chrony_exporter: false
-  ...
+ansible-playbook install_prometheus.yml                 # Prometheus server
+ansible-playbook prometheus_exporters.yml                # exporters enabled in vars.yml
+ansible-playbook prometheus_exporters.yml --tags node_exporter,alertmanager
+ansible-playbook uninstall.yml --tags prometheus
+ansible-playbook uninstall.yml --tags exporters
+ansible-playbook install_prometheus.yml --check --diff    # dry-run
 ```
 
-Once you’ve configured the exporters you want to install, run the following command:
+Set the Alertmanager Discord webhook before enabling `exporters.alertmanager` in `vars.yml`:
 
 ```bash
-ansible-playbook -i inventory.ini prometheus_exporters.yml
+ansible-vault edit group_vars/all/vault.yml
+# vault_alertmanager_discord_webhook_url: "https://discord.com/api/webhooks/..."
+ansible-playbook prometheus_exporters.yml --ask-vault-pass
 ```
-This will install the selected exporters on the servers listed under `target_servers`.
 
-### Supported Exporters:
-* **Node Exporter:** For hardware and OS metrics.
-* **Alertmanager:** For handling alerts sent by Prometheus.
-* **Bind Exporter:** For DNS statistics from Bind9.
-* **Blackbox Exporter:** For probing endpoints such as HTTPS, DNS, TCP, etc.
-* **cAdvisor:** For container metrics.
-* **Chrony Exporter:** For time synchronization statistics.
-* **Fail2Ban Exporter:** For monitoring Fail2Ban jails.
-* **IPMI Exporter:** For server hardware metrics.
-* **Memcached Exporter:** For Memcached server metrics.
-* **MongoDB Exporter:** For MongoDB statistics.
-* **MySQL Exporter:** For MySQL server metrics.
-* **NGINX Exporter:** For NGINX web server statistics.
-* **PostgreSQL Exporter:** For PostgreSQL database metrics.
-* **Process Exporter:** For detailed process metrics.
-* **Pushgateway:** For exposing metrics from batch jobs.
-* **Redis Exporter:** For Redis server metrics.
-* **Smartctl Exporter:** For monitoring hard drives.
-* **Smokeping Prober:** For network latency and packet loss measurements.
-* **SNMP Exporter:** For collecting SNMP metrics.
-* **Systemd Exporter:** For systemd service metrics.
+## Variables
+
+See `vars.yml` for the full list. Key ones:
+
+| Variable | Default | Description |
+|---|---|---|
+| `prometheus_version` | `3.7.3` | **Not auto-verified.** Check <https://github.com/prometheus/prometheus/releases> before deploying |
+| `exporters` | see `vars.yml` | Which exporters `prometheus_exporters.yml` installs and `install_prometheus.yml` scrapes |
+| `exporter_ports` | see `vars.yml` | Port each exporter listens on, used to build scrape targets |
+| `vault_alertmanager_discord_webhook_url` | `""` | Alertmanager Discord receiver; must be vault-encrypted |
+
+## Verify
+
+```bash
+systemctl status prometheus
+curl -s http://<host>:9090/-/ready
+curl -s http://<host>:9090/api/v1/targets | jq '.data.activeTargets[].health'
+```
+
+## Notes
+
+- `prometheus_version` is a pinned variable, not resolved from "latest" at runtime — this
+  keeps installs reproducible, but means it goes stale. Check the release page above on a
+  schedule and bump it deliberately.
+- The download URL is derived by the `prometheus.prometheus.prometheus` role as
+  `https://github.com/prometheus/prometheus/releases/download/v<version>/prometheus-<version>.linux-<arch>.tar.gz`
+  and the tarball is checked against that release's `sha256sums.txt`; `ansible_architecture` is
+  mapped to the upstream Go arch name (`x86_64` -> `amd64`, `aarch64` -> `arm64`,
+  `armv7l` -> `armv7`) by the role — never hardcode an architecture.
+- `templates/prometheus.yml.j2` is a reference sample only; no playbook deploys it. The live
+  `/etc/prometheus/prometheus.yml` is generated by the role from `prometheus_scrape_configs`,
+  which `install_prometheus.yml` builds at runtime from `exporters` / `exporter_ports` and the
+  `ansible_host` of every member of the `target_servers` group.
+- Exporter uninstall assumes the collection's consistent binary/config/data layout
+  (`/usr/local/bin/<exporter>`, `/etc/<exporter>`, `/var/lib/<exporter>`, systemd unit named
+  after the exporter). This matches every role in `prometheus.prometheus` at the time of
+  writing; verify after a collection upgrade.

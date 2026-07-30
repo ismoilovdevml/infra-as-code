@@ -1,0 +1,141 @@
+---
+- name: Install Percona Distribution for PostgreSQL
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          Percona Distribution for PostgreSQL. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/Oracle.
+          SUSE/openSUSE is not published by Percona for this product.
+        quiet: true
+      tags: [always]
+
+    - name: Fail on Amazon Linux 2023 (no Percona PostgreSQL server packages)
+      ansible.builtin.fail:
+        msg: >-
+          Amazon Linux 2023 is listed on Percona's platform lifecycle page, but the
+          ppg-{{ percona_pg_version }} AL2023 repository ships no server packages (only
+          percona-postgresql-common). Use a supported Debian/Ubuntu or RHEL-family host.
+      when: ansible_distribution == 'Amazon'
+      tags: [always]
+
+    - name: Ensure curl is installed (Percona telemetry dependency)
+      ansible.builtin.package:
+        name: curl
+        state: present
+      tags: [install]
+
+    - name: Debian/Ubuntu install
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Download percona-release installer (generic, codename-independent)
+          ansible.builtin.get_url:
+            url: https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+            dest: /tmp/percona-release_latest.generic_all.deb
+            mode: '0644'
+
+        - name: Install percona-release package
+          ansible.builtin.apt:
+            deb: /tmp/percona-release_latest.generic_all.deb
+            state: present
+
+        - name: Enable Percona PostgreSQL repository {{ percona_pg_version }}
+          ansible.builtin.command: "percona-release setup ppg-{{ percona_pg_version }}"
+          # percona-release has no dedicated Ansible module and provides no reliable
+          # idempotency signal to gate changed_when on; treat as always-changed. The
+          # package install step below is the actual idempotent state check.
+          register: percona_release_setup_deb
+          changed_when: true
+
+        - name: Install Percona PostgreSQL metapackage {{ percona_pg_version }}
+          ansible.builtin.apt:
+            name: "percona-ppg-server-{{ percona_pg_version }}"
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Install python driver for community.postgresql
+          ansible.builtin.apt:
+            name: "{{ percona_pg_python_package.Debian }}"
+            state: present
+
+    - name: RHEL family install
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Install epel-release (Percona-documented prerequisite on EL8)
+          ansible.builtin.dnf:
+            name: epel-release
+            state: present
+          when: ansible_distribution_major_version | int == 8
+
+        - name: Disable built-in postgresql module stream (RHEL/Rocky/Oracle 8 only)
+          ansible.builtin.command: dnf -qy module disable postgresql
+          # No dedicated module manages DNF module streams; EL9/EL10 have no such module.
+          register: percona_module_disable
+          changed_when: "'Nothing to do' not in percona_module_disable.stdout"
+          when: ansible_distribution_major_version | int == 8
+
+        - name: Install percona-release package
+          ansible.builtin.dnf:
+            name: https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+            state: present
+
+        - name: Enable Percona PostgreSQL repository {{ percona_pg_version }}
+          ansible.builtin.command: "percona-release setup ppg-{{ percona_pg_version }}"
+          register: percona_release_setup_rpm
+          changed_when: true
+
+        - name: Install Percona PostgreSQL metapackage {{ percona_pg_version }}
+          ansible.builtin.dnf:
+            name: "percona-ppg-server{{ percona_pg_version }}"
+            state: present
+
+        - name: Install python driver for community.postgresql
+          ansible.builtin.dnf:
+            name: "{{ percona_pg_python_package.RedHat }}"
+            state: present
+
+        - name: Check if PostgreSQL data directory is already initialized
+          ansible.builtin.stat:
+            path: "{{ percona_pg_data_dir }}/PG_VERSION"
+          register: percona_data_dir_stat
+
+        - name: Initialize PostgreSQL database cluster
+          ansible.builtin.command: "/usr/pgsql-{{ percona_pg_version }}/bin/postgresql-{{ percona_pg_version }}-setup initdb"
+          when: not percona_data_dir_stat.stat.exists
+          changed_when: true
+
+    - name: Enable and start PostgreSQL service
+      ansible.builtin.systemd_service:
+        name: "{{ percona_pg_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for PostgreSQL to accept connections
+      ansible.builtin.wait_for:
+        port: "{{ percona_pg_port }}"
+        host: 127.0.0.1
+        timeout: 30
+      tags: [verify]
+
+    - name: Verify installed PostgreSQL version
+      ansible.builtin.command: psql --version
+      changed_when: false
+      register: percona_pg_version_check
+      tags: [verify]
+
+    - name: Show installed PostgreSQL version
+      ansible.builtin.debug:
+        msg: "{{ percona_pg_version_check.stdout }}"
+      tags: [verify]

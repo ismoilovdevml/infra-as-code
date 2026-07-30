@@ -8,5 +8,8 @@
 - name: Install Artemis
   import_playbook: install_artemis.yml
 
-# - name: Cluster Bootstrap
-#   import_playbook: cluster_bootstrap.yml
+- name: Cluster bootstrap
+  import_playbook: cluster_bootstrap.yml
+
+- name: Configure the client-facing virtual IP
+  import_playbook: vip_ip.yml

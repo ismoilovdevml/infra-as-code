@@ -1,0 +1,94 @@
+---
+# Destructive. Removes the nginx package, its repository and, when nginx_purge_data is
+# true, /etc/nginx, /var/log/nginx and /var/www/html.
+- name: Uninstall NGINX
+  hosts: nginx_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    nginx_purge_data: false
+
+  tasks:
+    - name: Check whether nginx is installed
+      ansible.builtin.stat:
+        path: /usr/sbin/nginx
+      register: nginx_binary
+      tags: [always]
+
+    - name: Stop nginx
+      ansible.builtin.systemd_service:
+        name: "{{ nginx_service_name }}"
+        state: stopped
+      failed_when: false
+      when: nginx_binary.stat.exists
+      tags: [uninstall]
+
+    - name: Remove the nginx package
+      ansible.builtin.package:
+        name: "{{ [nginx_package_name] + (nginx_distro_package_map.values() | list) }}"
+        state: absent
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Purge the nginx package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ nginx_package_name }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the nginx.org repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/nginx.sources
+        - /etc/apt/sources.list.d/nginx.list
+        - /etc/apt/keyrings/nginx.asc
+        - /etc/apt/preferences.d/99nginx
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the nginx.org repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/nginx.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the nginx.org repository (SUSE)
+      community.general.zypper_repository:
+        name: "nginx-{{ nginx_release }}"
+        state: absent
+      when: ansible_os_family == 'Suse'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Reset the SELinux booleans nginx used
+      ansible.posix.seboolean:
+        name: "{{ item }}"
+        state: false
+        persistent: true
+      loop: "{{ nginx_selinux_booleans }}"
+      when:
+        - ansible_os_family == 'RedHat'
+        - ansible_selinux is defined
+        - ansible_selinux.status | default('disabled') == 'enabled'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the nginx state directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/nginx
+        - /var/log/nginx
+        - /var/www/html
+      when: nginx_purge_data | bool
+      tags: [uninstall]

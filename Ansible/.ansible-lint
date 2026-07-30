@@ -1,0 +1,18 @@
+---
+profile: production
+
+exclude_paths:
+  # Broken partial fork of wazuh/wazuh-ansible @ 4.4.1: the roles have no tasks/
+  # directories and cannot execute. Unused — see wazuh-ansible/README.md.
+  - wazuh-ansible/roles/
+  - wazuh-ansible/playbooks/
+  - .github/
+  - STANDARDS.md
+
+# Files that are NOT Ansible playbooks but live next to them.
+kinds:
+  - yaml: "**/promtail_config/*.yml"
+  - yaml: "**/prometheus-collection/prometheus.yml"
+
+skip_list:
+  - meta-runtime          # these are standalone playbooks, not galaxy roles

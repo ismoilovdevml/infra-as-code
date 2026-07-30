@@ -1,82 +1,134 @@
 ---
-- name: Install Trivy on multiple OS
+- name: Install Trivy from the official package repository
   hosts: trivy_servers
-  become: yes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
   tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Fail fast on unsupported platform
+          ansible.builtin.fail:
+            msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+              supported by Trivy's package repository. Upstream publishes apt/yum repos
+              only for Debian/Ubuntu and RHEL/CentOS/Fedora
+              (github.com/aquasecurity/trivy-repo). There is no zypper/SLES repo — use
+              install_trivy_binary.yml or install_trivy_docker.yml on SUSE instead.
+          when: ansible_os_family not in ['Debian', 'RedHat']
 
-    - name: Check the OS family
-      ansible.builtin.set_fact:
-        os_family: "{{ ansible_facts['os_family'] }}"
+        - name: Assert the release is still supported
+          ansible.builtin.assert:
+            that:
+              - ansible_distribution_major_version | int >= trivy_minimum_major_version[ansible_distribution]
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is older than this
+              repo's supported baseline. Minimum is {{ ansible_distribution }}
+              {{ trivy_minimum_major_version[ansible_distribution] }}.
+              Set trivy_strict_platform_check=false to install anyway.
+            quiet: true
+          when:
+            - trivy_strict_platform_check | bool
+            - ansible_distribution in trivy_minimum_major_version
 
-    - name: Install dependencies for Debian/Ubuntu
-      apt:
-        name:
-          - wget
-          - apt-transport-https
-          - gnupg
-          - lsb-release
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the Trivy repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian    # required by ansible.builtin.deb822_repository
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the Trivy GPG key
+          ansible.builtin.get_url:
+            url: "{{ trivy_repo_domain }}/deb/public.key"
+            dest: "{{ trivy_apt_keyring }}"
+            mode: '0644'
+
+        # The suite is the literal word "generic" — Trivy does not publish a
+        # per-codename suite the way Docker's or HashiCorp's repos do.
+        - name: Add the Trivy repository
+          ansible.builtin.deb822_repository:
+            name: trivy
+            types: [deb]
+            uris: "{{ trivy_repo_domain }}/deb"
+            suites: ["{{ trivy_apt_suite }}"]
+            components: [main]
+            signed_by: "{{ trivy_apt_keyring }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the Trivy repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Import the Trivy GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ trivy_rpm_gpgkey }}"
+            state: present
+
+        # repo_gpgcheck is intentionally NOT set: the repo does not publish a signed
+        # repomd.xml.asc (verified: it 404s), so enabling it would break dnf/yum.
+        - name: Add the Trivy repository
+          ansible.builtin.yum_repository:
+            name: trivy
+            description: "Trivy repository"
+            baseurl: "{{ trivy_rpm_baseurl }}"
+            gpgcheck: true
+            gpgkey: "{{ trivy_rpm_gpgkey }}"
+            enabled: true
+
+    # ------------------------------------------------------------------ install
+    - name: Install Trivy (Debian family)
+      ansible.builtin.apt:
+        name: "{{ trivy_package_name }}"
         state: present
-      when: os_family == "Debian"
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Add Trivy repository for Debian/Ubuntu
-      ansible.builtin.apt_key:
-        url: https://aquasecurity.github.io/trivy-repo/deb/public.key
+    - name: Install Trivy (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ trivy_package_name }}"
         state: present
-      when: os_family == "Debian"
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Add Trivy repository to sources.list for Debian/Ubuntu
-      ansible.builtin.apt_repository:
-        repo: "deb https://aquasecurity.github.io/trivy-repo/deb {{ ansible_facts['lsb']['codename'] }} main"
-        state: present
-      when: os_family == "Debian"
-
-    - name: Install Trivy for Debian/Ubuntu
-      apt:
-        name: trivy
-        state: present
-        update_cache: yes
-      register: apt_result
-      when: os_family == "Debian"
-
-    - name: Create trivy.repo for RHEL/CentOS
-      ansible.builtin.copy:
-        dest: /etc/yum.repos.d/trivy.repo
-        content: |
-          [trivy]
-          name=Trivy repository
-          baseurl=https://aquasecurity.github.io/trivy-repo/rpm/releases/$releasever/$basearch/
-          gpgcheck=0
-          enabled=1
-      when: os_family == "RedHat"
-
-    - name: Update repository cache for RHEL/CentOS
-      yum:
-        name: '*'
-        state: latest
-      when: os_family == "RedHat"
-
-    - name: Install Trivy for RHEL/CentOS
-      yum:
-        name: trivy
-        state: present
-      register: yum_result
-      when: os_family == "RedHat"
-
-    - name: Install Trivy via direct rpm for RHEL/CentOS (if repo fails)
-      ansible.builtin.command: >
-        rpm -ivh https://github.com/aquasecurity/trivy/releases/download/v0.18.3/trivy_0.18.3_Linux-64bit.rpm
-      when: (os_family == "RedHat") and (yum_result is failed)
-
-    - name: Install Trivy via direct deb for Debian/Ubuntu (if repo fails)
-      ansible.builtin.command: >
-        wget https://github.com/aquasecurity/trivy/releases/download/v0.18.3/trivy_0.18.3_Linux-64bit.deb && dpkg -i trivy_0.18.3_Linux-64bit.deb
-      when: (os_family == "Debian") and (apt_result is failed)
-
-    - name: Verify Trivy installation
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed version
       ansible.builtin.command: trivy --version
-      register: trivy_version
+      register: trivy_installed_version
       changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Print Trivy version
+    - name: Show the installed version
       ansible.builtin.debug:
-        msg: "Trivy version installed: {{ trivy_version.stdout }}"
+        msg: "{{ trivy_installed_version.stdout_lines }}"
+      tags: [verify]

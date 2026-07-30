@@ -1,33 +1,95 @@
 ---
-- name: Install Trivy using installation script
+- name: Install Trivy from the GitHub release binary
   hosts: trivy_servers
-  become: yes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
   tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert an architecture mapping exists
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture in trivy_arch_map
+        fail_msg: >-
+          No Trivy release asset mapping for architecture {{ ansible_architecture }}.
+          Known: {{ trivy_arch_map.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
 
-    - name: Install curl if not installed (Debian/Ubuntu)
-      apt:
-        name: curl
-        state: present
-        update_cache: yes
-      when: ansible_facts['os_family'] == "Debian"
+    # ----------------------------------------------------------------- download
+    # Checksums always come from the GitHub release, never assumed.
+    - name: Fetch the release checksums
+      ansible.builtin.uri:
+        url: "{{ trivy_checksums_url }}"
+        return_content: true
+      register: trivy_checksums
+      check_mode: false
+      tags: [install]
 
-    - name: Install curl if not installed (RHEL/CentOS)
-      yum:
-        name: curl
-        state: present
-      when: ansible_facts['os_family'] == "RedHat"
+    - name: Extract the checksum for this architecture
+      ansible.builtin.set_fact:
+        trivy_asset_name: "trivy_{{ trivy_version }}_Linux-{{ trivy_arch_map[ansible_architecture] }}.tar.gz"
+        trivy_sha256_digest: >-
+          {{ (trivy_checksums.content.splitlines()
+              | select('search', 'Linux-' ~ trivy_arch_map[ansible_architecture] ~ '\.tar\.gz$')
+              | first).split()
+             | first }}
+      tags: [install]
 
-    - name: Download and run Trivy installation script
-      ansible.builtin.shell: |
-        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.18.3
-      args:
-        creates: /usr/local/bin/trivy
+    - name: Download the Trivy tarball
+      ansible.builtin.get_url:
+        url: "{{ trivy_github_repo }}/releases/download/v{{ trivy_version }}/{{ trivy_asset_name }}"
+        dest: "/tmp/{{ trivy_asset_name }}"
+        checksum: "sha256:{{ trivy_sha256_digest }}"
+        mode: '0644'
+      tags: [install]
 
-    - name: Verify Trivy installation
-      ansible.builtin.command: trivy --version
-      register: trivy_version
+    - name: Create a scratch directory for extraction
+      ansible.builtin.file:
+        path: "/tmp/trivy-extract-{{ trivy_version }}"
+        state: directory
+        mode: '0755'
+      tags: [install]
+
+    # The release tarball also contains LICENSE/README — extract to a scratch dir and
+    # copy out only the binary, so trivy_install_dir stays clean.
+    - name: Unpack the tarball to the scratch directory
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ trivy_asset_name }}"
+        dest: "/tmp/trivy-extract-{{ trivy_version }}"
+        remote_src: true
+      tags: [install]
+
+    - name: Install the trivy binary
+      ansible.builtin.copy:
+        src: "/tmp/trivy-extract-{{ trivy_version }}/trivy"
+        dest: "{{ trivy_install_dir }}/trivy"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0755'
+      tags: [install]
+
+    - name: Remove the scratch directory and downloaded tarball
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/trivy-extract-{{ trivy_version }}"
+        - "/tmp/{{ trivy_asset_name }}"
+      tags: [install]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed version
+      ansible.builtin.command: "{{ trivy_install_dir }}/trivy --version"
+      register: trivy_installed_version
       changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Print Trivy version
+    - name: Show the installed version
       ansible.builtin.debug:
-        msg: "Trivy version installed: {{ trivy_version.stdout }}"
+        msg: "{{ trivy_installed_version.stdout_lines }}"
+      tags: [verify]

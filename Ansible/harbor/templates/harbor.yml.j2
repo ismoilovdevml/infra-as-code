@@ -1,0 +1,81 @@
+{{ ansible_managed | comment }}
+# Fields and defaults here mirror the harbor.yml.tmpl shipped inside the
+# harbor-{{ harbor_installer_type }}-installer-{{ harbor_version }}.tgz release used by
+# this playbook (verified directly from the goharbor/harbor GitHub tag).
+hostname: {{ harbor_hostname }}
+
+http:
+  port: {{ harbor_http_port }}
+
+{% if harbor_ssl_option != 'disabled' %}
+https:
+  port: {{ harbor_https_port }}
+  certificate: {{ harbor_cert_path }}
+  private_key: {{ harbor_key_path }}
+{% endif %}
+
+# The initial password of the Harbor admin. Only takes effect the first time Harbor is
+# installed; change it from the UI afterwards.
+harbor_admin_password: {{ harbor_admin_password }}
+
+database:
+  password: {{ harbor_db_password }}
+  max_idle_conns: 100
+  max_open_conns: 900
+  conn_max_lifetime: 5m
+  conn_max_idle_time: 0
+
+data_volume: {{ harbor_data_volume }}
+
+trivy:
+  ignore_unfixed: false
+  skip_update: false
+  skip_java_db_update: false
+  db_repository: ghcr.io/aquasecurity/trivy-db
+  java_db_repository: ghcr.io/aquasecurity/trivy-java-db
+  offline_scan: false
+  security_check: vuln
+  insecure: false
+  timeout: 5m0s
+
+jobservice:
+  max_job_workers: 10
+  max_job_duration_hours: 24
+  job_loggers:
+    - STD_OUTPUT
+    - FILE
+  logger_sweeper_duration: 1
+
+notification:
+  webhook_job_max_retry: 3
+  webhook_job_http_client_timeout: 3
+
+log:
+  level: info
+  local:
+    rotate_count: 50
+    rotate_size: 200M
+    location: /var/log/harbor
+
+# This attribute is for the migrator to detect the version of the .cfg file — DO NOT
+# hand-edit outside of bumping it alongside harbor_version. See vars.yml.
+_version: {{ harbor_config_schema_version }}
+
+proxy:
+  http_proxy:
+  https_proxy:
+  no_proxy:
+  components:
+    - core
+    - jobservice
+    - trivy
+
+upload_purging:
+  enabled: true
+  age: 168h
+  interval: 24h
+  dryrun: false
+
+cache:
+  enabled: false
+  expire_hours: 24

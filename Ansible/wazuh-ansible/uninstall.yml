@@ -1,0 +1,63 @@
+---
+- name: Uninstall Wazuh
+  hosts: wazuh_manager:wazuh_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop the Wazuh services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - "{{ wazuh_manager_service }}"
+        - "{{ wazuh_agent_service }}"
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Release the package holds (Debian family)
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: install
+      loop:
+        - wazuh-manager
+        - wazuh-agent
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Wazuh packages
+      ansible.builtin.package:
+        name:
+          - wazuh-manager
+          - wazuh-agent
+        state: absent
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Wazuh repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/wazuh.sources
+        - /etc/apt/keyrings/wazuh.asc
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Wazuh repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/wazuh.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove /var/ossec
+      ansible.builtin.file:
+        path: /var/ossec
+        state: absent
+      when: wazuh_purge_data | bool
+      tags: [uninstall]

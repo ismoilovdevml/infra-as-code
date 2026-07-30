@@ -1,0 +1,50 @@
+{{ ansible_managed | comment }}
+global
+    log {{ haproxy_log_address }} local0
+    maxconn {{ haproxy_maxconn }}
+    user {{ haproxy_user }}
+    group {{ haproxy_group }}
+    daemon
+
+defaults
+    mode {{ haproxy_defaults_mode }}
+    log global
+    option httplog
+    option dontlognull
+    timeout connect {{ haproxy_timeout_connect }}
+    timeout client {{ haproxy_timeout_client }}
+    timeout server {{ haproxy_timeout_server }}
+
+{% if haproxy_stats_enabled %}
+frontend stats
+    bind {{ haproxy_stats_bind }}
+    mode http
+    stats enable
+    stats uri {{ haproxy_stats_uri }}
+{% if haproxy_stats_password | length > 0 %}
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+{% endif %}
+{% endif %}
+
+{% for frontend in haproxy_frontends %}
+frontend {{ frontend.name }}
+    bind {{ frontend.bind }}
+    mode {{ frontend.mode | default('http') }}
+{% for line in frontend.extra_config | default([]) %}
+    {{ line }}
+{% endfor %}
+    default_backend {{ frontend.default_backend }}
+
+{% endfor %}
+{% for backend in haproxy_backends %}
+backend {{ backend.name }}
+    mode {{ backend.mode | default('http') }}
+    balance {{ backend.balance | default('roundrobin') }}
+{% for line in backend.extra_config | default([]) %}
+    {{ line }}
+{% endfor %}
+{% for server in backend.servers %}
+    server {{ server.name }} {{ server.address }}{{ ' check' if server.check | default(true) else '' }}
+{% endfor %}
+
+{% endfor %}

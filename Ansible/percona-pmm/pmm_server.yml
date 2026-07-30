@@ -1,66 +1,95 @@
 ---
 - name: Deploy PMM Server with Docker
   hosts: pmm_servers
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Check if Docker is installed
-      shell: "command -v docker"
-      register: docker_check
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - admin_password | length > 0
+        fail_msg: >-
+          admin_password is empty. Set vault_pmm_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
+
+    # `command -v` requires a shell, so this uses ansible.builtin.command
+    # against `which` instead of ansible.builtin.shell.
+    - name: Check whether Docker is installed
+      ansible.builtin.command: which docker
+      register: pmm_docker_check
       changed_when: false
       failed_when: false
+      check_mode: false
+      tags: [always]
 
-    - name: Display message if Docker is not installed
-      debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
+    - name: Assert Docker is present
+      ansible.builtin.assert:
+        that:
+          - pmm_docker_check.rc == 0
+        fail_msg: >-
+          Docker is not installed on {{ inventory_hostname }}. Install it first
+          (see ../docker/install_docker.yml).
+        quiet: true
+      tags: [always]
 
-    - name: Skip host if either Docker is missing
-      meta: end_host
-      when: docker_check.rc != 0
-
-    - name: Create PMM data directory
+    - name: Create the PMM data directory
       ansible.builtin.file:
         path: "{{ pmm_data_dir }}"
         state: directory
-        mode: '0755'
+        mode: '0750'
+      tags: [install]
 
-    - name: Pull PMM Docker image
-      ansible.builtin.command:
-        cmd: "docker pull {{ pmm_image }}"
-      register: docker_pull
-      changed_when: docker_pull.rc == 0
+    - name: Pull the PMM Server image
+      community.docker.docker_image:
+        name: "{{ pmm_image }}"
+        source: pull
+      tags: [install]
 
-    - name: Run PMM Server container
-      ansible.builtin.docker_container:
+    - name: Run the PMM Server container
+      community.docker.docker_container:
         name: "{{ pmm_container_name }}"
         image: "{{ pmm_image }}"
         state: started
         restart_policy: always
         ports:
-          - "443:443"
-          - "80:80"
+          - "{{ pmm_server_host_port }}:{{ pmm_server_container_port }}"
         volumes:
           - "{{ pmm_data_dir }}:/srv"
+      register: pmm_container
+      tags: [install]
 
-    - name: Wait for 1 minute before setting the admin password
-      wait_for:
-        timeout: 60
-      when: docker_pull is changed
+    - name: Wait for PMM Server to accept connections
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ pmm_server_host_port }}"
+        timeout: 120
+      tags: [install]
 
-    - name: Set the admin password for PMM
-      ansible.builtin.command:
-        cmd: "docker exec -t {{ pmm_container_name }} change-admin-password {{ admin_password }}"
-      when: docker_pull is changed
+    # change-admin-password is not idempotent against an already-changed
+    # password, so it is guarded by a marker file on the bind-mounted data
+    # directory rather than re-run (and potentially rejected) on every play.
+    - name: Set the PMM admin password
+      ansible.builtin.shell:
+        cmd: >-
+          docker exec -t {{ pmm_container_name }} change-admin-password {{ admin_password }}
+          && touch {{ pmm_data_dir }}/.admin_password_set
+        creates: "{{ pmm_data_dir }}/.admin_password_set"
+      no_log: true
+      tags: [configure]
 
     - name: Confirm PMM Server is running
       ansible.builtin.uri:
-        url: "https://{{ ansible_default_ipv4.address }}:443"
+        url: "https://127.0.0.1:{{ pmm_server_host_port }}"
         status_code: 200
-        validate_certs: no
+        validate_certs: false
       register: pmm_status
       retries: 5
       delay: 10
       until: pmm_status.status == 200
+      check_mode: false
+      tags: [verify]

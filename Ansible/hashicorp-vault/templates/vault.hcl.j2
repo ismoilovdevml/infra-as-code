@@ -1,0 +1,31 @@
+{{ ansible_managed | comment }}
+ui = {{ vault_ui | lower }}
+
+storage "raft" {
+  path    = "{{ vault_data_path }}"
+  node_id = "{{ vault_node_id }}"
+{% for addr in vault_raft_join_addrs %}
+
+  retry_join {
+    leader_api_addr = "{{ addr }}"
+  }
+{% endfor %}
+}
+
+listener "tcp" {
+  address     = "{{ vault_listen_address }}"
+  tls_disable = {{ '1' if vault_tls_disable | bool else '0' }}
+{% if not vault_tls_disable | bool %}
+  tls_cert_file = "{{ vault_tls_cert_file }}"
+  tls_key_file  = "{{ vault_tls_key_file }}"
+{% endif %}
+}
+
+cluster_addr = "{{ vault_cluster_addr }}"
+api_addr     = "{{ vault_api_addr }}"
+
+# Raft's memory-mapped log does not get along with mlock(); upstream recommends
+# disabling mlock for integrated storage. See vars.yml: vault_disable_mlock.
+disable_mlock = {{ vault_disable_mlock | lower }}
+
+log_level = "{{ vault_log_level }}"

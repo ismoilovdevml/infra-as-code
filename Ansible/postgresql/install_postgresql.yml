@@ -1,8 +1,251 @@
 ---
-- name: Install PostgreSQL 16
+- name: Install PostgreSQL from the official PGDG repositories
   hosts: all
   become: true
   vars_files:
-  - vars.yml 
-  roles:
-    - role: ANXS.postgresql
+    - vars.yml
+
+  tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          PostgreSQL. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/Oracle/Fedora, SUSE/openSUSE.
+        quiet: true
+      tags: [always]
+
+    - name: Fail on distributions with no PGDG repository
+      ansible.builtin.fail:
+        msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} has no PGDG repository.
+          PGDG does not publish packages for CentOS Stream or Amazon Linux 2023. Supported
+          RedHat-family targets: RHEL/Rocky/AlmaLinux/Oracle Linux 8/9/10, Fedora 40+.
+      when: >-
+        ansible_distribution == 'CentOS' or
+        (ansible_distribution == 'Amazon' and ansible_distribution_major_version == '2023')
+      tags: [always]
+
+    - name: Fail on unsupported Ubuntu release
+      ansible.builtin.fail:
+        msg: >-
+          Ubuntu {{ ansible_distribution_version }} (focal) is no longer supported by the PGDG
+          apt repository. Supported Ubuntu releases: 22.04 (jammy), 24.04 (noble), 26.04 (resolute).
+      when: ansible_distribution == 'Ubuntu' and ansible_distribution_major_version | int == 20
+      tags: [always]
+
+    - name: Fail on unsupported openSUSE Leap release
+      ansible.builtin.fail:
+        msg: >-
+          openSUSE Leap {{ ansible_distribution_version }} has no PGDG repository. Only Leap
+          16.0 is supported; use the OBS server:database:postgresql project for Leap 15.x
+          or Tumbleweed.
+      when: >-
+        ansible_distribution == 'openSUSE Leap' and
+        ansible_distribution_version.split('.')[0] | int < 16
+      tags: [always]
+
+    - name: Debian/Ubuntu install
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install postgresql-common helper package
+          ansible.builtin.apt:
+            name: postgresql-common
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Download PGDG apt signing key
+          ansible.builtin.get_url:
+            url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            dest: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+            mode: '0644'
+
+        - name: Add PGDG apt repository (deb822 format)
+          ansible.builtin.deb822_repository:
+            name: pgdg
+            types: deb
+            uris: https://apt.postgresql.org/pub/repos/apt
+            suites: "{{ ansible_distribution_release }}-pgdg"
+            components: main
+            signed_by: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+            state: present
+
+        - name: Update apt cache after adding PGDG repository
+          ansible.builtin.apt:
+            update_cache: true
+
+        - name: Install PostgreSQL packages {{ postgresql_version }}
+          ansible.builtin.apt:
+            name:
+              - "postgresql-{{ postgresql_version }}"
+              - "postgresql-client-{{ postgresql_version }}"
+              - "postgresql-contrib"
+              - "libpq-dev"
+              - "{{ postgresql_python_package.Debian }}"
+            state: present
+
+    - name: RHEL family install
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Map ansible_architecture to PGDG RPM architecture
+          ansible.builtin.set_fact:
+            postgresql_pgdg_arch: >-
+              {{ 'aarch64' if ansible_architecture == 'aarch64'
+                 else 'ppc64le' if ansible_architecture == 'ppc64le'
+                 else 'x86_64' }}
+
+        - name: Install EPEL repository (PGDG dependency on EL)
+          ansible.builtin.dnf:
+            name: epel-release
+            state: present
+          when: ansible_distribution != 'Fedora'
+
+        - name: Install dnf-plugins-core (provides dnf config-manager)
+          ansible.builtin.dnf:
+            name: dnf-plugins-core
+            state: present
+          when: ansible_distribution != 'Fedora'
+
+        - name: Install PGDG yum repository RPM (EL)
+          ansible.builtin.dnf:
+            name: >-
+              https://download.postgresql.org/pub/repos/yum/reporpms/EL-{{
+              ansible_distribution_major_version }}-{{ postgresql_pgdg_arch
+              }}/pgdg-redhat-repo-latest.noarch.rpm
+            state: present
+          when: ansible_distribution != 'Fedora'
+
+        - name: Install PGDG yum repository RPM (Fedora)
+          ansible.builtin.dnf:
+            name: >-
+              https://download.postgresql.org/pub/repos/yum/reporpms/F-{{
+              ansible_distribution_major_version }}-{{ postgresql_pgdg_arch
+              }}/pgdg-fedora-repo-latest.noarch.rpm
+            state: present
+          when: ansible_distribution == 'Fedora'
+
+        - name: Disable built-in postgresql module stream (EL8 only)
+          ansible.builtin.command: dnf -qy module disable postgresql
+          # No dedicated module manages DNF module streams; EL9/EL10 do not have this
+          # module at all, so the task is scoped to EL8 only.
+          register: postgresql_module_disable
+          changed_when: "'Nothing to do' not in postgresql_module_disable.stdout"
+          when:
+            - ansible_distribution != 'Fedora'
+            - ansible_distribution_major_version | int == 8
+
+        - name: Enable CRB/PowerTools repository (best-effort, needed by some PGDG deps)
+          ansible.builtin.command: >-
+            dnf config-manager --set-enabled {{ 'powertools' if ansible_distribution_major_version | int == 8 else 'crb' }}
+          # Repo id varies across RHEL derivatives (Rocky/Alma vs RHUI-based RHEL) and is
+          # not required for a plain server install, so failures here are non-fatal.
+          register: postgresql_crb_enable
+          changed_when: postgresql_crb_enable.rc == 0
+          failed_when: false
+          when:
+            - ansible_distribution != 'Fedora'
+            - ansible_distribution_major_version | int in [8, 9, 10]
+
+        - name: Install PostgreSQL packages {{ postgresql_version }}
+          ansible.builtin.dnf:
+            name:
+              - "postgresql{{ postgresql_version }}-server"
+              - "postgresql{{ postgresql_version }}"
+              - "postgresql{{ postgresql_version }}-contrib"
+              - "{{ postgresql_python_package.RedHat }}"
+            state: present
+
+        - name: Check if PostgreSQL data directory is already initialized
+          ansible.builtin.stat:
+            path: "{{ postgresql_data_dir }}/PG_VERSION"
+          register: postgresql_data_dir_stat
+
+        - name: Initialize PostgreSQL database cluster
+          ansible.builtin.command: "/usr/pgsql-{{ postgresql_version }}/bin/postgresql-{{ postgresql_version }}-setup initdb"
+          when: not postgresql_data_dir_stat.stat.exists
+          changed_when: true
+
+    - name: SUSE family install
+      when: ansible_os_family == 'Suse'
+      tags: [install]
+      block:
+        - name: Import PGDG GPG key (SLES)
+          ansible.builtin.rpm_key:
+            key: >-
+              https://zypp.postgresql.org/keys/PGDG-RPM-GPG-KEY-{{
+              'SLES16' if ansible_distribution_version.split('.')[0] | int >= 16 else 'SLES15' }}
+            state: present
+          when: ansible_distribution == 'SLES'
+
+        - name: Determine PGDG SUSE repository RPM URL
+          ansible.builtin.set_fact:
+            postgresql_suse_repo_url: >-
+              {{
+                'https://download.postgresql.org/pub/repos/zypp/reporpms/LEAP-16.0-x86_64/pgdg-suse-repo-latest.noarch.rpm'
+                if ansible_distribution == 'openSUSE Leap'
+                else 'https://download.postgresql.org/pub/repos/zypp/reporpms/SLES-15-x86_64/pgdg-suse-repo-latest.noarch.rpm'
+                if ansible_distribution_version.split('.')[0] | int >= 16
+                else 'https://download.postgresql.org/pub/repos/zypp/reporpms/SLES-' ~ ansible_distribution_version ~ '-x86_64/pgdg-suse-repo-latest.noarch.rpm'
+              }}
+
+        - name: Install PGDG zypp repository RPM
+          community.general.zypper:
+            name: "{{ postgresql_suse_repo_url }}"
+            state: present
+            disable_gpg_check: true
+
+        - name: Refresh zypper metadata
+          ansible.builtin.command: zypper --non-interactive refresh
+          # zypper has no idempotent "refresh" ansible module; this is a read/sync
+          # operation with no persistent state change.
+          changed_when: false
+
+        - name: Install PostgreSQL packages {{ postgresql_version }}
+          community.general.zypper:
+            name:
+              - "postgresql{{ postgresql_version }}-server"
+              - "postgresql{{ postgresql_version }}"
+              - "postgresql{{ postgresql_version }}-contrib"
+            state: present
+
+        - name: Check if PostgreSQL data directory is already initialized (SUSE)
+          ansible.builtin.stat:
+            path: "{{ postgresql_data_dir }}/PG_VERSION"
+          register: postgresql_data_dir_stat_suse
+
+        - name: Initialize PostgreSQL database cluster (SUSE)
+          # Command and service name mirror the RHEL PGDG layout; not independently
+          # confirmed upstream for SUSE (see README Notes).
+          ansible.builtin.command: "/usr/pgsql-{{ postgresql_version }}/bin/postgresql-{{ postgresql_version }}-setup initdb"
+          when: not postgresql_data_dir_stat_suse.stat.exists
+          changed_when: true
+
+    - name: Enable and start PostgreSQL service
+      ansible.builtin.systemd_service:
+        name: "{{ postgresql_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for PostgreSQL to accept connections
+      ansible.builtin.wait_for:
+        port: "{{ postgresql_port }}"
+        host: 127.0.0.1
+        timeout: 30
+      tags: [verify]
+
+    - name: Verify installed PostgreSQL version
+      ansible.builtin.command: psql --version
+      changed_when: false
+      register: postgresql_version_check
+      tags: [verify]
+
+    - name: Show installed PostgreSQL version
+      ansible.builtin.debug:
+        msg: "{{ postgresql_version_check.stdout }}"
+      tags: [verify]

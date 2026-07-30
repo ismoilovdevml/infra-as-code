@@ -1,53 +1,49 @@
 ---
 - name: Expose Kubernetes Dashboard with Ingress
-  hosts: all
-  become: yes
-  vars:
-    dashboard_namespace: "kubernetes-dashboard"  # Namespace for Kubernetes dashboard
-    ingress_name: "k8s-dashboard-ingress"
-    host_name: "dashboard.helm.uz"  # Hostname for the dashboard
-    tls_secret_name: "k8s-dashboard-tls"
-    cluster_issuer_name: "letsencrypt-prod"
-    service_name: "kubernetes-dashboard-kong-proxy"  # Updated service name for the dashboard
-    service_port: 443  # Secure HTTPS port for the dashboard
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Create Ingress configuration file
-      ansible.builtin.copy:
-        dest: /tmp/dashboard-ingress.yaml
-        content: |
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
-          metadata:
-            name: {{ ingress_name }}
-            namespace: {{ dashboard_namespace }}
-            annotations:
-              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-              cert-manager.io/cluster-issuer: "{{ cluster_issuer_name }}"
-              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-          spec:
-            ingressClassName: "nginx"
-            rules:
-            - host: {{ host_name }}
-              http:
-                paths:
-                - path: /
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: {{ service_name }}
-                      port:
-                        number: {{ service_port }}
-            tls:
-            - hosts:
-              - {{ host_name }}
-              secretName: {{ tls_secret_name }}
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Verify the Kubernetes Dashboard Service exists
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Service
+            name: "{{ dashboard_service_name }}"
+            namespace: "{{ dashboard_namespace }}"
+          register: dashboard_service_check
 
-    - name: Apply Ingress configuration
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/dashboard-ingress.yaml
-      register: ingress_apply_output
+        - name: Fail if the Kubernetes Dashboard Service does not exist
+          ansible.builtin.assert:
+            that:
+              - dashboard_service_check.resources | length > 0
+            fail_msg: >-
+              Service {{ dashboard_service_name }} not found in {{ dashboard_namespace }}.
+              Run install.yml first.
+            quiet: true
 
-    - name: Show Ingress apply output
-      debug:
-        var: ingress_apply_output.stdout
+    - name: Apply the Ingress
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        template: templates/ingress.yaml.j2
+      tags: [configure]
+
+    - name: Show the Ingress status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Ingress
+        name: "{{ dashboard_ingress_name }}"
+        namespace: "{{ dashboard_namespace }}"
+      register: dashboard_ingress_status
+      tags: [verify]
+
+    - name: Show the Ingress
+      ansible.builtin.debug:
+        var: dashboard_ingress_status.resources
+      tags: [verify]

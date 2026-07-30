@@ -1,32 +1,225 @@
-- hosts: kafka-nodes
+---
+- name: Install Apache Kafka (KRaft)
+  hosts: kafka_nodes
   become: true
-  vars:
-    kafka_download_base_url: "https://downloads.apache.org/kafka"
-    kafka_download_validate_certs: yes
-    kafka_version: "3.8.0"
-    kafka_scala_version: "2.13"
-    kafka_create_user_group: "true"
-    kafka_user: "kafka"
-    kafka_group: "kafka"
-    kafka_root_dir: "/opt"
-    kafka_dir: "{{ kafka_root_dir }}/kafka"
-    kafka_broker_id: 0
-    kafka_log_dir: "/var/log/kafka"
-    kafka_data_log_dirs: "/var/lib/kafka/logs"
-    kafka_num_partitions: 3
-    kafka_replication_factor: 3
-    kafka_listeners: PLAINTEXT://0.0.0.0:9092
-    kafka_zookeeper_connect: "137.184.143.123:2181,165.22.3.122:2181,159.223.131.6:2181"
-    kafka_auto_create_topics_enable: false
-    kafka_delete_topic_enable: true
-    kafka_offsets_topic_replication_factor: 3
-    kafka_transaction_state_log_replication_factor: 3
-    kafka_transaction_state_log_min_isr: 2
-    kafka_log_retention_hours: 168
-    kafka_log_segment_bytes: 1073741824
-    kafka_log_retention_check_interval_ms: 300000
-    kafka_server_config_params:
-      inter.broker.protocol.version: "3.5"
-      log.message.format.version: "3.5"
-  roles:
-    - sleighzy.kafka
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart kafka
+      ansible.builtin.systemd_service:
+        name: kafka
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in kafka_java_packages
+        fail_msg: >-
+          No Java 17 package mapping for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ kafka_java_packages.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    - name: Install Java 17
+      ansible.builtin.package:
+        name: "{{ kafka_java_packages[ansible_os_family] }}"
+        state: present
+      tags: [install]
+
+    # Kafka 4.x refuses to start on Java 11; catch it here rather than in a
+    # confusing JVM stack trace at first boot.
+    - name: Check the Java major version
+      ansible.builtin.command: java -version
+      register: kafka_java_version
+      changed_when: false
+      check_mode: false
+      tags: [install]
+
+    - name: Assert Java 17 or newer
+      ansible.builtin.assert:
+        that:
+          - (kafka_java_version.stderr | regex_search('version "([0-9]+)', '\1') | first | int) >= 17
+        fail_msg: "Kafka {{ kafka_version }} requires Java 17+; found: {{ kafka_java_version.stderr_lines | first }}"
+        quiet: true
+      tags: [install]
+
+    # ------------------------------------------------------------------ account
+    - name: Create the kafka group
+      ansible.builtin.group:
+        name: "{{ kafka_group }}"
+        system: true
+      tags: [install]
+
+    - name: Create the kafka user
+      ansible.builtin.user:
+        name: "{{ kafka_user }}"
+        group: "{{ kafka_group }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ kafka_dir }}"
+        create_home: false
+      tags: [install]
+
+    - name: Create the data and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ kafka_user }}"
+        group: "{{ kafka_group }}"
+        mode: '0750'
+      loop:
+        - "{{ kafka_data_dir }}"
+        - "{{ kafka_log_dir }}"
+      tags: [install]
+
+    # ----------------------------------------------------------------- download
+    # Apache publishes the checksum in two historical layouts:
+    #   "<hash>  <file>"   (sha512sum format) and   "<file>: <hash with spaces>".
+    # Normalise both to a bare hex digest.
+    - name: Fetch the release checksum
+      ansible.builtin.uri:
+        url: "{{ kafka_checksum_url }}/{{ kafka_version }}/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz.sha512"
+        return_content: true
+      register: kafka_sha512
+      check_mode: false
+      tags: [install]
+
+    - name: Normalise the checksum
+      ansible.builtin.set_fact:
+        kafka_sha512_digest: >-
+          {{ ((kafka_sha512.content.split(':') | last) if ':' in kafka_sha512.content
+              else (kafka_sha512.content.split() | first))
+             | regex_replace('\s+', '') | lower }}
+      tags: [install]
+
+    - name: Download the Kafka tarball
+      ansible.builtin.get_url:
+        url: "{{ kafka_mirror_url }}/{{ kafka_version }}/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz"
+        dest: "/tmp/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz"
+        checksum: "sha512:{{ kafka_sha512_digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [install]
+
+    - name: Unpack Kafka
+      ansible.builtin.unarchive:
+        src: "/tmp/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz"
+        dest: "{{ kafka_install_root }}"
+        remote_src: true
+        owner: "{{ kafka_user }}"
+        group: "{{ kafka_group }}"
+        creates: "{{ kafka_versioned_dir }}"
+      tags: [install]
+
+    - name: Link the install root to the installed version
+      ansible.builtin.file:
+        src: "{{ kafka_versioned_dir }}"
+        dest: "{{ kafka_dir }}"
+        state: link
+        owner: "{{ kafka_user }}"
+        group: "{{ kafka_group }}"
+      notify: Restart kafka
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Write server.properties
+      ansible.builtin.template:
+        src: server.properties.j2
+        dest: "{{ kafka_config_dir }}/server.properties"
+        owner: "{{ kafka_user }}"
+        group: "{{ kafka_group }}"
+        mode: '0640'
+      notify: Restart kafka
+      tags: [configure]
+
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: kafka.service.j2
+        dest: /etc/systemd/system/kafka.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart kafka
+      tags: [configure]
+
+    # ------------------------------------------------------------ format storage
+    # Auto-format is discouraged upstream because it can hide a genuine error, so
+    # this runs once, guarded by the meta.properties the formatter writes.
+    - name: Check whether the storage directory is formatted
+      ansible.builtin.stat:
+        path: "{{ kafka_data_dir }}/meta.properties"
+      register: kafka_meta
+      tags: [configure]
+
+    - name: Generate a cluster ID on the first node
+      ansible.builtin.command: "{{ kafka_dir }}/bin/kafka-storage.sh random-uuid"
+      register: kafka_generated_id
+      changed_when: false
+      check_mode: false
+      when:
+        - kafka_cluster_id | length == 0
+        - inventory_hostname == groups['kafka_nodes'] | first
+        - not kafka_meta.stat.exists
+      tags: [configure]
+
+    # Every node in a cluster must share one ID, so the generated value is taken
+    # from the first node's hostvars rather than generated per host.
+    - name: Resolve the cluster ID
+      ansible.builtin.set_fact:
+        kafka_effective_cluster_id: >-
+          {{ kafka_cluster_id if kafka_cluster_id | length > 0
+             else hostvars[groups['kafka_nodes'] | first].kafka_generated_id.stdout | default('') }}
+      when: not kafka_meta.stat.exists
+      tags: [configure]
+
+    - name: Format the storage directory
+      ansible.builtin.command:
+        cmd: >-
+          {{ kafka_dir }}/bin/kafka-storage.sh format
+          --cluster-id {{ kafka_effective_cluster_id }}
+          --config {{ kafka_config_dir }}/server.properties
+          {{ '--standalone' if groups['kafka_nodes'] | length == 1 else '--no-initial-controllers' }}
+        creates: "{{ kafka_data_dir }}/meta.properties"
+      become: true
+      become_user: "{{ kafka_user }}"
+      when:
+        - not kafka_meta.stat.exists
+        - kafka_effective_cluster_id | length > 0
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start kafka
+      ansible.builtin.systemd_service:
+        name: kafka
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for the broker port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ kafka_broker_port }}"
+        timeout: 120
+      tags: [verify]
+
+    - name: List the cluster from the broker
+      ansible.builtin.command: >-
+        {{ kafka_dir }}/bin/kafka-broker-api-versions.sh
+        --bootstrap-server {{ kafka_advertised_host }}:{{ kafka_broker_port }}
+      register: kafka_api_check
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the broker status
+      ansible.builtin.debug:
+        msg: "Kafka {{ kafka_version }} node {{ kafka_node_id }} responding on {{ kafka_advertised_host }}:{{ kafka_broker_port }}"
+      when: kafka_api_check.rc == 0
+      tags: [verify]

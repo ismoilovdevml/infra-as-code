@@ -1,41 +1,140 @@
 ---
-- hosts: nexus_servers
-  become: yes
+- name: Install and configure Nexus Repository (Docker)
+  hosts: nexus_servers
+  become: true
+  gather_facts: true
   vars_files:
-  - vars.yml
+    - vars.yml
+
   tasks:
-    - name: Create Nexus data directory
-      file:
+    # ---------------------------------------------------------------- preflight
+    - name: Check whether Docker is installed
+      ansible.builtin.command: docker version
+      register: nexus_docker_check
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      tags: [always]
+
+    - name: Assert Docker Engine is present
+      ansible.builtin.assert:
+        that:
+          - nexus_docker_check.rc == 0
+        fail_msg: >-
+          Docker Engine is required first — see the Ansible/docker module in this
+          repository (install_docker.yml).
+        quiet: true
+      tags: [always]
+
+    # ---------------------------------------------------------------- data dir
+    # The sonatype/nexus3 entrypoint runs as UID 200; the volume must be pre-owned by
+    # it or the container fails to write to /nexus-data.
+    - name: Create the Nexus data directory
+      ansible.builtin.file:
         path: "{{ nexus_data_dir }}"
         state: directory
-        owner: 200
-        recurse: yes
+        owner: "{{ nexus_data_uid }}"
+        group: "{{ nexus_data_uid }}"
+        mode: '0750'
+        recurse: true
+      tags: [configure]
 
-    - name: Run Nexus container
-      docker_container:
+    # ------------------------------------------------------------------ deploy
+    - name: Run the Nexus container
+      community.docker.docker_container:
         name: "{{ nexus_container_name }}"
         image: "{{ nexus_image }}"
         state: started
         ports:
-          - "{{ nexus_port }}:{{ nexus_port }}"
+          - "{{ nexus_port }}:8081"
         volumes:
           - "{{ nexus_data_dir }}:/nexus-data"
-        restart_policy: always
+        restart_policy: "{{ nexus_restart_policy }}"
+      tags: [install]
 
-    - name: Wait for 2 minutes before checking Nexus status
-      pause:
-        minutes: 2
-
-    - name: Wait for Nexus to start
-      wait_for:
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the Nexus HTTP port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
         port: "{{ nexus_port }}"
-        delay: 30
         timeout: 300
+      tags: [verify]
 
-    - name: Retrieve Nexus admin password
-      command: docker exec "{{ nexus_container_name }}" cat "{{ nexus_admin_password_file }}"
-      register: admin_password_output
+    - name: Wait for the Nexus REST API to report ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ nexus_port }}/service/rest/v1/status"
+        status_code: 200
+      register: nexus_status
+      until: nexus_status.status == 200
+      retries: 30
+      delay: 10
+      changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Show Nexus admin password
-      debug:
-        msg: "Nexus admin password is: {{ admin_password_output.stdout }}"
+    # ------------------------------------------------------- onboarding / EULA
+    # Since 3.77.0 the Community Edition onboarding wizard requires accepting an
+    # updated EULA before repositories can serve or accept components. This reads
+    # the auto-generated initial admin password and uses the documented REST API
+    # instead of the interactive wizard. If the password file is already gone (a
+    # previous run completed onboarding), this is skipped — already idempotent.
+    - name: Attempt to read the initial admin password
+      community.docker.docker_container_exec:
+        container: "{{ nexus_container_name }}"
+        command: "cat {{ nexus_admin_password_file }}"
+      register: nexus_admin_password_raw
+      failed_when: false
+      changed_when: false
+      check_mode: false
+      no_log: true
+      tags: [configure]
+
+    - name: Accept the Community Edition EULA
+      when:
+        - nexus_accept_eula | bool
+        - nexus_admin_password_raw.rc == 0
+      tags: [configure]
+      block:
+        - name: Fetch the current EULA text
+          ansible.builtin.uri:
+            url: "http://127.0.0.1:{{ nexus_port }}/service/rest/v1/system/eula"
+            method: GET
+            url_username: admin
+            url_password: "{{ nexus_admin_password_raw.stdout }}"
+            force_basic_auth: true
+            status_code: 200
+          register: nexus_eula
+          no_log: true
+          changed_when: false
+          check_mode: false
+
+        - name: Accept the EULA
+          ansible.builtin.uri:
+            url: "http://127.0.0.1:{{ nexus_port }}/service/rest/v1/system/eula"
+            method: POST
+            url_username: admin
+            url_password: "{{ nexus_admin_password_raw.stdout }}"
+            force_basic_auth: true
+            body_format: json
+            body:
+              accepted: true
+              disclaimer: "{{ nexus_eula.json.disclaimer }}"
+            status_code: 200
+          when: not nexus_eula.json.accepted
+          no_log: true
+
+    - name: Show the initial admin password
+      ansible.builtin.debug:
+        msg: >-
+          Nexus is listening on port {{ nexus_port }}. Initial admin password
+          (change this on first login): {{ nexus_admin_password_raw.stdout }}
+      when: nexus_admin_password_raw.rc == 0
+      tags: [verify]
+
+    - name: Show that onboarding already completed
+      ansible.builtin.debug:
+        msg: >-
+          Nexus is listening on port {{ nexus_port }}. The initial admin password file
+          no longer exists — onboarding already completed on a previous run.
+      when: nexus_admin_password_raw.rc != 0
+      tags: [verify]

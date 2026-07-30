@@ -1,41 +1,151 @@
 ---
-- name: Install Dozzle in Docker
-  hosts: all
-  become: yes
-  vars:
-    dozzle_image: "amir20/dozzle:latest"
-    container_name: "dozzle"
-    host_port: 8081
-    docker_sock_path: "/var/run/docker.sock"
+# Agents first: the server's DOZZLE_REMOTE_AGENT list is built from this group,
+# so they must be listening before the server starts.
+- name: Install the Dozzle agents
+  hosts: dozzle_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Check if Docker binary exists
-      shell: "command -v docker"
-      register: docker_check
-      changed_when: false
-      failed_when: false
+    - name: Assert the Docker socket is present
+      ansible.builtin.stat:
+        path: "{{ dozzle_docker_socket }}"
+      register: dozzle_socket
+      failed_when: not dozzle_socket.stat.exists
+      tags: [always]
 
-    - name: Display message if Docker is not installed
-      debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
-
-    - name: Skip host if Docker is missing
-      meta: end_host
-      when: docker_check.rc != 0
-
-    - name: Pull Dozzle image
-      ansible.builtin.docker_image:
-        name: "{{ dozzle_image }}"
-        source: pull
-
-    - name: Run Dozzle container
-      ansible.builtin.docker_container:
-        name: "{{ container_name }}"
-        image: "{{ dozzle_image }}"
+    - name: Run the Dozzle agent
+      community.docker.docker_container:
+        name: "{{ dozzle_agent_container }}"
+        image: "{{ dozzle_registry }}:{{ dozzle_version }}"
+        command: ["agent"]
         state: started
-        restart_policy: always
+        restart_policy: "{{ dozzle_restart_policy }}"
+        pull: true
+        env:
+          DOZZLE_AGENT_ADDR: ":{{ dozzle_agent_port }}"
+        published_ports: "{{ [dozzle_agent_port ~ ':' ~ dozzle_agent_port] if dozzle_agent_publish else [] }}"
         volumes:
-          - "{{ docker_sock_path }}:/var/run/docker.sock"
+          - "{{ dozzle_docker_socket }}:/var/run/docker.sock"
+      tags: [install]
+
+    - name: Wait for the agent port to open
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ dozzle_agent_port }}"
+        timeout: 60
+      when: dozzle_agent_publish | bool
+      tags: [verify]
+
+- name: Install the Dozzle server
+  hosts: dozzle_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    # "<host>:<port>" per agent, comma separated, as DOZZLE_REMOTE_AGENT expects.
+    dozzle_remote_agents: >-
+      {{ groups['dozzle_agents'] | default([])
+         | map('extract', hostvars, 'ansible_host')
+         | select('string')
+         | map('regex_replace', '^(.*)$', '\1:' ~ dozzle_agent_port)
+         | join(',') }}
+
+  tasks:
+    - name: Assert the Docker socket is present
+      ansible.builtin.stat:
+        path: "{{ dozzle_docker_socket }}"
+      register: dozzle_socket
+      failed_when: not dozzle_socket.stat.exists
+      tags: [always]
+
+    - name: Assert an admin password was supplied
+      ansible.builtin.assert:
+        that:
+          - dozzle_admin_password | length >= 12
+        fail_msg: >-
+          dozzle_auth_provider is 'simple' but dozzle_admin_password is empty or shorter
+          than 12 characters. Set vault_dozzle_admin_password in an Ansible Vault file.
+        quiet: true
+      when: dozzle_auth_provider == 'simple'
+      tags: [always]
+
+    - name: Create the Dozzle data directory
+      ansible.builtin.file:
+        path: "{{ dozzle_data_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      tags: [install]
+
+    # Dozzle has no non-interactive hashing API other than its own `generate`
+    # subcommand, so the image is run once to produce /data/users.yml. The password
+    # is passed on stdin rather than argv so it never lands in the process table.
+    # Written to a temporary file first: a plain `> users.yml` redirect would leave an
+    # empty file behind on failure, and `creates:` would then skip the retry forever.
+    - name: Generate the simple-auth users file
+      ansible.builtin.shell:
+        cmd: >-
+          umask 077 &&
+          docker run --rm -i {{ dozzle_registry }}:{{ dozzle_version }}
+          generate {{ dozzle_admin_username | quote }}
+          --password "$(cat)"
+          --email {{ dozzle_admin_email | quote }}
+          --name {{ dozzle_admin_name | quote }}
+          > {{ (dozzle_data_path ~ '/users.yml.tmp') | quote }}
+          && mv {{ (dozzle_data_path ~ '/users.yml.tmp') | quote }}
+                {{ (dozzle_data_path ~ '/users.yml') | quote }}
+        stdin: "{{ dozzle_admin_password }}"
+        creates: "{{ dozzle_data_path }}/users.yml"
+        executable: /bin/bash
+      no_log: true
+      when: dozzle_auth_provider == 'simple'
+      tags: [install]
+
+    - name: Secure the users file
+      ansible.builtin.file:
+        path: "{{ dozzle_data_path }}/users.yml"
+        owner: root
+        group: root
+        mode: '0600'
+      when: dozzle_auth_provider == 'simple'
+      tags: [install]
+
+    - name: Run the Dozzle server
+      community.docker.docker_container:
+        name: "{{ dozzle_server_container }}"
+        image: "{{ dozzle_registry }}:{{ dozzle_version }}"
+        state: started
+        restart_policy: "{{ dozzle_restart_policy }}"
+        pull: true
+        env:
+          DOZZLE_AUTH_PROVIDER: "{{ dozzle_auth_provider }}"
+          DOZZLE_AUTH_TTL: "{{ dozzle_auth_ttl }}"
+          DOZZLE_REMOTE_AGENT: "{{ dozzle_remote_agents }}"
+          DOZZLE_LEVEL: "{{ dozzle_log_level }}"
+          DOZZLE_ENABLE_ACTIONS: "{{ dozzle_enable_actions | string | lower }}"
+          DOZZLE_ENABLE_SHELL: "{{ dozzle_enable_shell | string | lower }}"
         published_ports:
-          - "{{ host_port }}:8080"
+          - "{{ dozzle_bind_address }}:{{ dozzle_port }}:8080"
+        volumes:
+          - "{{ dozzle_docker_socket }}:/var/run/docker.sock"
+          - "{{ dozzle_data_path }}:/data"
+      tags: [install]
+
+    - name: Wait for the Dozzle UI port to open
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ dozzle_port }}"
+        timeout: 60
+      tags: [verify]
+
+    - name: Show the Dozzle URL
+      ansible.builtin.debug:
+        msg: >-
+          Dozzle {{ dozzle_version }} on http://{{ inventory_hostname }}:{{ dozzle_port }}
+          (agents: {{ dozzle_remote_agents | default('none') }})
+      tags: [verify]

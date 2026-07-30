@@ -1,0 +1,4 @@
+---
+# Helm needs no collection beyond ansible.builtin: the default install method is the
+# get.helm.sh tarball, and the Debian package method uses ansible.builtin.deb822_repository.
+collections: []

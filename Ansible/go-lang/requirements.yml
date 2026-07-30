@@ -1,0 +1,5 @@
+---
+# This module only uses ansible.builtin modules (get_url, unarchive, template, assert).
+# No non-builtin collection is required. Kept for structural consistency with the other
+# modules in this repo and as the place to add one if a future task needs it.
+collections: []

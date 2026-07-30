@@ -1,0 +1,54 @@
+---
+# dlcdn only serves currently-supported releases. 3.9.2 has already aged out of it;
+# point zookeeper_mirror_url at archive.apache.org for anything older.
+zookeeper_version: "3.9.5"
+zookeeper_mirror_url: "https://dlcdn.apache.org/zookeeper"
+# Checksums always come from downloads.apache.org, never from a mirror.
+zookeeper_checksum_url: "https://downloads.apache.org/zookeeper"
+
+# Note the asymmetry upstream: the directory is zookeeper-<VER> but the tarball is
+# apache-zookeeper-<VER>-bin.tar.gz.
+zookeeper_tarball: "apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+zookeeper_remote_subdir: "zookeeper-{{ zookeeper_version }}"
+
+zookeeper_user: zookeeper
+zookeeper_group: zookeeper
+
+zookeeper_install_root: /opt
+zookeeper_versioned_dir: "{{ zookeeper_install_root }}/apache-zookeeper-{{ zookeeper_version }}-bin"
+zookeeper_dir: "{{ zookeeper_install_root }}/zookeeper"     # symlink -> versioned dir
+zookeeper_conf_dir: "{{ zookeeper_dir }}/conf"
+zookeeper_data_dir: /var/lib/zookeeper
+zookeeper_log_dir: /var/log/zookeeper
+
+# ZooKeeper 3.9.x runs on JDK 8 or 11. Newer LTS releases are widely used but not
+# stated as supported by upstream docs, so 11 is the default here.
+zookeeper_java_packages:
+  Debian: openjdk-11-jre-headless
+  RedHat: java-11-openjdk-headless
+  Suse: java-11-openjdk-headless
+
+zookeeper_client_port: 2181
+zookeeper_peer_port: 2888
+zookeeper_election_port: 3888
+zookeeper_client_bind_address: "0.0.0.0"
+
+# myid, unique per node. Set `zookeeper_id=<n>` per host in the inventory, or let
+# it fall back to the host's position in the group.
+zookeeper_id: "{{ groups['zookeeper_nodes'].index(inventory_hostname) + 1 }}"
+
+zookeeper_tick_time: 2000
+zookeeper_init_limit: 10
+zookeeper_sync_limit: 5
+zookeeper_max_client_cnxns: 60
+zookeeper_autopurge_snap_retain_count: 3
+zookeeper_autopurge_purge_interval: 1
+
+# The four-letter-word commands are disabled by default. `srvr` and `ruok` are the
+# minimum needed for health checks; do not open this list up without a firewall.
+zookeeper_4lw_whitelist: "srvr,ruok,stat"
+
+zookeeper_heap_opts: "-Xmx1G -Xms1G"
+
+# uninstall.yml: also delete the data directory (the snapshot store).
+zookeeper_purge_data: false

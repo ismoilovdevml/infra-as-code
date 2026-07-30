@@ -1,0 +1,77 @@
+---
+# Covers the two persistent install methods (OS package repo, GitHub binary).
+# The docker method leaves nothing installed beyond the pulled image/cache dir; the
+# helm method is removed with `-e trivy_uninstall_helm=true` against trivy_helm_hosts.
+- name: Uninstall Trivy (package + binary)
+  hosts: trivy_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the Trivy package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ trivy_package_name }}"
+        state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Trivy package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ trivy_package_name }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Trivy repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/trivy.sources
+        - /etc/apt/sources.list.d/trivy.list
+        - "{{ trivy_apt_keyring }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Trivy repository (RedHat family)
+      ansible.builtin.yum_repository:
+        name: trivy
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the trivy binary
+      ansible.builtin.file:
+        path: "{{ trivy_install_dir }}/trivy"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the Trivy vulnerability DB cache
+      ansible.builtin.file:
+        path: "{{ trivy_docker_cache_dir }}"
+        state: absent
+      tags: [uninstall]
+
+- name: Uninstall the Trivy Helm release
+  hosts: trivy_helm_hosts
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  vars:
+    trivy_uninstall_helm: false
+
+  tasks:
+    - name: Remove the Trivy Helm release
+      kubernetes.core.helm:
+        name: "{{ trivy_helm_release_name }}"
+        release_namespace: "{{ trivy_helm_namespace }}"
+        state: absent
+      when: trivy_uninstall_helm | bool
+      tags: [uninstall]

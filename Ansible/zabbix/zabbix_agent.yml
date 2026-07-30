@@ -1,18 +1,98 @@
-- name: Install and Configure Zabbix Agents
+---
+- name: Install and configure the Zabbix agent
   hosts: zabbix_agents
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  tasks:
-    - name: Install Zabbix agent
-      community.zabbix.zabbix_agent:
-        zabbix_agent_server: "{{ zabbix_server_ip }}"
-        zabbix_agent_listenport: "{{ zabbix_agent_listenport }}"
-        zabbix_agent_tlsconnect: "{{ zabbix_agent_tlsconnect }}"
-        zabbix_agent_tlsaccept: "{{ zabbix_agent_tlsaccept }}"
 
-    - name: Start Zabbix agent service
-      ansible.builtin.service:
-        name: zabbix-agent
-        state: started
+  handlers:
+    - name: Restart zabbix-agent
+      ansible.builtin.systemd_service:
+        name: "{{ zabbix_agent_package }}"
+        state: restarted
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+          supported. Zabbix {{ zabbix_series }} publishes repo.zabbix.com
+          packages for Debian/Ubuntu and RHEL family; SLES support is not
+          implemented by this playbook.
+        quiet: true
+      tags: [always]
+
+    - name: Assert the Zabbix server address is set
+      ansible.builtin.assert:
+        that:
+          - zabbix_api_server | length > 0
+        fail_msg: >-
+          zabbix_api_server (derived from the zabbix_server inventory group) is
+          empty. Add a host to the zabbix_server group or set zabbix_api_server
+          explicitly.
+        quiet: true
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Install the Zabbix release package (Debian family)
+      ansible.builtin.apt:
+        deb: "{{ zabbix_deb_release_url }}"
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    # ------------------------------------------------------------- repo: RedHat
+    # The release rpm itself installs the Zabbix GPG key; gpgcheck is disabled
+    # only for this one bootstrap package.
+    - name: Install the Zabbix release package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ zabbix_rpm_release_url }}"
+        state: present
+        disable_gpg_check: true
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    # ------------------------------------------------------------------ install
+    - name: Install the Zabbix agent
+      ansible.builtin.package:
+        name: "{{ zabbix_agent_package }}"
+        state: present
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    # zabbix-agent (classic) reads zabbix_agentd.conf; zabbix-agent2 reads
+    # zabbix_agent2.conf. Both use the same key=value format.
+    - name: Write the agent configuration
+      ansible.builtin.template:
+        src: zabbix_agent2.conf.j2
+        dest: "{{ zabbix_conf_dir }}/{{ 'zabbix_agentd.conf' if zabbix_agent_flavor == 'agent' else 'zabbix_agent2.conf' }}"
+        owner: zabbix
+        group: zabbix
+        mode: '0640'
+      notify: Restart zabbix-agent
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start the Zabbix agent
+      ansible.builtin.systemd_service:
+        name: "{{ zabbix_agent_package }}"
         enabled: true
+        state: started
+      tags: [service]
+
+    - name: Wait for the agent port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ zabbix_agent_listen_port }}"
+        timeout: 60
+      tags: [verify]
+
+    - name: Show the agent status
+      ansible.builtin.debug:
+        msg: "Zabbix {{ zabbix_agent_flavor }} on {{ inventory_hostname }} reporting to {{ zabbix_api_server }}"
+      tags: [verify]

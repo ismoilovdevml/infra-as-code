@@ -1,0 +1,57 @@
+---
+- name: Uninstall kubectl
+  hosts: all
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the kubectl package (Debian)
+      ansible.builtin.apt:
+        name: kubectl
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the kubectl package (RedHat/SUSE)
+      ansible.builtin.package:
+        name: kubectl
+        state: absent
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [uninstall]
+
+    - name: Remove the kubectl binary
+      ansible.builtin.file:
+        path: "{{ kubectl_bin_dir }}/kubectl"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the Kubernetes APT repository
+      ansible.builtin.deb822_repository:
+        name: kubernetes
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the APT keyring
+      ansible.builtin.file:
+        path: "{{ kubectl_keyring_path }}"
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Kubernetes YUM repository
+      ansible.builtin.yum_repository:
+        name: kubernetes
+        file: kubernetes
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the Kubernetes zypper repository
+      community.general.zypper_repository:
+        name: kubernetes
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]

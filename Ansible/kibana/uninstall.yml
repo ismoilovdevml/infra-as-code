@@ -1,0 +1,80 @@
+---
+- name: Uninstall Kibana
+  hosts: kibana
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable Kibana service
+      ansible.builtin.systemd_service:
+        name: kibana
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove Kibana package (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: kibana
+        state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Kibana APT repository
+      ansible.builtin.deb822_repository:
+        name: "elastic-{{ elastic_major_version }}.x"
+        types: deb
+        uris: "{{ elastic_repo_url_apt }}"
+        suites: stable
+        components: main
+        signed_by: "{{ elastic_apt_keyring }}"
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Kibana APT keyring
+      ansible.builtin.file:
+        path: "{{ elastic_apt_keyring }}"
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Kibana package (RHEL/Rocky/AlmaLinux/Oracle/Amazon Linux)
+      ansible.builtin.dnf:
+        name: kibana
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove Kibana YUM repository
+      ansible.builtin.yum_repository:
+        name: "kibana-{{ elastic_major_version }}.x"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove Kibana package (SUSE/openSUSE)
+      community.general.zypper:
+        name: kibana
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]
+
+    - name: Remove Kibana zypper repository
+      community.general.zypper_repository:
+        name: "kibana-{{ elastic_major_version }}.x"
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]
+
+    - name: Remove Kibana data, log, and config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/kibana
+        - /var/lib/kibana
+        - /var/log/kibana
+      tags: [uninstall]

@@ -1,0 +1,26 @@
+{{ ansible_managed | comment }}
+server {
+    listen {{ site.listen | default(80) }}{{ ' default_server' if site.default_server | default(false) else '' }};
+    server_name {{ site.server_name }};
+
+{% if site.type == 'proxy' %}
+    location / {
+        proxy_pass {{ site.proxy_pass }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+{% elif site.type == 'raw' %}
+    {{ site.raw_config | indent(4) }}
+{% else %}
+    root {{ site.root | default('/var/www/html') }};
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+{% endif %}
+{% for line in site.extra_config | default([]) %}
+    {{ line }}
+{% endfor %}
+}

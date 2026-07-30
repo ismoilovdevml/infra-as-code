@@ -1,0 +1,54 @@
+---
+# --- install_nodejs.yml (system-wide, NodeSource repository) ------------------------------
+# Active LTS lines as of 2026-07-30 per https://nodejs.org/en/about/previous-releases: 22
+# ("Jod") and 24 ("Krypton"). 18 and 20 are EOL/maintenance — do not use for new installs.
+nodejs_version: "22"
+
+# NodeSource's repo layout keys the Node major into the repository *path* itself
+# (node_<major>.x / pub_<major>.x under the version-independent "nodistro" codename),
+# not the apt suite. Re-adding with a different nodejs_version must replace this file,
+# not append to it.
+nodejs_deb_gpg_key_url: "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key"
+# NodeSource's own setup script dearmors this key to /usr/share/keyrings/nodesource.gpg.
+# APT >= 2.4 (required anyway for deb822_repository) accepts the armored key directly via
+# Signed-By, so it is fetched straight to /etc/apt/keyrings — same trust chain, one less step.
+nodejs_deb_keyring: /etc/apt/keyrings/nodesource.asc
+nodejs_deb_repo_uri: "https://deb.nodesource.com/node_{{ nodejs_version }}.x"
+
+nodejs_rpm_gpg_key_url: "https://rpm.nodesource.com/gpgkey/ns-operations-public.key"
+nodejs_rpm_baseurl: "https://rpm.nodesource.com/pub_{{ nodejs_version }}.x/nodistro/nodejs/$basearch"
+
+# ansible_architecture -> NodeSource's own arch tokens (deb822 Architectures: field).
+# NodeSource's setup script only validates amd64/arm64 — nothing else is supported.
+nodejs_deb_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+
+nodejs_service_enabled: true  # unused (Node.js is a runtime, not a service) — kept for symmetry
+
+# --- install_nodejs_nvm.yml (per-user, nvm) ------------------------------------------------
+# Pinned to an exact tagged release, never `master` — nvm's own README install command.
+nvm_version: "v0.40.6"
+nvm_install_url: "https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh"
+nvm_dir: "{{ ansible_user_dir }}/.nvm"
+
+# Node.js version nvm installs for the connecting user. Accepts anything `nvm install`
+# understands: a major ("22"), a full semver, or "--lts".
+nodejs_nvm_version: "22"
+
+nodejs_nvm_dependencies:
+  Debian:
+    - ca-certificates
+    - curl
+    - build-essential
+    - libssl-dev
+  RedHat:
+    - curl
+    - gcc-c++
+    - make
+    - openssl-devel
+  Suse:
+    - curl
+    - gcc-c++
+    - make
+    - libopenssl-devel

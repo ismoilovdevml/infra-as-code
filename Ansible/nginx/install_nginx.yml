@@ -1,57 +1,354 @@
 ---
+# Installs NGINX from the official nginx.org repository (falling back to the distribution's
+# own package where nginx.org publishes none), then renders nginx.conf and every entry of
+# nginx_sites from templates. Replaces the previous dependency on the undeclared
+# `nginxinc.nginx` Galaxy role.
 - name: Install and configure NGINX
   hosts: nginx_servers
-  become: yes
-  roles:
-    - role: nginxinc.nginx
-      vars:
-        nginx_install_epel_repo: true  # EPEL repository installation
-        nginx_enable: true  # Enable NGINX service
-        nginx_start: true  # Start NGINX service
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Reload the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Reload nginx
+      ansible.builtin.systemd_service:
+        name: "{{ nginx_service_name }}"
+        state: reloaded
 
   tasks:
-    - name: Create sites-available directory
-      file:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Resolve the install method
+          ansible.builtin.set_fact:
+            nginx_install_method: >-
+              {{ 'nginx_org' if (ansible_os_family == 'Debian' and ansible_distribution in nginx_repo_path_map)
+                 or (ansible_os_family == 'RedHat' and ansible_distribution in nginx_yum_baseurl_map)
+                 or (ansible_os_family == 'Suse' and ansible_distribution in nginx_suse_baseurl_map)
+                 else 'distro' }}
+
+        - name: Assert the platform is supported
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+              - nginx_install_method == 'nginx_org' or ansible_distribution in nginx_distro_package_map
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+              nginx.org publishes repositories for Debian, Ubuntu, RHEL/CentOS Stream/Rocky/
+              AlmaLinux, Amazon Linux 2023 and SLES. Fedora and openSUSE Leap/Tumbleweed use
+              their own distribution package.
+            quiet: true
+
+        - name: Assert the release is still supported upstream
+          ansible.builtin.assert:
+            that:
+              - ansible_distribution_major_version | int >= nginx_minimum_major_version[ansible_distribution]
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} has been dropped by
+              nginx.org. Minimum is {{ ansible_distribution }} {{ nginx_minimum_major_version[ansible_distribution] }}.
+              Set nginx_strict_platform_check=false to install anyway (falls back to the
+              distribution package where possible).
+            quiet: true
+          when:
+            - nginx_strict_platform_check | bool
+            - ansible_distribution in nginx_minimum_major_version
+            - nginx_install_method == 'nginx_org'
+
+        - name: Assert every site has a name and a type
+          ansible.builtin.assert:
+            that:
+              - item.name is defined
+              - item.type | default('static') in ['static', 'proxy', 'raw']
+            fail_msg: "Every nginx_sites entry needs a 'name'; 'type' must be static, proxy or raw."
+            quiet: true
+          loop: "{{ nginx_sites }}"
+          loop_control:
+            label: "{{ item.name | default('unnamed') }}"
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the nginx.org repository (Debian family)
+      when:
+        - ansible_os_family == 'Debian'
+        - nginx_install_method == 'nginx_org'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian    # required by ansible.builtin.deb822_repository
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the nginx signing key
+          ansible.builtin.get_url:
+            url: https://nginx.org/keys/nginx_signing.key
+            dest: /etc/apt/keyrings/nginx.asc
+            mode: '0644'
+
+        - name: Add the nginx.org repository
+          ansible.builtin.deb822_repository:
+            name: nginx
+            types: [deb]
+            uris: >-
+              https://nginx.org/packages/{{ '' if nginx_release == 'stable' else 'mainline/' }}{{ nginx_repo_path_map[ansible_distribution] }}
+            suites: ["{{ ansible_distribution_release }}"]
+            components: [nginx]
+            architectures: ["{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"]
+            signed_by: /etc/apt/keyrings/nginx.asc
+            enabled: true
+            state: present
+          notify: Reload the APT cache
+
+        # Upstream's own recommendation: without this, `apt upgrade` can silently prefer the
+        # distribution's older nginx build over nginx.org's.
+        - name: Pin the nginx.org repository above the distribution's own package
+          ansible.builtin.copy:
+            dest: /etc/apt/preferences.d/99nginx
+            content: |
+              Package: *
+              Pin: origin nginx.org
+              Pin: release o=nginx
+              Pin-Priority: 900
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the nginx.org repository (RedHat family)
+      when:
+        - ansible_os_family == 'RedHat'
+        - nginx_install_method == 'nginx_org'
+      tags: [install]
+      block:
+        - name: Import the nginx signing key
+          ansible.builtin.rpm_key:
+            key: https://nginx.org/keys/nginx_signing.key
+            state: present
+
+        - name: Add the nginx.org repository
+          ansible.builtin.yum_repository:
+            name: "nginx-{{ nginx_release }}"
+            file: nginx
+            description: "nginx {{ nginx_release }} repo"
+            baseurl: "{{ nginx_yum_baseurl_map[ansible_distribution] }}"
+            gpgkey: https://nginx.org/keys/nginx_signing.key
+            gpgcheck: true
+            enabled: true
+            module_hotfixes: true
+
+    # --------------------------------------------------------------- repo: SUSE
+    - name: Configure the nginx.org repository (SLES)
+      when:
+        - ansible_os_family == 'Suse'
+        - nginx_install_method == 'nginx_org'
+      tags: [install]
+      block:
+        - name: Import the nginx signing key
+          ansible.builtin.rpm_key:
+            key: https://nginx.org/keys/nginx_signing.key
+            state: present
+
+        - name: Add the nginx.org repository
+          community.general.zypper_repository:
+            name: "nginx-{{ nginx_release }}"
+            repo: "{{ nginx_suse_baseurl_map[ansible_distribution] }}"
+            auto_import_keys: true
+            state: present
+
+    # ------------------------------------------------------------------ install
+    # nginx_version pins the nginx.org package only; apt separates the pin with '=', dnf/zypper
+    # with '-'.
+    - name: Install nginx (nginx.org repository)
+      ansible.builtin.package:
+        name: >-
+          {{ nginx_package_name if nginx_version | length == 0
+             else nginx_package_name ~ ('=' if ansible_os_family == 'Debian' else '-') ~ nginx_version }}
+        state: present
+      when: nginx_install_method == 'nginx_org'
+      tags: [install]
+
+    - name: Install nginx (distribution package)
+      ansible.builtin.package:
+        name: "{{ nginx_distro_package_map[ansible_distribution] }}"
+        state: present
+      when: nginx_install_method == 'distro'
+      tags: [install]
+
+    # --------------------------------------------------------------- SELinux
+    - name: Set the SELinux booleans nginx needs
+      ansible.posix.seboolean:
+        name: "{{ item }}"
+        state: true
+        persistent: true
+      loop: "{{ nginx_selinux_booleans }}"
+      when:
+        - ansible_os_family == 'RedHat'
+        - nginx_manage_selinux | bool
+        - ansible_selinux is defined
+        - ansible_selinux.status | default('disabled') == 'enabled'
+      tags: [configure]
+
+    # ---------------------------------------------------------------- configure
+    - name: Create sites-available
+      ansible.builtin.file:
         path: /etc/nginx/sites-available
         state: directory
+        owner: root
+        group: root
         mode: '0755'
+      tags: [configure]
 
-    - name: Create sites-enabled directory
-      file:
+    - name: Create sites-enabled
+      ansible.builtin.file:
         path: /etc/nginx/sites-enabled
         state: directory
+        owner: root
+        group: root
         mode: '0755'
+      tags: [configure]
 
-    - name: Add sites-enabled to nginx.conf
-      lineinfile:
-        path: /etc/nginx/nginx.conf
-        regexp: 'include /etc/nginx/conf.d/\*.conf;'
-        insertafter: 'include /etc/nginx/conf.d/\*.conf;'
-        line: '    include /etc/nginx/sites-enabled/*;'
-        state: present
+    # nginx.org packages ship /etc/nginx/conf.d/default.conf as their own default_server on
+    # port 80, which collides with nginx_sites' own default_server. Remove it so ours wins.
+    - name: Remove the packaged default server block
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/default.conf
+        state: absent
+      tags: [configure]
 
-    - name: Create a default site configuration in sites-available
-      copy:
-        dest: /etc/nginx/sites-available/default
-        content: |
-          server {
-              listen 80 default_server;
-              server_name _;
-              root /var/www/html;
-
-              location / {
-                  try_files $uri $uri/ =404;
-              }
-          }
+    - name: Write nginx.conf
+      ansible.builtin.template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+        owner: root
+        group: root
         mode: '0644'
+        validate: "nginx -t -c %s"
+      notify: Reload nginx
+      tags: [configure]
 
-    - name: Enable default site by creating symlink in sites-enabled
-      file:
-        src: /etc/nginx/sites-available/default
-        dest: /etc/nginx/sites-enabled/default
+    - name: Write each site to sites-available
+      ansible.builtin.template:
+        src: site.conf.j2
+        dest: "/etc/nginx/sites-available/{{ item.name }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+      vars:
+        site: "{{ item }}"
+      loop: "{{ nginx_sites }}"
+      loop_control:
+        label: "{{ item.name }}"
+      notify: Reload nginx
+      tags: [configure]
+
+    - name: Enable sites
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ item.name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ item.name }}.conf"
         state: link
+        force: true
+      loop: "{{ nginx_sites }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.enabled | default(true) | bool
+      notify: Reload nginx
+      tags: [configure]
 
-    - name: Reload NGINX to apply changes
-      service:
-        name: nginx
-        state: reloaded
+    - name: Disable sites
+      ansible.builtin.file:
+        path: "/etc/nginx/sites-enabled/{{ item.name }}.conf"
+        state: absent
+      loop: "{{ nginx_sites }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: not (item.enabled | default(true) | bool)
+      notify: Reload nginx
+      tags: [configure]
+
+    # site.conf.j2 renders a bare `server {}` block, not a complete config, so it cannot be
+    # validated on its own with `nginx -t -c <fragment>`. The merged configuration (nginx.conf
+    # plus every included site) is validated here instead, before nginx is asked to reload.
+    - name: Validate the merged nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      check_mode: false
+      tags: [configure]
+
+    - name: Flush the reload handler now so a bad config fails before service/verify
+      ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------------ firewall
+    - name: Collect the service list
+      ansible.builtin.service_facts:
+      when: nginx_manage_firewall | bool
+      tags: [configure]
+
+    - name: Open nginx ports in firewalld
+      ansible.posix.firewalld:
+        port: "{{ item }}/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop: "{{ nginx_firewall_ports }}"
+      when:
+        - nginx_manage_firewall | bool
+        - ansible_facts.services['firewalld.service'].state | default('') == 'running'
+      tags: [configure]
+
+    - name: Open nginx ports in ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ item | string }}"
+        proto: tcp
+      loop: "{{ nginx_firewall_ports }}"
+      when:
+        - nginx_manage_firewall | bool
+        - ansible_facts.services['ufw.service'].state | default('') == 'running'
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start nginx
+      ansible.builtin.systemd_service:
+        name: "{{ nginx_service_name }}"
+        enabled: "{{ nginx_service_enabled }}"
+        state: "{{ nginx_service_state }}"
+        daemon_reload: true
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed version
+      ansible.builtin.command: nginx -v
+      changed_when: false
+      check_mode: false
+      register: nginx_verify
+      tags: [verify]
+
+    - name: Show the installed version
+      ansible.builtin.debug:
+        msg: "{{ nginx_verify.stderr }}"
+      tags: [verify]
+
+    - name: Wait for nginx to accept connections
+      ansible.builtin.wait_for:
+        port: "{{ nginx_sites[0].listen | default(80) }}"
+        host: 127.0.0.1
+        timeout: 10
+      tags: [verify]

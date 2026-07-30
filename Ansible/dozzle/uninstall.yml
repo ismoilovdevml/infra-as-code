@@ -1,0 +1,32 @@
+---
+# Replaces the previous cleanup.yml / dozzle_cleanup.yml pair.
+- name: Remove Dozzle
+  hosts: dozzle_servers:dozzle_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the Dozzle containers
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ dozzle_server_container }}"
+        - "{{ dozzle_agent_container }}"
+      tags: [uninstall]
+
+    - name: Remove the Dozzle image
+      community.docker.docker_image_remove:
+        name: "{{ dozzle_registry }}:{{ dozzle_version }}"
+        force: true
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Dozzle data directory
+      ansible.builtin.file:
+        path: "{{ dozzle_data_path }}"
+        state: absent
+      when: dozzle_purge_data | bool
+      tags: [uninstall]

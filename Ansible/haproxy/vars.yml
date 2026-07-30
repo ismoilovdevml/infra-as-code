@@ -1,0 +1,83 @@
+---
+# Major.minor branch, e.g. "3.2", "3.4" (LTS) or "3.3" (stable, shorter support window).
+# See https://www.haproxy.org/ for current branches and https://haproxy.debian.net/ for which
+# branch is available for which Debian release / Ubuntu PPA at any given time — that matrix
+# changes upstream over time and is deliberately NOT hardcoded here; an unavailable
+# release/branch combination fails loudly at `apt-get update`/`install`, not silently.
+haproxy_branch: "3.2"
+
+# Debian: dedicated https://haproxy.debian.net repo (Debian only — Ubuntu has no such repo,
+# see the PPA method below). GPG key confirmed at this URL by haproxy.debian.net's own wizard.
+haproxy_debian_net_keyring_url: https://haproxy.debian.net/haproxy-archive-keyring.gpg
+
+# Ubuntu: haproxy.debian.net has no repo for Ubuntu at all (verified against the wizard's own
+# release/version matrix, https://haproxy.debian.net/haproxy.js) — every Ubuntu release is
+# offered only "official" (the version already in Ubuntu's own archive) or this PPA.
+haproxy_ubuntu_ppa: "ppa:vbernat/haproxy-{{ haproxy_branch }}"
+
+haproxy_package_name: haproxy
+haproxy_service_name: haproxy
+
+haproxy_service_enabled: true
+haproxy_service_state: started
+
+# RHEL/Rocky/Alma/CentOS Stream ship haproxy from plain AppStream — there is no dedicated SIG
+# or CodeReady repo (verified: no haproxy module stream in AppStream's modules.yaml, no
+# official HAProxy SIG). Versions are frozen at whatever GA shipped: RHEL/Rocky 8 = 1.8.27
+# (years past HAProxy's own EOL), 9 = 2.8.x (current LTS), 10 = 3.0.x (current LTS). Set to
+# false to silence the RHEL 8 warning if you accept the ancient AppStream build.
+haproxy_warn_on_outdated_rhel8: true
+
+# --------------------------------------------------------------------------- SELinux (RHEL)
+# HAProxy runs under its own confined haproxy_t domain (not httpd_t). haproxy_connect_any is
+# OFF by default upstream and only needed if a backend listens on a non-standard port; this
+# module leaves it off unless you opt in, matching the SELinux default.
+haproxy_manage_selinux: true
+haproxy_selinux_booleans: []
+#  - haproxy_connect_any
+
+# --------------------------------------------------------------------------------- firewall
+haproxy_manage_firewall: true
+
+# --------------------------------------------------------------------------------- sysctl
+# Required only if a frontend `bind`s directly to a VIP (e.g. one managed by keepalived/VRRP)
+# that may not exist on the local interface yet when haproxy starts — confirmed against Red
+# Hat's own "Load Balancer Administration" guide (Turning on Packet Forwarding and Nonlocal
+# Binding). Not needed when binding to 0.0.0.0 / all interfaces.
+haproxy_enable_nonlocal_bind: false
+
+# ----------------------------------------------------------------------------------- config
+haproxy_maxconn: 4096
+haproxy_log_address: /dev/log
+haproxy_user: haproxy
+haproxy_group: haproxy
+
+haproxy_defaults_mode: http
+haproxy_timeout_connect: 5s
+haproxy_timeout_client: 50s
+haproxy_timeout_server: 50s
+
+haproxy_frontends:
+  - name: http_front
+    bind: "*:80"
+    mode: http
+    default_backend: app_servers
+    extra_config: []
+
+haproxy_backends:
+  - name: app_servers
+    mode: http
+    balance: roundrobin
+    extra_config: []
+    servers:
+      - name: app1
+        address: "10.0.0.21:8080"
+        check: true
+
+# Local-only by default: no auth needed since the stats socket never leaves the host. Set
+# haproxy_stats_bind to a non-loopback address only together with vault-backed credentials.
+haproxy_stats_enabled: true
+haproxy_stats_bind: "127.0.0.1:8404"
+haproxy_stats_uri: /stats
+haproxy_stats_user: admin
+haproxy_stats_password: "{{ vault_haproxy_stats_password | default('') }}"

@@ -1,0 +1,76 @@
+---
+- name: Uninstall OpenJDK
+  hosts: java_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Resolve the packages to remove for each requested JDK version
+      ansible.builtin.set_fact:
+        java_resolved_packages: >-
+          {{ java_resolved_packages | default([]) +
+             (['temurin-' ~ item ~ '-jdk'] if java_install_method == 'temurin'
+              else java_package_name_patterns[ansible_os_family] | map('replace', '{version}', item) | list) }}
+      loop: "{{ java_versions }}"
+      loop_control:
+        label: "{{ item }}"
+      tags: [always]
+
+    - name: Remove the JDK packages (Debian family)
+      ansible.builtin.apt:
+        name: "{{ java_resolved_packages }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the JDK packages (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ java_resolved_packages }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the JDK packages (SUSE family)
+      community.general.zypper:
+        name: "{{ java_resolved_packages }}"
+        state: absent
+      when: ansible_os_family == 'Suse'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Temurin repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/adoptium.sources
+        - "{{ java_temurin_deb_keyring }}"
+      when:
+        - ansible_os_family == 'Debian'
+        - java_install_method == 'temurin'
+      tags: [uninstall]
+
+    - name: Remove the Temurin repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/adoptium.repo
+        state: absent
+      when:
+        - ansible_os_family == 'RedHat'
+        - java_install_method == 'temurin'
+      tags: [uninstall]
+
+    - name: Remove the Temurin repository (SUSE family)
+      community.general.zypper_repository:
+        name: adoptium
+        state: absent
+      when:
+        - ansible_os_family == 'Suse'
+        - java_install_method == 'temurin'
+      failed_when: false
+      tags: [uninstall]

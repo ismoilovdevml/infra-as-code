@@ -1,0 +1,24 @@
+{{ ansible_managed | comment }}
+tickTime={{ zookeeper_tick_time }}
+initLimit={{ zookeeper_init_limit }}
+syncLimit={{ zookeeper_sync_limit }}
+
+dataDir={{ zookeeper_data_dir }}
+clientPort={{ zookeeper_client_port }}
+clientPortAddress={{ zookeeper_client_bind_address }}
+maxClientCnxns={{ zookeeper_max_client_cnxns }}
+
+autopurge.snapRetainCount={{ zookeeper_autopurge_snap_retain_count }}
+autopurge.purgeInterval={{ zookeeper_autopurge_purge_interval }}
+
+# Four-letter-word commands are denied by default; only health checks are allowed.
+4lw.commands.whitelist={{ zookeeper_4lw_whitelist }}
+
+{% if groups['zookeeper_nodes'] | length > 1 %}
+# server.<myid>=<host>:<peer>:<election>
+{% for host in groups['zookeeper_nodes'] %}
+server.{{ hostvars[host].zookeeper_id | default(loop.index) }}={{ hostvars[host].ansible_host | default(host) }}:{{ zookeeper_peer_port }}:{{ zookeeper_election_port }}
+{% endfor %}
+{% else %}
+# Single node — standalone mode, no quorum block.
+{% endif %}

@@ -1,12 +1,298 @@
 ---
-- hosts: php_servers
-  become: yes
-  vars:
-    php_version: "8.3"
-    php_webserver_daemon: "nginx"
-  roles:
-    - name: geerlingguy.repo-remi
-      when: ansible_os_family == 'RedHat'
-    - geerlingguy.php-versions
-    # - geerlingguy.nginx  # Ensure Nginx is installed
-    - geerlingguy.php
+- name: Install PHP
+  hosts: php_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Restart php-fpm
+      ansible.builtin.systemd_service:
+        name: "{{ php_fpm_service_name }}"
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert supported platform
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+              this PHP playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma, openSUSE/SLES.
+            quiet: true
+
+        - name: Read /etc/os-release
+          ansible.builtin.slurp:
+            src: /etc/os-release
+          register: php_os_release_raw
+          when: ansible_os_family == 'Debian'
+
+        - name: Parse /etc/os-release
+          ansible.builtin.set_fact:
+            php_os_release: >-
+              {{ php_os_release | default({})
+                 | combine({item.split('=', 1)[0]: item.split('=', 1)[1] | trim('"')}) }}
+          loop: "{{ (php_os_release_raw.content | b64decode).splitlines() | select('match', '^[A-Z_]+=') | list }}"
+          loop_control:
+            label: "{{ item.split('=', 1)[0] }}"
+          when: ansible_os_family == 'Debian'
+
+        - name: Resolve the APT suite, compact version and Debian package list
+          ansible.builtin.set_fact:
+            php_apt_suite: >-
+              {{ php_os_release.UBUNTU_CODENAME
+                 | default(php_os_release.VERSION_CODENAME, true)
+                 | default(ansible_distribution_release, true) }}
+            php_debian_packages: >-
+              {{ php_extensions_debian | map('regex_replace', '^(.*)$', 'php' ~ php_version ~ '-\1') | list }}
+          when: ansible_os_family == 'Debian'
+
+        - name: Resolve the compact PHP version
+          ansible.builtin.set_fact:
+            php_compact_version: "{{ php_version | replace('.', '') }}"
+
+        - name: Resolve the RedHat install path
+          ansible.builtin.set_fact:
+            php_is_el: "{{ ansible_distribution in php_el_distributions }}"
+            php_is_native_redhat: "{{ ansible_distribution in php_native_redhat_distributions }}"
+          when: ansible_os_family == 'RedHat'
+
+        - name: Assert the RedHat distribution is one this playbook knows how to handle
+          ansible.builtin.assert:
+            that:
+              - php_is_el or php_is_native_redhat
+            fail_msg: >-
+              {{ ansible_distribution }} is a RedHat-family distribution this playbook does not
+              recognise. Known: {{ (php_el_distributions + php_native_redhat_distributions) | join(', ') }}.
+            quiet: true
+          when: ansible_os_family == 'RedHat'
+
+        - name: Assert Remi publishes a release package for this EL major
+          ansible.builtin.assert:
+            that:
+              - ansible_distribution_major_version in php_remi_release_url_map
+            fail_msg: >-
+              No Remi release package for {{ ansible_distribution }} {{ ansible_distribution_major_version }}.
+              Supported EL majors: {{ php_remi_release_url_map.keys() | list | join(', ') }}.
+            quiet: true
+          when:
+            - ansible_os_family == 'RedHat'
+            - php_is_el
+
+        - name: Resolve whether this EL major still uses DNF module streams
+          ansible.builtin.set_fact:
+            php_use_modules: "{{ ansible_distribution_major_version | int <= php_el_uses_modules_max_major }}"
+          when:
+            - ansible_os_family == 'RedHat'
+            - php_is_el
+
+        - name: Resolve the EL module-stream package list
+          ansible.builtin.set_fact:
+            php_el_packages: "{{ php_extensions_redhat | map('regex_replace', '^(.*)$', 'php-\\1') | list }}"
+          when:
+            - ansible_os_family == 'RedHat'
+            - php_is_el
+            - php_use_modules
+
+        - name: Resolve the EL10+ side-by-side package list
+          ansible.builtin.set_fact:
+            php_el_packages: >-
+              {{ php_extensions_redhat | map('regex_replace', '^(.*)$', 'php' ~ php_compact_version ~ '-\1') | list }}
+          when:
+            - ansible_os_family == 'RedHat'
+            - php_is_el
+            - not php_use_modules
+
+        - name: Resolve the native RedHat package list (Fedora / Amazon Linux)
+          ansible.builtin.set_fact:
+            php_native_redhat_packages: "{{ php_extensions_redhat | map('regex_replace', '^(.*)$', 'php-\\1') | list }}"
+          when:
+            - ansible_os_family == 'RedHat'
+            - php_is_native_redhat
+
+        - name: Resolve the SUSE package list
+          ansible.builtin.set_fact:
+            php_suse_packages: >-
+              {{ ['php8'] + (php_extensions_suse | map('regex_replace', '^(.*)$', 'php8-\1') | list) }}
+          when: ansible_os_family == 'Suse'
+
+    # ------------------------------------------------------------- repo: Debian family
+    - name: Configure the Sury (deb.sury.org) repository
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - curl
+              - python3-debian    # required by ansible.builtin.deb822_repository
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Install the Sury archive keyring package
+          ansible.builtin.apt:
+            deb: "{{ php_sury_keyring_deb_url }}"
+            state: present
+
+        - name: Add the Sury PHP repository
+          ansible.builtin.deb822_repository:
+            name: php
+            types: [deb]
+            uris: "{{ php_sury_repo_uri }}"
+            suites: ["{{ php_apt_suite }}"]
+            components: [main]
+            signed_by: "{{ php_sury_keyring_path }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    - name: Install PHP (Debian family)
+      ansible.builtin.apt:
+        name: "{{ php_debian_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    # ------------------------------------------------------------- repo: RedHat family (EL)
+    - name: Configure EPEL and Remi (RHEL/Rocky/Alma/CentOS Stream/Oracle)
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_el
+      tags: [install]
+      block:
+        - name: Install the EPEL release package
+          ansible.builtin.dnf:
+            name: "{{ php_epel_release_url }}"
+            state: present
+
+        - name: Install the Remi release package
+          ansible.builtin.dnf:
+            name: "{{ php_remi_release_url_map[ansible_distribution_major_version] }}"
+            state: present
+
+        - name: Enable the CRB/PowerTools repository
+          community.general.dnf_config_manager:
+            name: "{{ 'powertools' if ansible_distribution_major_version == '8' else 'crb' }}"
+            state: enabled
+
+        # No idempotent module exists for `dnf module reset`; this only resets when a
+        # different stream than the target is already enabled.
+        - name: Reset the PHP module stream (allows switching PHP versions)
+          ansible.builtin.command: dnf -y module reset php
+          register: php_module_reset
+          changed_when: "'Nothing to do' not in php_module_reset.stdout"
+          when: php_use_modules
+
+        - name: Enable and install the requested PHP module stream
+          ansible.builtin.dnf:
+            name: "@php:remi-{{ php_version }}"
+            state: present
+          when: php_use_modules
+
+    - name: Install PHP (EL family)
+      ansible.builtin.dnf:
+        name: "{{ php_el_packages }}"
+        state: present
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_el
+      tags: [install]
+
+    # ------------------------------------------------------- install: Fedora / Amazon Linux
+    # Remi is not used here: Fedora's own repos already ship a current PHP, and Amazon Linux
+    # 2023 ships its own PHP 8.x. Version pinning is not available on this path.
+    - name: Install PHP (Fedora / Amazon Linux, native distro packages)
+      ansible.builtin.dnf:
+        name: "{{ php_native_redhat_packages }}"
+        state: present
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_native_redhat
+      tags: [install]
+
+    # ------------------------------------------------------------------ install: SUSE family
+    # No official SUSE vendor PHP repo exists; this installs whatever `php8` the distro's own
+    # channel ships. Version pinning is not available on this path (see vars.yml).
+    - name: Install PHP (SUSE family)
+      community.general.zypper:
+        name: "{{ php_suse_packages }}"
+        state: present
+      when: ansible_os_family == 'Suse'
+      tags: [install]
+
+    # ---------------------------------------------------------------- resolve service name
+    - name: Resolve the php-fpm service name (Debian family)
+      ansible.builtin.set_fact:
+        php_fpm_service_name: "php{{ php_version }}-fpm"
+      when: ansible_os_family == 'Debian'
+      tags: [always]
+
+    - name: Resolve the php-fpm service name (SUSE family)
+      ansible.builtin.set_fact:
+        php_fpm_service_name: "{{ php_fpm_service_name_suse }}"
+      when: ansible_os_family == 'Suse'
+      tags: [always]
+
+    - name: Resolve the php-fpm service name (RedHat, unversioned)
+      ansible.builtin.set_fact:
+        php_fpm_service_name: php-fpm
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_native_redhat or php_use_modules | default(false)
+      tags: [always]
+
+    - name: Resolve the php-fpm service name (EL10+, side-by-side)
+      ansible.builtin.set_fact:
+        php_fpm_service_name: "php{{ php_compact_version }}-php-fpm"
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_el
+        - not (php_use_modules | default(false))
+      tags: [always]
+
+    # ------------------------------------------------------------------------- service
+    - name: Enable and start php-fpm
+      ansible.builtin.systemd_service:
+        name: "{{ php_fpm_service_name }}"
+        enabled: "{{ php_fpm_enabled }}"
+        state: "{{ php_fpm_state }}"
+        daemon_reload: true
+      tags: [service]
+
+    # ------------------------------------------------------------------------- verify
+    - name: Collect the installed PHP version
+      ansible.builtin.command: php -v
+      register: php_verify
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Collect the php-fpm service state
+      ansible.builtin.service_facts:
+      tags: [verify]
+
+    - name: Show the installed PHP version and php-fpm state
+      ansible.builtin.debug:
+        msg:
+          - "{{ php_verify.stdout_lines | first }}"
+          - >-
+            php-fpm ({{ php_fpm_service_name }}):
+            {{ ansible_facts.services[php_fpm_service_name + '.service'].state | default('unknown') }}
+      tags: [verify]

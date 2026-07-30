@@ -1,0 +1,93 @@
+---
+- name: Uninstall the Zabbix server
+  hosts: zabbix_server
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable zabbix-server
+      ansible.builtin.systemd_service:
+        name: zabbix-server
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Zabbix server packages (Debian family)
+      ansible.builtin.apt:
+        name:
+          - "{{ zabbix_server_package }}"
+          - "{{ zabbix_webconf_package }}"
+          - "{{ zabbix_frontend_package[ansible_os_family] }}"
+          - zabbix-sql-scripts
+          - zabbix-release
+        state: absent
+        purge: "{{ zabbix_purge_data }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Zabbix server packages (RedHat family)
+      ansible.builtin.dnf:
+        name:
+          - "{{ zabbix_server_package }}"
+          - "{{ zabbix_webconf_package }}"
+          - "{{ zabbix_frontend_package[ansible_os_family] }}"
+          - zabbix-sql-scripts
+          - zabbix-release
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the Zabbix server data and config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ zabbix_data_dir }}"
+        - "{{ zabbix_conf_dir }}"
+      when: zabbix_purge_data | bool
+      tags: [uninstall]
+
+- name: Uninstall the Zabbix agent
+  hosts: zabbix_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable the Zabbix agent
+      ansible.builtin.systemd_service:
+        name: "{{ zabbix_agent_package }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Zabbix agent package (Debian family)
+      ansible.builtin.apt:
+        name:
+          - "{{ zabbix_agent_package }}"
+          - zabbix-release
+        state: absent
+        purge: "{{ zabbix_purge_data }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Zabbix agent package (RedHat family)
+      ansible.builtin.dnf:
+        name:
+          - "{{ zabbix_agent_package }}"
+          - zabbix-release
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the Zabbix agent config directory
+      ansible.builtin.file:
+        path: "{{ zabbix_conf_dir }}"
+        state: absent
+      when: zabbix_purge_data | bool
+      tags: [uninstall]

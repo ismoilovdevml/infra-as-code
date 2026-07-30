@@ -1,0 +1,64 @@
+---
+# Destructive. Removes the MongoDB packages and repository and, when
+# mongodb_purge_data is true, the data and log directories.
+- name: Uninstall MongoDB
+  hosts: mongodb_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable MongoDB
+      ansible.builtin.systemd_service:
+        name: "{{ mongodb_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the MongoDB packages (Debian family)
+      ansible.builtin.apt:
+        name: "{{ mongodb_packages }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the MongoDB packages (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ mongodb_packages }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the MongoDB repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/apt/sources.list.d/mongodb-org-{{ mongodb_series }}.sources"
+        - "{{ mongodb_apt_keyring_path }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the MongoDB repository (RedHat family)
+      ansible.builtin.file:
+        path: "/etc/yum.repos.d/mongodb-org-{{ mongodb_series }}.repo"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the MongoDB data and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ mongodb_data_dir_map[ansible_os_family] }}"
+        - "{{ mongodb_log_dir }}"
+        - "{{ mongodb_config_path }}"
+      when: mongodb_purge_data | bool
+      tags: [uninstall]

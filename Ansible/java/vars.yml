@@ -1,0 +1,47 @@
+---
+# JDK majors to install (LTS lines current in 2026: 8, 11, 17, 21, 25). Installing more than
+# one is supported — java_default_version picks which one `alternatives` points `java` at.
+java_versions:
+  - "17"
+java_default_version: "17"
+
+# distro  = the distribution's own OpenJDK packages (default, no extra repo, tracks the
+#           distro's own patch cadence).
+# temurin = adds the Eclipse Adoptium (Temurin) repository, for a version the distro does
+#           not ship or a consistent build across mixed distros.
+java_install_method: distro
+
+# Distro package name per JDK major. "{version}" is replaced with each entry of java_versions.
+# Debian's *-jdk package already includes javac; RHEL/SUSE split runtime and devel.
+java_package_name_patterns:
+  Debian:
+    - "openjdk-{version}-jdk"
+  RedHat:
+    - "java-{version}-openjdk"
+    - "java-{version}-openjdk-devel"
+  Suse:
+    - "java-{version}-openjdk"
+    - "java-{version}-openjdk-devel"
+
+# --- Temurin (Adoptium) repository, only used when java_install_method == temurin ----------
+# Source: https://adoptium.net/installation/linux (verified 2026-07-30)
+java_temurin_package_pattern: "temurin-{version}-jdk"
+java_temurin_gpg_key_url: "https://packages.adoptium.net/artifactory/api/gpg/key/public"
+java_temurin_deb_keyring: /etc/apt/keyrings/adoptium.asc
+java_temurin_deb_repo_uri: "https://packages.adoptium.net/artifactory/deb"
+# RPM/zypper path segment is the distro's own /etc/os-release `ID` field — this mirrors
+# Adoptium's own repo file template (`$(. /etc/os-release; echo $ID)`), not a hardcoded map.
+# UNVERIFIED: the exact `ID` value Adoptium's artifact tree expects for every RHEL derivative
+# and for openSUSE Leap specifically — best-effort; distro method is the well-verified default.
+java_temurin_rpm_arch: "{{ 'aarch64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
+java_temurin_rpm_root: "https://packages.adoptium.net/artifactory/rpm"
+java_temurin_rpm_baseurl: >-
+  {{ [java_temurin_rpm_root, java_os_release_id, ansible_distribution_major_version,
+      java_temurin_rpm_arch] | join('/') }}
+
+# `alternatives`/`update-alternatives` priority and the tools it registers. Higher priority
+# wins when nothing is pinned; java_default_version is always (re-)registered last so it wins.
+java_alternatives_tools:
+  - java
+  - javac
+java_alternatives_priority: 1700

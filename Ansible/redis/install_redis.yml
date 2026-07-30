@@ -1,77 +1,173 @@
 ---
-- name: Install Redis on multiple OS
-  hosts: all
-  become: yes
-  vars:
-    debian_redis_package: "redis-server"
-    redhat_redis_package: "redis"
+- name: Install Redis
+  hosts: redis_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart redis
+      ansible.builtin.systemd_service:
+        name: "{{ redis_service_name_map[ansible_os_family] }}"
+        state: restarted
+
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
 
   tasks:
-    - name: Install required packages on Ubuntu/Debian
-      when: ansible_os_family == "Debian"
-      apt:
-        name:
-          - lsb-release
-          - curl
-          - gpg
-        update_cache: yes
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+          Redis Ltd publishes official packages only for Debian/Ubuntu (APT) and
+          RHEL/Rocky/AlmaLinux (RPM). No official SUSE repository exists.
+        quiet: true
+      tags: [always]
+
+    - name: Assert the distribution and major version are published by packages.redis.io
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution in redis_rpm_repo_map
+          - ansible_distribution_major_version in redis_rpm_repo_map[ansible_distribution]
+        fail_msg: >-
+          packages.redis.io publishes no RPM repository for {{ ansible_distribution }}
+          {{ ansible_distribution_major_version }} (verified by direct repodata fetch —
+          see scratchpad facts/redis.md). RHEL10, CentOS Stream, Fedora and Amazon Linux
+          have dropped Redis in favor of Valkey and are not served here. Supported:
+          RHEL 8-9, Rocky/AlmaLinux 8-10.
+        quiet: true
+      when: ansible_os_family == 'RedHat'
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the Redis repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the Redis GPG key
+          ansible.builtin.get_url:
+            url: "{{ redis_gpg_key_url }}"
+            dest: "{{ redis_apt_keyring_path }}"
+            mode: '0644'
+
+        - name: Add the Redis repository
+          ansible.builtin.deb822_repository:
+            name: redis
+            types: [deb]
+            uris: "{{ redis_apt_repo_url }}"
+            suites: ["{{ ansible_distribution_release }}"]
+            components: [main]
+            signed_by: "{{ redis_apt_keyring_path }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the Redis repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Import the Redis GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ redis_gpg_key_url }}"
+            state: present
+
+        - name: Add the Redis repository
+          ansible.builtin.yum_repository:
+            name: redis
+            description: Redis
+            baseurl: "http://packages.redis.io/rpm/{{ redis_rpm_repo_map[ansible_distribution][ansible_distribution_major_version] }}"
+            gpgcheck: true
+            gpgkey: "{{ redis_gpg_key_url }}"
+            enabled: true
+
+    # ------------------------------------------------------------------ install
+    # redis_version pins the APT packages only; the official RPM repo is not
+    # version-pinned (see vars.yml / facts brief) and always installs its latest build.
+    - name: Install Redis (Debian family)
+      ansible.builtin.apt:
+        name: >-
+          {{ redis_debian_packages if redis_version | length == 0
+             else redis_debian_packages | map('regex_replace', '$', '=' ~ redis_version) | list }}
         state: present
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Ensure Redis user exists (Debian/Ubuntu)
-      when: ansible_os_family == "Debian"
-      user:
-        name: "redis"
-        system: yes
-        shell: /bin/false
-        createhome: no
-
-    - name: Ensure Redis user exists (RedHat/Rocky)
-      when: ansible_os_family == "RedHat"
-      user:
-        name: "redis"
-        system: yes
-        shell: /bin/false
-        createhome: no
-        
-    - name: Add Redis GPG key on Ubuntu/Debian
-      when: ansible_os_family == "Debian"
-      shell: |
-        curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
-
-    - name: Set permissions on Redis GPG key on Ubuntu/Debian
-      when: ansible_os_family == "Debian"
-      file:
-        path: /usr/share/keyrings/redis-archive-keyring.gpg
-        mode: '0644'
-
-    - name: Add Redis repository on Ubuntu/Debian
-      when: ansible_os_family == "Debian"
-      shell: |
-        echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list
-
-    - name: Install Redis on Ubuntu/Debian
-      when: ansible_os_family == "Debian"
-      apt:
-        name: "{{ debian_redis_package }}"
-        update_cache: yes
+    - name: Install Redis (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ redis_package_name_map[ansible_os_family] }}"
         state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Install Redis on RedHat/Rocky
-      when: ansible_os_family == "RedHat"
-      yum:
-        name: "{{ redhat_redis_package }}"
-        state: present
+    # ---------------------------------------------------------------- configure
+    - name: Ensure the data directory exists
+      ansible.builtin.file:
+        path: "{{ redis_data_dir }}"
+        state: directory
+        owner: redis
+        group: redis
+        mode: '0750'
+      tags: [configure]
 
-    - name: Enable and start Redis on Debian-based systems
-      when: ansible_os_family == "Debian"
-      systemd:
-        name: redis-server
-        enabled: yes
-        state: started
+    - name: Write redis.conf
+      ansible.builtin.template:
+        src: redis.conf.j2
+        dest: "{{ redis_config_path }}"
+        owner: redis
+        group: redis
+        mode: '0640'
+      notify: Restart redis
+      tags: [configure]
 
-    - name: Enable and start Redis on RedHat-based systems
-      when: ansible_os_family == "RedHat"
-      systemd:
-        name: redis
-        enabled: yes
-        state: started
+    # ------------------------------------------------------------------ service
+    - name: Enable and start Redis
+      ansible.builtin.systemd_service:
+        name: "{{ redis_service_name_map[ansible_os_family] }}"
+        enabled: "{{ redis_service_enabled }}"
+        state: "{{ redis_service_state }}"
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the Redis port
+      ansible.builtin.wait_for:
+        host: "{{ redis_bind_address if redis_bind_address != '0.0.0.0' else '127.0.0.1' }}"
+        port: "{{ redis_port }}"
+        timeout: 30
+      tags: [verify]
+
+    - name: Report the installed version
+      ansible.builtin.command: redis-server --version
+      changed_when: false
+      check_mode: false
+      register: redis_verify
+      tags: [verify]
+
+    - name: Show the installed version
+      ansible.builtin.debug:
+        msg: "{{ redis_verify.stdout }}"
+      tags: [verify]

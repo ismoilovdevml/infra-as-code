@@ -1,35 +1,43 @@
 ---
-- name: Install Keepalived on multiple OS families
-  hosts: all
+# Installs the keepalived package. keepalived.org publishes no binary repository of its own
+# (source tarball only), so every OS family installs its own distribution package.
+- name: Install Keepalived
+  hosts: keepalived_nodes
   become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
   tasks:
-    - name: Install Keepalived on Debian/Ubuntu systems
-      ansible.builtin.package:
-        name: keepalived
-        state: present
-      when: ansible_facts['os_family'] == "Debian"
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert the platform is supported
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in keepalived_supported_os_families
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+              keepalived.org ships no binary repository; this module relies on the
+              distribution package, available for Debian, RedHat and Suse families.
+            quiet: true
 
-    - name: Install Keepalived on Red Hat/CentOS systems
+    - name: Install keepalived
       ansible.builtin.package:
-        name: keepalived
+        name: "{{ keepalived_package_name }}"
         state: present
-      when: ansible_facts['os_family'] == "RedHat"
+      tags: [install]
 
-    - name: Run keepalived --version and capture output
+    - name: Collect the installed version
       ansible.builtin.command: keepalived --version
-      register: keepalived_version
       changed_when: false
+      check_mode: false
+      failed_when: false
+      register: keepalived_verify
+      tags: [verify]
 
-    - name: Combine stdout and stderr
-      ansible.builtin.set_fact:
-        keepalived_version_combined: >
-          {{ keepalived_version.stdout + keepalived_version.stderr }}
-
-    - name: Extract only Keepalived version
-      ansible.builtin.set_fact:
-        keepalived_version_only: >
-          {{ keepalived_version_combined | regex_search('Keepalived v[0-9.]+') | default('Unknown version') }}
-
-    - name: Display Keepalived version
+    - name: Show the installed version
       ansible.builtin.debug:
-        msg: "Keepalived version: {{ keepalived_version_only }}"
+        # keepalived --version prints to stderr.
+        msg: "{{ (keepalived_verify.stdout + keepalived_verify.stderr) | trim }}"
+      tags: [verify]

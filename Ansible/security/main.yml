@@ -1,98 +1,326 @@
 ---
-- hosts: all
+# Host security baseline: SSH hardening (drop-in, validated), fail2ban,
+# automatic security updates, auditd, sysctl hardening. See README for the
+# per-OS package/service mapping and the lockout-prevention guards below.
+- name: Harden host security baseline
+  hosts: all
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
-  pre_tasks:
-    - name: Install EPEL repository on RedHat-based systems
-      ansible.builtin.yum:
-        name: epel-release
-        state: present
-      when: ansible_facts['os_family'] == "RedHat"
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd_service:
+        name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+        state: restarted
 
-  roles:
-    - geerlingguy.security
+    - name: Restart fail2ban
+      ansible.builtin.systemd_service:
+        name: fail2ban
+        state: restarted
 
   tasks:
-    - name: Set SSH port
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^Port'
-        line: 'Port {{ security_ssh_port }}'
-        state: present
-      notify: Restart SSH
+    - name: Assert the OS family is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }}
+          ({{ ansible_os_family }}) is not supported by this security module.
+          Supported: Debian/Ubuntu, RHEL/Rocky/Alma/Fedora/CentOS Stream, SUSE.
+        quiet: true
+      tags: [always]
 
-    - name: Disable SSH password authentication
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^PasswordAuthentication'
-        line: 'PasswordAuthentication {{ security_ssh_password_authentication }}'
-        state: present
-      notify: Restart SSH
+    # ------------------------------------------------------- lockout guards
+    # CRITICAL SAFETY: these three checks are why this module cannot lock out
+    # the account currently running it. See README "Notes" for what to do if
+    # you hit one of them, and for recovery if a lockout happens anyway.
+    - name: Refuse to disable root login while connected as root over SSH
+      ansible.builtin.assert:
+        that:
+          - not (security_ssh_permit_root_login == 'no' and ansible_user | default('') == 'root')
+        fail_msg: >-
+          security_ssh_permit_root_login is 'no' but this play connects as root
+          (ansible_user=root). Applying that would lock out the account running
+          this playbook. Migrate to a non-root sudo user first, or use
+          'prohibit-password' instead (root can still log in with a key).
+        quiet: true
+      tags: [always]
 
-    - name: Configure allowed SSH users
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^AllowUsers'
-        line: 'AllowUsers {{ security_ssh_allowed_users | join(" ") }}'
-        state: present
+    - name: Refuse an AllowUsers list that excludes the connecting user
+      ansible.builtin.assert:
+        that:
+          - ansible_user | default('') in security_ssh_allowed_users or ansible_user | default('') == 'root'
+        fail_msg: >-
+          security_ssh_allowed_users is set but does not include
+          '{{ ansible_user | default('') }}' (the user this play connects as).
+          Applying AllowUsers would lock out the current connection. Add it to
+          the list first.
+        quiet: true
       when: security_ssh_allowed_users | length > 0
-      notify: Restart SSH
+      tags: [always]
 
-    - name: Configure allowed SSH groups
+    - name: Check the connecting user has an authorized_keys file
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.ssh/authorized_keys"
+      register: security_authorized_keys
+      when: not (security_ssh_password_authentication | bool)
+      tags: [always]
+
+    - name: Refuse to disable password authentication without a deployed SSH key
+      ansible.builtin.assert:
+        that:
+          - security_authorized_keys.stat.exists
+          - security_authorized_keys.stat.size > 0
+        fail_msg: >-
+          security_ssh_password_authentication is false, but
+          {{ ansible_user | default('the connecting user') }} has no
+          ~/.ssh/authorized_keys on this host. Disabling password
+          authentication now would lock out the current connection. Deploy an
+          SSH key first.
+        quiet: true
+      when: not (security_ssh_password_authentication | bool)
+      tags: [always]
+
+    # ---------------------------------------------------------- SSH hardening
+    - name: Ensure the sshd_config.d drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags: [configure]
+
+    # RHEL 8 does not ship this Include line by default (confirmed: the
+    # sshd_config.d directory itself does not exist out of the box). Ensuring
+    # it here — rather than assuming a distro default — makes the drop-in
+    # approach correct on every supported family, not just Debian/Ubuntu/RHEL9+.
+    - name: Ensure sshd_config includes the drop-in directory
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: '^AllowGroups'
-        line: 'AllowGroups {{ security_ssh_allowed_groups | join(" ") }}'
-        state: present
-      when: security_ssh_allowed_groups | length > 0
-      notify: Restart SSH
+        line: 'Include /etc/ssh/sshd_config.d/*.conf'
+        insertbefore: BOF
+        validate: '/usr/sbin/sshd -t -f %s'
+      notify: Restart sshd
+      tags: [configure]
 
-    - name: Install unattended-upgrades or yum-cron
+    - name: Write the sshd hardening drop-in
+      ansible.builtin.template:
+        src: sshd_hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/10-hardening.conf
+        owner: root
+        group: root
+        mode: '0600'
+        validate: '/usr/sbin/sshd -t -f %s'
+      notify: Restart sshd
+      tags: [configure]
+
+    # ------------------------------------------------------------- sudoers
+    - name: Write the passwordless-sudo drop-in
+      ansible.builtin.template:
+        src: sudoers_nopasswd.j2
+        dest: /etc/sudoers.d/90-nopasswd
+        owner: root
+        group: root
+        mode: '0440'
+        validate: 'visudo -cf %s'
+      when: security_sudoers_nopasswd | length > 0
+      tags: [configure]
+
+    - name: Remove the passwordless-sudo drop-in when unused
+      ansible.builtin.file:
+        path: /etc/sudoers.d/90-nopasswd
+        state: absent
+      when: security_sudoers_nopasswd | length == 0
+      tags: [configure]
+
+    # ------------------------------------------------------------- fail2ban
+    - name: Install the EPEL repository (RHEL/Rocky/Alma/CentOS Stream)
       ansible.builtin.package:
-        name: "{{ 'unattended-upgrades' if ansible_facts['os_family'] == 'Debian' else 'yum-cron' }}"
+        name: epel-release
         state: present
-      when: security_autoupdate_enabled
+      when:
+        - security_fail2ban_enabled | bool
+        - ansible_os_family == 'RedHat'
+        - ansible_distribution not in ['Fedora', 'Amazon']
+      tags: [install]
 
-    - name: Ensure unattended-upgrades or yum-cron is configured (Debian/Ubuntu)
-      ansible.builtin.lineinfile:
-        path: "{{ security_autoupdate_conf_path }}"
-        regexp: '^Unattended-Upgrade::Automatic-Reboot'
-        line: 'Unattended-Upgrade::Automatic-Reboot "{{ security_autoupdate_reboot }}";'
-        state: present
-      when: ansible_facts['os_family'] == "Debian"
-
-    - name: Enable and configure yum-cron (RedHat/CentOS)
-      ansible.builtin.lineinfile:
-        path: "{{ security_autoupdate_conf_path }}"
-        regexp: '^apply_updates'
-        line: 'apply_updates = yes'
-        state: present
-      when: ansible_facts['os_family'] == "RedHat"
-
-    - name: Start and enable yum-cron
-      ansible.builtin.service:
-        name: yum-cron
-        state: started
-        enabled: yes
-      when: ansible_facts['os_family'] == "RedHat" and security_autoupdate_enabled
-
-    - name: Ensure fail2ban is installed and enabled
+    - name: Install fail2ban
       ansible.builtin.package:
         name: fail2ban
         state: present
-      when: security_fail2ban_enabled
+      when: security_fail2ban_enabled | bool
+      tags: [install]
 
-    - name: Start and enable fail2ban
-      ansible.builtin.service:
+    - name: Write the fail2ban local jail
+      ansible.builtin.template:
+        src: jail.local.j2
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: '0644'
+      when: security_fail2ban_enabled | bool
+      notify: Restart fail2ban
+      tags: [configure]
+
+    - name: Enable and start fail2ban
+      ansible.builtin.systemd_service:
         name: fail2ban
+        enabled: true
         state: started
-        enabled: yes
-      when: security_fail2ban_enabled
+      when: security_fail2ban_enabled | bool
+      tags: [service]
 
-  handlers:
-    - name: Restart SSH
-      ansible.builtin.service:
-        name: ssh
-        state: restarted
+    # ------------------------------------------------------ automatic updates
+    - name: Install unattended-upgrades (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when:
+        - ansible_os_family == 'Debian'
+        - security_autoupdate_enabled | bool
+      tags: [install]
+
+    - name: Configure unattended-upgrades
+      ansible.builtin.template:
+        src: 50unattended-upgrades.j2
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - ansible_os_family == 'Debian'
+        - security_autoupdate_enabled | bool
+      tags: [configure]
+
+    - name: Enable the periodic unattended-upgrades timer
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - ansible_os_family == 'Debian'
+        - security_autoupdate_enabled | bool
+      tags: [configure]
+
+    - name: Install dnf-automatic (RHEL family)
+      ansible.builtin.package:
+        name: dnf-automatic
+        state: present
+      when:
+        - ansible_os_family == 'RedHat'
+        - security_autoupdate_enabled | bool
+      tags: [install]
+
+    - name: Configure dnf-automatic
+      ansible.builtin.template:
+        src: automatic.conf.j2
+        dest: /etc/dnf/automatic.conf
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - ansible_os_family == 'RedHat'
+        - security_autoupdate_enabled | bool
+      tags: [configure]
+
+    - name: Enable the dnf-automatic timer
+      ansible.builtin.systemd_service:
+        name: dnf-automatic.timer
+        enabled: true
+        state: started
+      when:
+        - ansible_os_family == 'RedHat'
+        - security_autoupdate_enabled | bool
+      tags: [service]
+
+    # SUSE: a self-authored timer, not YaST's Online Update Configuration — see
+    # README "Notes" for why.
+    - name: Write the zypper auto-patch service (SUSE)
+      ansible.builtin.template:
+        src: zypper-patch.service.j2
+        dest: /etc/systemd/system/zypper-patch.service
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - ansible_os_family == 'Suse'
+        - security_autoupdate_enabled | bool
+      tags: [configure]
+
+    - name: Write the zypper auto-patch timer (SUSE)
+      ansible.builtin.template:
+        src: zypper-patch.timer.j2
+        dest: /etc/systemd/system/zypper-patch.timer
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - ansible_os_family == 'Suse'
+        - security_autoupdate_enabled | bool
+      tags: [configure]
+
+    - name: Enable the zypper auto-patch timer (SUSE)
+      ansible.builtin.systemd_service:
+        name: zypper-patch.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+      when:
+        - ansible_os_family == 'Suse'
+        - security_autoupdate_enabled | bool
+      tags: [service]
+
+    # ---------------------------------------------------------------- auditd
+    - name: Install auditd
+      ansible.builtin.package:
+        name: "{{ security_auditd_package[ansible_os_family] }}"
+        state: present
+      when: security_auditd_enabled | bool
+      tags: [install]
+
+    - name: Enable and start auditd
+      ansible.builtin.systemd_service:
+        name: auditd
+        enabled: true
+        state: started
+      when: security_auditd_enabled | bool
+      tags: [service]
+
+    # --------------------------------------------------------------- sysctl
+    - name: Apply sysctl hardening
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-security-hardening.conf
+        sysctl_set: true
+        reload: true
+      loop: "{{ security_sysctl_settings | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: security_sysctl_hardening_enabled | bool
+      tags: [configure]
+
+    # --------------------------------------------------------------- verify
+    - name: Read the effective sshd configuration
+      ansible.builtin.command: sshd -T
+      register: security_sshd_effective
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the effective port/root-login/password-auth settings
+      ansible.builtin.debug:
+        msg: >-
+          {{ security_sshd_effective.stdout_lines
+             | select('match', '^(port|permitrootlogin|passwordauthentication) ')
+             | list }}
+      tags: [verify]

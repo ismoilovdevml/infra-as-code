@@ -1,52 +1,107 @@
 ---
-- name: Install and Configure Promtail via Docker
+# Promtail is END OF LIFE upstream since 2026-03-02 (no security fixes, no future releases).
+# grafana/promtail:latest on Docker Hub is frozen at the 3.6.11 line. Plan a migration to
+# Grafana Alloy — see README.md.
+- name: Install and configure Promtail via Docker (EOL - see README)
   hosts: promtail_servers
   become: true
 
-  tasks:
-    - name: Ensure Docker is installed
-      ansible.builtin.package:
-        name: docker
-        state: present
+  vars_files:
+    - vars.yml
 
-    - name: Start Docker service
-      ansible.builtin.service:
+  handlers:
+    - name: Restart promtail container
+      community.docker.docker_container:
+        name: promtail
+        state: started
+        restart: true
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/CentOS Stream/Fedora/Amazon
+          Linux, openSUSE/SLES.
+        quiet: true
+      tags: always
+
+    - name: Warn that Promtail is end of life
+      ansible.builtin.debug:
+        msg: >-
+          Promtail has been end of life since 2026-03-02. No security fixes are published.
+          Plan a migration to Grafana Alloy: https://grafana.com/docs/alloy/latest/tasks/migrate/from-promtail/
+      tags: always
+
+  tasks:
+    - name: Install Docker Engine package
+      ansible.builtin.package:
+        name: "{{ docker_package_map[ansible_os_family] }}"
+        state: present
+      tags: install
+
+    - name: Start and enable Docker service
+      ansible.builtin.systemd_service:
         name: docker
         state: started
         enabled: true
+      tags: install
 
     - name: Create Promtail configuration directory
       ansible.builtin.file:
-        path: /etc/promtail
+        path: "{{ promtail_docker_config_dir }}"
         state: directory
         owner: root
         group: root
         mode: '0755'
+      tags: configure
 
-    - name: Copy Promtail config file to the server
-      ansible.builtin.copy:
-        src: ./promtail_config/config.yml
-        dest: /etc/promtail/config.yml
+    - name: Template Promtail configuration file
+      ansible.builtin.template:
+        src: "{{ promtail_config_template }}"
+        dest: "{{ promtail_docker_config_dir }}/config.yml"
         owner: root
         group: root
         mode: '0644'
+      notify: Restart promtail container
+      tags: configure
 
-    - name: Pull the latest Promtail Docker image
-      ansible.builtin.docker_image:
-        name: grafana/promtail
-        tag: latest
-        source: pull
+    - name: Pull the Promtail Docker image
+      community.docker.docker_image_pull:
+        name: "{{ promtail_docker_image }}"
+        tag: "{{ promtail_docker_tag }}"
+      tags: install
 
     - name: Run Promtail container
-      ansible.builtin.docker_container:
+      community.docker.docker_container:
         name: promtail
-        image: grafana/promtail:latest
+        image: "{{ promtail_docker_image }}:{{ promtail_docker_tag }}"
         state: started
         restart_policy: always
+        # NOTE: mounting docker.sock grants the container root-equivalent access to the host.
+        # It is required only for the flog_scrape docker_sd_configs job in
+        # templates/promtail_config.yml.j2. Remove that job and this mount if you do not need
+        # to discover container logs via the Docker API.
         volumes:
-          - /etc/promtail/config.yml:/etc/promtail/config.yml
+          - "{{ promtail_docker_config_dir }}/config.yml:/etc/promtail/config.yml:ro"
           - /var/lib/docker/containers:/var/lib/docker/containers:ro
           - /var/run/docker.sock:/var/run/docker.sock
         command: "-config.file=/etc/promtail/config.yml"
         ports:
-          - "9080:9080"
+          - "{{ promtail_http_listen_port }}:9080"
+      tags:
+        - install
+        - configure
+
+  post_tasks:
+    - name: Verify Promtail container is ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ promtail_http_listen_port }}/ready"
+        status_code: 200
+      register: promtail_docker_ready
+      until: promtail_docker_ready.status == 200
+      retries: 10
+      delay: 5
+      tags: verify

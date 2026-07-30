@@ -1,0 +1,53 @@
+---
+- name: Mount NFS exports on clients
+  hosts: nfs_clients
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in nfs_packages.client
+        fail_msg: >-
+          NFS client packages are not mapped for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ nfs_packages.client.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    - name: Install the NFS client packages
+      ansible.builtin.package:
+        name: "{{ nfs_packages.client[ansible_os_family] }}"
+        state: present
+      tags: [install]
+
+    - name: Create the mount points
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ nfs_client_mounts }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: item.state | default('mounted') != 'absent'
+      tags: [configure]
+
+    # _netdev in opts keeps boot from hanging when the server is unreachable.
+    - name: Mount the exports
+      ansible.posix.mount:
+        src: "{{ item.src }}"
+        path: "{{ item.path }}"
+        fstype: nfs
+        opts: "{{ item.opts | default('rw,hard,nfsvers=4.2,_netdev') }}"
+        state: "{{ item.state | default('mounted') }}"
+      loop: "{{ nfs_client_mounts }}"
+      loop_control:
+        label: "{{ item.path }}"
+      tags: [configure]
+
+    - name: Show the NFS mounts
+      ansible.builtin.debug:
+        msg: "{{ ansible_mounts | selectattr('fstype', 'match', '^nfs') | map(attribute='mount') | list }}"
+      tags: [verify]

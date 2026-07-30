@@ -1,53 +1,161 @@
 ---
-- hosts: nfs_server
-  become: yes
+- name: Configure the NFS server
+  hosts: nfs_server
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    # exportfs -ra re-reads /etc/exports without bouncing the service, so live
+    # clients keep their mounts.
+    - name: Reload the exports
+      ansible.builtin.command: exportfs -ra
+      changed_when: true
+
   tasks:
-    - name: Install NFS packages (RedHat)
-      yum:
-        name: nfs-utils
-        state: present
-      when: ansible_os_family == "RedHat"
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in nfs_server_service
+        fail_msg: >-
+          NFS server packages are not mapped for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ nfs_server_service.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
 
-    - name: Install NFS packages (Debian)
-      apt:
-        name:
-          - nfs-kernel-server
-          - nfs-common
-        state: present
-        update_cache: yes
-      when: ansible_os_family == "Debian"
+    - name: Assert every export declares at least one client
+      ansible.builtin.assert:
+        that:
+          - item.clients | default([]) | length > 0
+        fail_msg: "Export {{ item.path }} has no clients; an export with no client list is unreachable."
+        quiet: true
+      loop: "{{ nfs_exports }}"
+      loop_control:
+        label: "{{ item.path }}"
+      tags: [always]
 
-    - name: Create NFS export directory
-      file:
-        path: "{{ nfs_export_path }}"
+    # A `*` client with no_root_squash is remote root on the export for anyone who
+    # can reach the port. Refuse that combination outright.
+    - name: Refuse a world-readable export with no_root_squash
+      ansible.builtin.assert:
+        that:
+          - not (item.1.host == '*' and 'no_root_squash' in item.1.options)
+        fail_msg: >-
+          Export {{ item.0.path }} combines client '*' with no_root_squash, which grants
+          root on the export to any host that can reach it. Restrict the client to a
+          specific host or CIDR, or drop no_root_squash.
+        quiet: true
+      loop: "{{ nfs_exports | subelements('clients') }}"
+      loop_control:
+        label: "{{ item.0.path }} -> {{ item.1.host }}"
+      tags: [always]
+
+    - name: Install the NFS server packages
+      ansible.builtin.package:
+        name: "{{ nfs_packages.server[ansible_os_family] }}"
+        state: present
+      tags: [install]
+
+    - name: Create the export directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
         state: directory
-        owner: root
-        group: root
-        mode: '0755'
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+        mode: "{{ item.mode | default('0755') }}"
+      loop: "{{ nfs_exports }}"
+      loop_control:
+        label: "{{ item.path }}"
+      tags: [configure]
 
-    - name: Configure NFS exports
-      copy:
-        content: "{{ nfs_export_path }} {{ nfs_allowed_hosts }}(rw,sync,no_root_squash,no_subtree_check)\n"
+    - name: Write /etc/exports
+      ansible.builtin.template:
+        src: exports.j2
         dest: /etc/exports
         owner: root
         group: root
         mode: '0644'
+      notify: Reload the exports
+      tags: [configure]
 
-    - name: Start and enable NFS service
-      systemd:
-        name: "{{ nfs_service_name[ansible_os_family] }}"
-        enabled: yes
+    # Disabling v2/v3 keeps everything on 2049 and avoids rpcbind, statd and lockd.
+    - name: Disable NFSv2 and NFSv3 (Debian family)
+      ansible.builtin.lineinfile:
+        path: /etc/default/nfs-kernel-server
+        regexp: '^RPCNFSDOPTS='
+        line: 'RPCNFSDOPTS="--no-nfs-version 2 --no-nfs-version 3"'
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - ansible_os_family == 'Debian'
+        - nfs_v4_only | bool
+      notify: Reload the exports
+      tags: [configure]
+
+    - name: Disable NFSv3 (RedHat and SUSE families)
+      ansible.builtin.lineinfile:
+        path: /etc/nfs.conf
+        regexp: '^\s*vers3\s*='
+        line: 'vers3=n'
+        insertafter: '^\[nfsd\]'
+        create: false
+      when:
+        - ansible_os_family in ['RedHat', 'Suse']
+        - nfs_v4_only | bool
+      notify: Reload the exports
+      tags: [configure]
+
+    - name: Enable and start the NFS server
+      ansible.builtin.systemd_service:
+        name: "{{ nfs_server_service[ansible_os_family] }}"
+        enabled: true
         state: started
+      tags: [service]
 
-    - name: Export NFS directories
-      command: exportfs -ra
-      notify: restart nfs
+    # ----------------------------------------------------------------- firewall
+    - name: Collect the service list
+      ansible.builtin.service_facts:
+      when: nfs_manage_firewall | bool
+      tags: [configure]
 
-  handlers:
-    - name: restart nfs
-      systemd:
-        name: "{{ nfs_service_name[ansible_os_family] }}"
-        state: restarted
+    - name: Open NFS in firewalld
+      ansible.posix.firewalld:
+        service: nfs
+        permanent: true
+        immediate: true
+        state: enabled
+      when:
+        - nfs_manage_firewall | bool
+        - ansible_facts.services['firewalld.service'].state | default('') == 'running'
+      tags: [configure]
+
+    - name: Open NFS in ufw
+      community.general.ufw:
+        rule: allow
+        port: '2049'
+        proto: tcp
+        src: "{{ item.1.host }}"
+      loop: "{{ nfs_exports | subelements('clients') }}"
+      loop_control:
+        label: "{{ item.1.host }}"
+      when:
+        - nfs_manage_firewall | bool
+        - ansible_facts.services['ufw.service'].state | default('') == 'running'
+        - item.1.host != '*'
+      tags: [configure]
+
+    # ------------------------------------------------------------------- verify
+    - name: List the active exports
+      ansible.builtin.command: exportfs -v
+      register: nfs_exportfs
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the active exports
+      ansible.builtin.debug:
+        var: nfs_exportfs.stdout_lines
+      tags: [verify]

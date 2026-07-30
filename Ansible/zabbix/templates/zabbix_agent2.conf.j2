@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+# Minimal zabbix_agent2.conf (also valid for the classic zabbix_agentd.conf; both
+# use the same key=value format). All other keys keep their packaged defaults.
+# https://www.zabbix.com/documentation/current/en/manual/appendix/config/zabbix_agent2
+
+Server={{ zabbix_api_server }}
+ServerActive={{ zabbix_api_server }}
+Hostname={{ inventory_hostname }}
+ListenPort={{ zabbix_agent_listen_port }}
+TLSConnect={{ zabbix_agent_tlsconnect }}
+TLSAccept={{ zabbix_agent_tlsaccept }}
+LogFile=/var/log/zabbix/zabbix_{{ zabbix_agent_flavor }}.log
+PidFile=/run/zabbix/zabbix_{{ zabbix_agent_flavor }}.pid

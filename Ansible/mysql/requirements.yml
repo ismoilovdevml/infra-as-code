@@ -1,0 +1,6 @@
+---
+collections:
+  - name: ansible.mysql
+    version: ">=5.1.0"
+  - name: community.general
+    version: ">=9.0.0"

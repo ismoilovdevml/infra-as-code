@@ -1,0 +1,18 @@
+---
+# Removes nvm and every Node.js version it installed for the connecting user. Shell rc
+# files (.bashrc/.profile) are left untouched: nvm's own installer appends a guarded
+# `[ -s "$NVM_DIR/nvm.sh" ] && ...` block that is a no-op once nvm_dir is gone, and
+# rewriting a user's shell rc automatically risks damaging content nvm did not add.
+- name: Uninstall nvm and its Node.js versions
+  hosts: nodejs_servers
+  become: false
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the nvm directory
+      ansible.builtin.file:
+        path: "{{ nvm_dir }}"
+        state: absent
+      tags: [uninstall]

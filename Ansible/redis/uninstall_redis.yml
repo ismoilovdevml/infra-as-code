@@ -1,0 +1,63 @@
+---
+# Destructive. Removes the Redis package, its repository and, when
+# redis_purge_data is true, the data directory and config.
+- name: Uninstall Redis
+  hosts: redis_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable Redis
+      ansible.builtin.systemd_service:
+        name: "{{ redis_service_name_map[ansible_os_family] }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Redis package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ redis_debian_packages }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Redis package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ redis_package_name_map[ansible_os_family] }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Redis repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/redis.sources
+        - "{{ redis_apt_keyring_path }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Redis repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/redis.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the Redis data directory and config
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ redis_data_dir }}"
+        - "{{ redis_config_path }}"
+      when: redis_purge_data | bool
+      tags: [uninstall]

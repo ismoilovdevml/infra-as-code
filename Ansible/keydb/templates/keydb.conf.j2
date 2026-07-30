@@ -1,0 +1,22 @@
+{{ ansible_managed | comment }}
+# KeyDB is a Redis fork; this file uses redis.conf syntax.
+
+bind {{ keydb_bind_address }}
+port {{ keydb_port }}
+protected-mode yes
+
+{% if keydb_admin_password | length > 0 %}
+requirepass {{ keydb_admin_password }}
+{% endif %}
+
+dir /var/lib/keydb
+logfile /var/log/keydb/keydb-server.log
+
+appendonly {{ 'yes' if keydb_appendonly else 'no' }}
+appendfsync everysec
+
+maxmemory-policy {{ keydb_maxmemory_policy }}
+
+# KeyDB's distinguishing feature: multithreading. Keep this at or below the number
+# of physical cores, leaving headroom for the OS.
+server-threads {{ [ansible_processor_vcpus | default(2), 4] | min }}

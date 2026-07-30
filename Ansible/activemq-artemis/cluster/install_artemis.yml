@@ -1,114 +1,152 @@
 ---
-- name: Install ActiveMQ Artemis on multiple OS
+- name: Install ActiveMQ Artemis on the cluster hosts
   hosts: master,nodes
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart artemis
+      ansible.builtin.systemd_service:
+        name: artemis
+        state: restarted
+        daemon_reload: true
+
   tasks:
-    - name: Download ActiveMQ Artemis
-      get_url:
-        url: "{{ artemis_url }}"
-        dest: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - artemis_admin_password | length > 0
+        fail_msg: >-
+          artemis_admin_password is empty. Set vault_artemis_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
 
-    - name: Extract ActiveMQ Artemis
-      unarchive:
-        src: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
-        dest: /opt
-        remote_src: yes
-
-    - name: Check if Artemis installation directory exists
-      stat:
-        path: "{{ artemis_install_dir }}"
-      register: artemis_install_dir_stat
-
-    - name: Move extracted Artemis to installation directory
-      command: mv /opt/apache-artemis-{{ artemis_version }} {{ artemis_install_dir }}
-      when: not artemis_install_dir_stat.stat.exists
-
-    - name: Create artemis group
-      group:
+    # ------------------------------------------------------------------ account
+    - name: Create the artemis group
+      ansible.builtin.group:
         name: "{{ artemis_group }}"
-        state: present
+        system: true
+      tags: [install]
 
-    - name: Create artemis user and assign to group
-      user:
+    - name: Create the artemis user
+      ansible.builtin.user:
         name: "{{ artemis_user }}"
         group: "{{ artemis_group }}"
-        createhome: yes
-        shell: /bin/bash
-        state: present
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: true
+      tags: [install]
 
-    - name: Change ownership of Artemis directories
-      file:
+    # ----------------------------------------------------------------- download
+    # Apache publishes .sha512 in two historical layouts:
+    #   "<hash>  <file>" and "<file>: <hash with spaces>". Normalise both.
+    - name: Fetch the release checksum
+      ansible.builtin.uri:
+        url: "{{ artemis_checksum_url }}/{{ artemis_version }}/{{ artemis_tarball }}.sha512"
+        return_content: true
+      register: artemis_sha512
+      check_mode: false
+      tags: [install]
+
+    - name: Normalise the checksum
+      ansible.builtin.set_fact:
+        artemis_sha512_digest: >-
+          {{ ((artemis_sha512.content.split(':') | last) if ':' in artemis_sha512.content
+              else (artemis_sha512.content.split() | first))
+             | regex_replace('\s+', '') | lower }}
+      tags: [install]
+
+    - name: Download the Artemis tarball
+      ansible.builtin.get_url:
+        url: "{{ artemis_mirror_url }}/{{ artemis_version }}/{{ artemis_tarball }}"
+        dest: "/tmp/{{ artemis_tarball }}"
+        checksum: "sha512:{{ artemis_sha512_digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [install]
+
+    - name: Unpack Artemis
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ artemis_tarball }}"
+        dest: "{{ artemis_install_root }}"
+        remote_src: true
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        creates: "{{ artemis_versioned_dir }}"
+      tags: [install]
+
+    - name: Link the install root to the installed version
+      ansible.builtin.file:
+        src: "{{ artemis_versioned_dir }}"
+        dest: "{{ artemis_install_dir }}"
+        state: link
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+      tags: [install]
+
+    # ------------------------------------------------------------------ instance
+    # `artemis create` is not idempotent and does not accept re-running without
+    # --force (which would silently recreate the instance), so it is guarded by
+    # `creates:` against the instance's own startup script. broker.xml is
+    # overwritten afterwards by cluster_bootstrap.yml with the HA/cluster config.
+    - name: Create the Artemis broker instance
+      ansible.builtin.command:
+        cmd: >-
+          {{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }}
+          --user admin --password {{ artemis_admin_password }}
+          --allow-anonymous --force
+        creates: "{{ artemis_instance_dir }}/bin/artemis-service"
+      no_log: true
+      tags: [install]
+
+    - name: Set ownership of the install and instance directories
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: "{{ artemis_user }}"
         group: "{{ artemis_group }}"
-        recurse: yes
+        recurse: true
       loop:
         - "{{ artemis_install_dir }}"
         - "{{ artemis_instance_dir }}"
+      tags: [install]
 
-    - name: Ensure log directory exists and permissions are set
-      file:
-        path: "{{ artemis_instance_dir }}/log"
-        state: directory
-        owner: "{{ artemis_user }}"
-        group: "{{ artemis_group }}"
-        mode: '0755'
+    # ---------------------------------------------------------------- configure
+    - name: Bind the web console to 0.0.0.0
+      ansible.builtin.replace:
+        path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
+        regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
+        replace: '\1http://0.0.0.0\3'
+      notify: Restart artemis
+      tags: [configure]
 
-    - name: Ensure tmp/webapps directory exists and permissions are set
-      file:
-        path: "{{ artemis_instance_dir }}/tmp/webapps"
-        state: directory
-        owner: "{{ artemis_user }}"
-        group: "{{ artemis_group }}"
-        mode: '0755'
-        recurse: yes
+    - name: Allow Jolokia access from any origin
+      ansible.builtin.replace:
+        path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
+        regexp: '<allow-origin>.*</allow-origin>'
+        replace: '<allow-origin>*://*</allow-origin>'
+      notify: Restart artemis
+      tags: [configure]
 
-    - name: Set permissions Artemis instance data directory
-      file:
-        path: /opt/artemis-instance/data
-        owner: "{{ artemis_user }}"
-        group: "{{ artemis_group }}"
-        state: directory
-        recurse: yes
-
-    - name: Create Artemis instance
-      command: "{{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }} --user admin --password {{ artemis_password }} --allow-anonymous --force"
-
-    - name: Deploy Artemis systemd service file
-      template:
-        src: templates/artemis.service.j2
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: artemis.service.j2
         dest: /etc/systemd/system/artemis.service
         owner: root
         group: root
         mode: '0644'
+      notify: Restart artemis
+      tags: [configure]
 
-    - name: Reload systemd daemon
-      command: systemctl daemon-reload
-
-    - name: Enable and start the Artemis service
-      systemd:
+    # ------------------------------------------------------------------ service
+    - name: Enable and start artemis
+      ansible.builtin.systemd_service:
         name: artemis
-        enabled: yes
+        enabled: true
         state: started
-
-    - name: Update bootstrap.xml to bind to 0.0.0.0
-      replace:
-        path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
-        regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
-        replace: '\1http://0.0.0.0\3'
-
-    - name: Update Jolokia access to allow all origins
-      replace:
-        path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
-        regexp: '<allow-origin>.*</allow-origin>'
-        replace: '<allow-origin>*://*</allow-origin>'
-
-    - name: Restart Artemis service after config changes
-      systemd:
-        name: artemis
-        state: restarted
-        enabled: yes
+        daemon_reload: true
+      tags: [service]

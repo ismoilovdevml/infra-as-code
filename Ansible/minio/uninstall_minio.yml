@@ -1,83 +1,84 @@
 ---
-- name: Uninstall and cleanup MinIO
+# Destructive when minio_purge_data is true: removes every object MinIO ever stored.
+- name: Uninstall MinIO
   hosts: minio_servers
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  tasks:
-    
-    - name: Check if MinIO service exists
-      command: systemctl is-active --quiet minio
-      register: minio_service_status
-      failed_when: false
-      changed_when: false
-      ignore_errors: yes
 
-    - name: Stop and disable MinIO service if it exists
-      ansible.builtin.systemd:
+  tasks:
+    - name: Stop and disable minio
+      ansible.builtin.systemd_service:
         name: minio
         state: stopped
-        enabled: no
-      when: minio_service_status.rc == 0
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove MinIO service file
-      file:
-        path: /usr/lib/systemd/system/minio.service
+    - name: Remove the systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/minio.service
         state: absent
+      tags: [uninstall]
 
-    - name: Reload systemd daemon
-      ansible.builtin.systemd:
-        daemon_reload: yes
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      tags: [uninstall]
 
-    - name: Remove MinIO binary
-      file:
-        path: /usr/local/bin/minio
+    - name: Remove the MinIO package (Debian family)
+      ansible.builtin.apt:
+        name: minio
         state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove MinIO environment file
-      file:
-        path: /etc/default/minio
+    - name: Remove the MinIO package (RedHat family)
+      ansible.builtin.dnf:
+        name: minio
         state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove all files in MinIO data directory
-      become: yes
-      file:
+    - name: Remove the MinIO and mc binaries
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ minio_install_dir }}/minio"
+        - "{{ minio_install_dir }}/mc"
+      tags: [uninstall]
+
+    - name: Remove the MinIO configuration
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ minio_default_env_path }}"
+        - "{{ minio_config_dir }}"
+      tags: [uninstall]
+
+    - name: Remove the MinIO data directory
+      ansible.builtin.file:
         path: "{{ minio_directory }}"
-        state: directory
-        recurse: yes
-        force: yes
-      ignore_errors: yes
-
-    - name: Remove MinIO data directory
-      become: yes
-      file:
-        path: "{{ minio_directory }}"
         state: absent
-      ignore_errors: yes
+      when: minio_purge_data | bool
+      tags: [uninstall]
 
-    - name: Remove MinIO user
-      user:
-        name: minio-user
+    - name: Remove the minio user
+      ansible.builtin.user:
+        name: "{{ minio_user }}"
         state: absent
-      ignore_errors: yes
-      become: yes
+        remove: false
+      tags: [uninstall]
 
-    - name: Remove MinIO group
-      group:
-        name: minio-user
+    - name: Remove the minio group
+      ansible.builtin.group:
+        name: "{{ minio_group }}"
         state: absent
-      ignore_errors: yes
-      become: yes
-
-    - name: Remove wget on multiple OS (Debian/Ubuntu)
-      package:
-        name: wget
-        state: absent
-        purge: yes
-      when: ansible_os_family == "Debian"
-
-    - name: Remove wget on multiple OS (RHEL/CentOS)
-      package:
-        name: wget
-        state: absent
-      when: ansible_os_family == "RedHat"
+      failed_when: false
+      tags: [uninstall]

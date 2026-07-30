@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+[commands]
+upgrade_type = {{ security_autoupdate_dnf_upgrade_type }}
+random_sleep = 0
+network_online_timeout = 60
+download_updates = yes
+apply_updates = {{ security_autoupdate_dnf_apply_updates | ternary('yes', 'no') }}
+
+[emitters]
+emit_via = stdio
+
+[base]
+debuglevel = 1

@@ -1,0 +1,93 @@
+---
+- name: Configure Kibana (Elasticsearch enrollment)
+  hosts: kibana
+  become: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart kibana
+      ansible.builtin.systemd_service:
+        name: kibana
+        state: restarted
+        daemon_reload: true
+
+  pre_tasks:
+    - name: Run preflight platform checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+
+    - name: Assert an Elasticsearch enrollment host is configured
+      ansible.builtin.assert:
+        that:
+          - elasticsearch_enrollment_host | length > 0
+        fail_msg: >-
+          elasticsearch_enrollment_host is empty. Add the Elasticsearch node to the
+          [elasticsearch] group in inventory.ini, or set elasticsearch_enrollment_host
+          explicitly in vars.yml.
+        quiet: true
+      tags: [always]
+
+  tasks:
+    - name: Template base kibana.yml configuration
+      ansible.builtin.template:
+        src: templates/kibana.yml.j2
+        dest: /etc/kibana/kibana.yml
+        owner: root
+        group: kibana
+        mode: '0660'
+      notify: Restart kibana
+      tags: [configure]
+
+    - name: Check whether Kibana is already enrolled with Elasticsearch
+      ansible.builtin.stat:
+        path: /etc/kibana/kibana.keystore
+      register: kibana_keystore
+      tags: [configure]
+
+    # elasticsearch-create-enrollment-token has no idempotency check of its
+    # own and the token is only valid for 30 minutes, so it is only minted
+    # when this Kibana node still needs enrolling (kibana.keystore absent).
+    - name: Create Kibana enrollment token on the Elasticsearch node
+      ansible.builtin.command:
+        cmd: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s kibana
+      register: kibana_enrollment_token
+      delegate_to: "{{ elasticsearch_enrollment_host }}"
+      changed_when: false
+      no_log: true
+      when: not kibana_keystore.stat.exists
+      tags: [configure]
+
+    - name: Run kibana-setup with the enrollment token
+      ansible.builtin.command:
+        cmd: >-
+          /usr/share/kibana/bin/kibana-setup
+          --enrollment-token {{ kibana_enrollment_token.stdout | trim }}
+      when: not kibana_keystore.stat.exists
+      changed_when: true
+      no_log: true
+      notify: Restart kibana
+      tags: [configure]
+
+    - name: Enable and start Kibana service
+      ansible.builtin.systemd_service:
+        name: kibana
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Flush handlers to apply configuration immediately
+      ansible.builtin.meta: flush_handlers
+      tags: [configure]
+
+    - name: Wait for the Kibana HTTP API to become reachable
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ server_port }}/api/status"
+        status_code: [200, 503]
+      register: kibana_status
+      until: kibana_status.status == 200
+      retries: 30
+      delay: 10
+      changed_when: false
+      tags: [verify]

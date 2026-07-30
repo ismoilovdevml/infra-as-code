@@ -1,65 +1,150 @@
 ---
-- name: Install Rancher on Kubernetes
-  hosts: all
-  become: yes
-  vars:
-    rancher_repo: "rancher-latest"
-    rancher_namespace: "cattle-system"
-    rancher_hostname: "rancher.helm.uz"
-    rancher_bootstrap_password: "admin"
-    rancher_email: "me@example.org"
-    ingress_class: "nginx"
+# Acts on the cluster via the Kubernetes API (kubernetes.core), not over SSH — see
+# inventory.ini. Requires a working kubeconfig and the helm binary on whichever host
+# runs this playbook. cert-manager must already be installed (see ../certmanager/)
+# unless bringing your own certificates.
+- name: Install Rancher
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Add Rancher Helm repository
-      ansible.builtin.command:
-        cmd: helm repo add {{ rancher_repo }} https://releases.rancher.com/server-charts/latest
-      register: helm_repo_output
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert a supported channel was chosen
+          ansible.builtin.assert:
+            that:
+              - rancher_channel in rancher_chart_repo_urls
+            fail_msg: "rancher_channel must be one of {{ rancher_chart_repo_urls.keys() | list }}, got '{{ rancher_channel }}'."
+            quiet: true
 
-    - name: Show Helm repo add output
-      debug:
-        var: helm_repo_output.stdout
+        - name: Assert the bootstrap password is set and long enough
+          ansible.builtin.assert:
+            that:
+              - rancher_bootstrap_password | length >= 12
+            fail_msg: >-
+              rancher_bootstrap_password is empty or shorter than 12 characters
+              (Rancher's own admin password validation). Set
+              vault_rancher_bootstrap_password.
+            quiet: true
 
-    - name: Create Cattle-system namespace
-      ansible.builtin.command:
-        cmd: kubectl create namespace {{ rancher_namespace }}
-      ignore_errors: yes
-      register: namespace_output
+        - name: Assert a Let's Encrypt email is set when using Rancher's built-in ACME
+          ansible.builtin.assert:
+            that:
+              - rancher_letsencrypt_email | length > 0
+            fail_msg: >-
+              rancher_ingress_tls_source=letsEncrypt requires rancher_letsencrypt_email
+              to be set.
+            quiet: true
+          when: rancher_ingress_tls_source == 'letsEncrypt'
 
-    - name: Show namespace creation output
-      debug:
-        var: namespace_output.stdout
+        - name: Assert the kubeconfig file exists
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: rancher_kubeconfig_stat
 
-    - name: Install Rancher using Helm
-      ansible.builtin.command:
-        cmd: >
-          helm install rancher {{ rancher_repo }}/rancher
-          --namespace {{ rancher_namespace }}
-          --set hostname={{ rancher_hostname }}
-          --set bootstrapPassword={{ rancher_bootstrap_password }}
-          --set ingress.tls.source=letsEncrypt
-          --set letsEncrypt.email={{ rancher_email }}
-          --set letsEncrypt.ingress.class={{ ingress_class }}
-      register: helm_install_output
+        - name: Fail if the kubeconfig file is missing
+          ansible.builtin.assert:
+            that:
+              - rancher_kubeconfig_stat.stat.exists
+            fail_msg: "kubeconfig not found at {{ kubeconfig_path }}. Set kubeconfig_path or KUBECONFIG."
+            quiet: true
 
-    - name: Show Rancher Helm install output
-      debug:
-        var: helm_install_output.stdout
+        - name: Check that the helm binary is available
+          block:
+            - name: Query the helm version
+              ansible.builtin.command: helm version --short
+              changed_when: false
+              check_mode: false
+          rescue:
+            - name: Fail with a clear message
+              ansible.builtin.fail:
+                msg: "helm binary not found on the controller. Install it first (see ../helm/)."
 
-    - name: Wait for Rancher deployment to be ready
-      ansible.builtin.command:
-        cmd: kubectl -n {{ rancher_namespace }} rollout status deploy/rancher
-      register: rollout_status_output
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+          register: rancher_cluster_check
 
-    - name: Show rollout status output
-      debug:
-        var: rollout_status_output.stdout
+        - name: Fail if the cluster is unreachable
+          ansible.builtin.assert:
+            that:
+              - rancher_cluster_check is not failed
+            fail_msg: "Could not reach the Kubernetes API using {{ kubeconfig_path }}."
+            quiet: true
 
-    - name: Get Rancher deployment status
-      ansible.builtin.command:
-        cmd: kubectl -n {{ rancher_namespace }} get deploy rancher
-      register: deployment_status_output
+        - name: Verify cert-manager is installed
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            api_version: apiextensions.k8s.io/v1
+            kind: CustomResourceDefinition
+            name: clusterissuers.cert-manager.io
+          register: rancher_certmanager_check
 
-    - name: Show deployment status
-      debug:
-        var: deployment_status_output.stdout
+        - name: Warn if cert-manager is not found
+          ansible.builtin.debug:
+            msg: >-
+              clusterissuers.cert-manager.io CRD not found. Rancher's Let's Encrypt
+              integration and expose_rancher_ui.yml both need cert-manager (see
+              ../certmanager/) unless you bring your own certificates.
+          when: rancher_certmanager_check.resources | length == 0
+
+    # ------------------------------------------------------------------- install
+    - name: Add the Rancher Helm repository
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "rancher-{{ rancher_channel }}"
+        repo_url: "{{ rancher_chart_repo_urls[rancher_channel] }}"
+      tags: [install]
+
+    - name: Install Rancher
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ rancher_release_name }}"
+        chart_ref: "rancher-{{ rancher_channel }}/rancher"
+        chart_version: "{{ rancher_version }}"
+        release_namespace: "{{ rancher_namespace }}"
+        create_namespace: true
+        wait: "{{ rancher_wait }}"
+        wait_timeout: "{{ rancher_wait_timeout }}"
+        values:
+          hostname: "{{ rancher_hostname }}"
+          bootstrapPassword: "{{ rancher_bootstrap_password }}"
+          ingress:
+            tls:
+              source: "{{ rancher_ingress_tls_source }}"
+          letsEncrypt:
+            email: "{{ rancher_letsencrypt_email }}"
+            ingress:
+              class: "{{ rancher_ingress_class }}"
+      no_log: true
+      tags: [install]
+
+    # -------------------------------------------------------------------- verify
+    - name: Check the Rancher Deployment status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Deployment
+        name: "{{ rancher_release_name }}"
+        namespace: "{{ rancher_namespace }}"
+      register: rancher_deployment
+      tags: [verify]
+
+    - name: Assert the Rancher Deployment is available
+      ansible.builtin.assert:
+        that:
+          - rancher_deployment.resources | length > 0
+          - rancher_deployment.resources[0].status.availableReplicas | default(0) > 0
+        fail_msg: "Rancher Deployment in {{ rancher_namespace }} is not available yet."
+        quiet: true
+      tags: [verify]
+
+    - name: Show the Rancher Deployment status
+      ansible.builtin.debug:
+        msg: "{{ rancher_deployment.resources[0].status }}"
+      tags: [verify]

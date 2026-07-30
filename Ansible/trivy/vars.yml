@@ -1,0 +1,62 @@
+---
+# The repo moved to a first-party short domain. get.trivy.dev 302-redirects to
+# aquasecurity.github.io/trivy-repo (which still works), but the trivy-repo README
+# itself now documents get.trivy.dev as the URL to use — do not hardcode the old host.
+trivy_repo_domain: "https://get.trivy.dev"
+
+# --- install_trivy_os.yml (apt / yum repo) -----------------------------------------
+trivy_strict_platform_check: true
+trivy_minimum_major_version:
+  Ubuntu: 20
+  Debian: 11
+  RedHat: 8
+  CentOS: 8
+  Rocky: 8
+  AlmaLinux: 8
+  Fedora: 40
+  Amazon: 2023
+
+# The apt suite is the literal word "generic" — trivy-repo does not publish
+# per-codename suites the way Docker's or HashiCorp's repositories do.
+trivy_apt_suite: generic
+trivy_apt_keyring: /usr/share/keyrings/trivy.gpg
+
+# No $releasever segment — verified live against the current repo layout.
+trivy_rpm_baseurl: "{{ trivy_repo_domain }}/rpm/releases/$basearch/"
+trivy_rpm_gpgkey: "{{ trivy_repo_domain }}/rpm/public.key"
+
+trivy_package_name: trivy
+
+# --- install_trivy_binary.yml (GitHub releases) ------------------------------------
+trivy_version: "0.72.0"
+trivy_github_repo: "https://github.com/aquasecurity/trivy"
+trivy_checksums_url: "{{ trivy_github_repo }}/releases/download/v{{ trivy_version }}/trivy_{{ trivy_version }}_checksums.txt"
+trivy_install_dir: /usr/local/bin
+
+# Release asset arch naming is its own scheme, not amd64/arm64.
+trivy_arch_map:
+  x86_64: 64bit
+  aarch64: ARM64
+  armv7l: ARM
+  armv6l: ARM
+  ppc64le: PPC64LE
+  s390x: s390x
+  i386: 32bit
+  i686: 32bit
+
+# --- install_trivy_docker.yml -------------------------------------------------------
+trivy_docker_image_repo: docker.io/aquasec/trivy
+trivy_docker_image_tag: "{{ trivy_version }}"
+trivy_docker_cache_dir: /root/.cache/trivy
+# Example scan target — override with -e trivy_docker_scan_target=<image> for real use.
+trivy_docker_scan_target: "alpine:3.20"
+
+# --- install_trivy_helm.yml ---------------------------------------------------------
+trivy_helm_repo_name: aquasecurity
+trivy_helm_repo_url: "https://aquasecurity.github.io/helm-charts/"
+trivy_helm_chart: "aquasecurity/trivy"
+trivy_helm_release_name: trivy
+trivy_helm_namespace: trivy-system
+trivy_helm_create_namespace: true
+# Empty = latest chart version from the repo index.
+trivy_helm_chart_version: ""

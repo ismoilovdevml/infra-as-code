@@ -152,11 +152,14 @@ under the License.
          {% endfor %}
       </connectors>
 
+      <!-- primary/backup is the current shared-store terminology; the legacy
+           master/slave tags are deprecated upstream (still honoured, not used
+           here). https://activemq.apache.org/components/artemis/documentation/latest/ha -->
       <ha-policy>
          <shared-store>
-            <slave>
+            <backup>
                <allow-failback>true</allow-failback>
-            </slave>
+            </backup>
          </shared-store>
       </ha-policy>
 

@@ -1,0 +1,46 @@
+---
+- name: Uninstall Helm
+  hosts: all
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the helm package (Debian)
+      ansible.builtin.apt:
+        name: helm
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Helm APT repository
+      ansible.builtin.deb822_repository:
+        name: helm-stable-debian
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Helm APT keyring
+      ansible.builtin.file:
+        path: "{{ helm_apt_keyring_path }}"
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the helm binary
+      ansible.builtin.file:
+        path: "{{ helm_bin_dir }}/helm"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the Helm data, cache and config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ ansible_env.HOME }}/.config/helm"
+        - "{{ ansible_env.HOME }}/.cache/helm"
+        - "{{ ansible_env.HOME }}/.local/share/helm"
+      when: helm_purge_data | bool
+      tags: [uninstall]

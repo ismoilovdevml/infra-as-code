@@ -1,72 +1,67 @@
 ---
-- name: Cleanup Harbor Installation
-  hosts: all
-  become: yes
+# Destructive. Stops and removes the Harbor containers and images. When
+# harbor_purge_data is true, also removes harbor_data_volume, the install directory,
+# and the generated TLS material (self-signed key/cert or the certbot lineage).
+- name: Uninstall Harbor
+  hosts: harbor_servers
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
-  vars:
-    harbor_version: "v2.11.1"
-    harbor_containers:
-      - nginx
-      - harbor-jobservice
-      - harbor-core
-      - redis
-      - registry
-      - harbor-db
-      - registryctl
-      - harbor-portal
-      - harbor-log
-    harbor_images:
-      - "goharbor/nginx-photon:{{ harbor_version }}"
-      - "goharbor/harbor-jobservice:{{ harbor_version }}"
-      - "goharbor/harbor-core:{{ harbor_version }}"
-      - "goharbor/redis-photon:{{ harbor_version }}"
-      - "goharbor/registry-photon:{{ harbor_version }}"
-      - "goharbor/harbor-db:{{ harbor_version }}"
-      - "goharbor/harbor-registryctl:{{ harbor_version }}"
-      - "goharbor/harbor-portal:{{ harbor_version }}"
-      - "goharbor/harbor-log:{{ harbor_version }}"
-    harbor_data_dir: "/data/harbor"
-    harbor_install_dir: "/opt/harbor"
-        
   tasks:
-    - name: Stop and remove Harbor containers if they exist
-      docker_container:
-        name: "{{ item }}"
-        state: absent
-      with_items: "{{ harbor_containers }}"
-      ignore_errors: yes
-      failed_when: false
+    - name: Check whether Harbor has been installed
+      ansible.builtin.stat:
+        path: "{{ harbor_install_dir }}/docker-compose.yml"
+      register: harbor_compose_file
+      tags: [always]
 
-    - name: Remove Harbor Docker images if they exist
-      docker_image:
-        name: "{{ item }}"
+    # Removing via the compose project (rather than a hardcoded container/image list)
+    # stays correct across version bumps — the old list here was pinned to v2.11.1 and
+    # would silently miss containers/images from any other installed version.
+    - name: Stop and remove the Harbor stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ harbor_install_dir }}"
         state: absent
-      with_items: "{{ harbor_images }}"
-      ignore_errors: yes
-      failed_when: false
+        remove_images: all
+        remove_volumes: "{{ harbor_purge_data }}"
+      when: harbor_compose_file.stat.exists
+      tags: [uninstall]
 
-    - name: Remove Harbor data directory if exists
-      file:
-        path: "{{ harbor_data_dir }}"
-        state: absent
-        force: yes
-      ignore_errors: yes
-      failed_when: false
-
-    - name: Remove Harbor installation directory if exists
-      file:
+    - name: Remove the Harbor installation directory
+      ansible.builtin.file:
         path: "{{ harbor_install_dir }}"
         state: absent
-        force: yes
-      ignore_errors: yes
-      failed_when: false
+      tags: [uninstall]
 
-    - name: Remove Harbor temporary download if exists
-      file:
-        path: "/tmp/harbor-offline-installer-{{ harbor_version }}.tgz"
+    - name: Remove the downloaded installer tarball
+      ansible.builtin.file:
+        path: "/tmp/harbor-{{ harbor_installer_type }}-installer-{{ harbor_version }}.tgz"
         state: absent
-        force: yes
-      ignore_errors: yes
+      tags: [uninstall]
+
+    - name: Remove the Harbor data volume
+      ansible.builtin.file:
+        path: "{{ harbor_data_volume }}"
+        state: absent
+      when: harbor_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the self-signed TLS directory
+      ansible.builtin.file:
+        path: "{{ harbor_ssl_dir }}"
+        state: absent
+      when:
+        - harbor_purge_data | bool
+        - harbor_ssl_option == 'self_signed'
+      tags: [uninstall]
+
+    - name: Remove the certbot certificate lineage
+      ansible.builtin.command:
+        cmd: "certbot delete --non-interactive --cert-name {{ harbor_hostname }}"
+      when:
+        - harbor_purge_data | bool
+        - harbor_ssl_option == 'certbot'
       failed_when: false
+      changed_when: true
+      tags: [uninstall]

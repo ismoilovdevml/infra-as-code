@@ -1,0 +1,28 @@
+{{ ansible_managed | comment }}
+# Minimal production redis.conf authored by this repository. Only the directives
+# this playbook manages are set here; anything else keeps the packaged default
+# behaviour (Redis applies unset directives' built-in defaults).
+
+bind {{ redis_bind_address }}
+protected-mode {{ redis_protected_mode | lower }}
+port {{ redis_port }}
+
+supervised {{ redis_supervised }}
+pidfile /run/redis/{{ 'redis-server' if ansible_os_family == 'Debian' else 'redis' }}.pid
+
+dir {{ redis_data_dir }}
+logfile ""
+
+maxmemory {{ redis_maxmemory }}
+maxmemory-policy {{ redis_maxmemory_policy }}
+
+appendonly {{ redis_appendonly | lower }}
+appendfilename "appendonly.aof"
+
+save 3600 1
+save 300 100
+save 60 10000
+
+{% if redis_admin_password | length > 0 %}
+requirepass {{ redis_admin_password }}
+{% endif %}

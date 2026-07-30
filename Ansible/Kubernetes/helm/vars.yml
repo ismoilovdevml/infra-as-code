@@ -1,0 +1,32 @@
+---
+# Helm v4 is the current stable major (GA November 2025). Helm v3 is in its sunset
+# window: final feature release 2026-09-09, security-only after that, EOL 2027-02-10.
+# See README.md for the full timeline. Set to 3 only if you have charts/tooling not
+# yet validated against v4.
+helm_major_version: 4
+
+# Full version tag, e.g. "v4.2.3" or "v3.21.3". Empty = resolve the latest release for
+# helm_major_version from GitHub at runtime.
+helm_version: ""
+
+# tarball: get.helm.sh binary tarball, checksum-verified (default, works on every OS
+#          family, and is the only option for RedHat/Suse — upstream publishes no RPM
+#          repo).
+# package: packages.buildkite.com APT repo (Debian family only).
+helm_install_method: tarball
+
+helm_bin_dir: /usr/local/bin
+
+# get.helm.sh / GitHub releases use Go-style architecture names, never x86_64/aarch64.
+helm_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: arm
+
+# packages.buildkite.com is a flat repo (no distro codename). Fingerprint is published
+# by upstream for the operator to confirm the key was not swapped in transit.
+helm_apt_key_fingerprint: "DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
+helm_apt_keyring_path: /usr/share/keyrings/helm.gpg
+
+# uninstall_helm.yml only: also remove ~/.config/helm, ~/.cache/helm, ~/.local/share/helm.
+helm_purge_data: false

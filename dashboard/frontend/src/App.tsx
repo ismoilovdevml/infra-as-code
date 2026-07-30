@@ -3,13 +3,15 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import {
   Folder, Play, FileText, Settings, Loader2, CheckCircle, XCircle,
   Terminal, Save, Code, History, BarChart3, Star, Download, Copy,
-  Clock, TrendingUp, Activity, Home, Bell, Sun, Moon, Github, ExternalLink, Book
+  Clock, TrendingUp, Activity, Home, Sun, Moon, Github, ExternalLink, Book
 } from 'lucide-react'
 import axios from 'axios'
 import toast, { Toaster } from 'react-hot-toast'
 import Editor from '@monaco-editor/react'
 import Convert from 'ansi-to-html'
 import { formatDistanceToNow, format } from 'date-fns'
+import { applyScalarEdits, getToken, setUnauthorizedHandler } from './api'
+import TokenGate from './TokenGate'
 
 // ANSI color converters for dark and light themes
 const convertDark = new Convert({
@@ -186,10 +188,12 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
   const [folders, setFolders] = useState<AnsibleFolder[]>([])
   const [selectedFolder, setSelectedFolder] = useState<AnsibleFolder | null>(null)
   const [selectedPlaybook, setSelectedPlaybook] = useState<string>('')
-  const [inventory, setInventory] = useState<any>({})
+  const [, setInventory] = useState<any>({})
   const [vars, setVars] = useState<any>({})
   const [inventoryRaw, setInventoryRaw] = useState<string>('')
   const [varsRaw, setVarsRaw] = useState<string>('')
+  const [varsOriginal, setVarsOriginal] = useState<any>({})
+  const [checkMode, setCheckMode] = useState<boolean>(false)
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [currentJob, setCurrentJob] = useState<JobStatus | null>(null)
@@ -282,6 +286,7 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
         const varsResponse = await axios.get(`/api/folders/${selectedFolder.name}/vars`)
         setVars(varsResponse.data.content)
         setVarsRaw(varsResponse.data.raw)
+        setVarsOriginal(JSON.parse(JSON.stringify(varsResponse.data.content)))
       }
 
       if (selectedFolder.playbooks.length > 0) {
@@ -295,13 +300,13 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
     }
   }
 
+  // The API only accepts raw text. In structured mode the edited scalars are
+  // patched back into the original file line by line, so comments survive.
   const saveInventory = async () => {
     if (!selectedFolder) return
 
     try {
-      await axios.post(`/api/folders/${selectedFolder.name}/inventory`,
-        editMode === 'raw' ? { raw: inventoryRaw } : inventory
-      )
+      await axios.post(`/api/folders/${selectedFolder.name}/inventory`, { raw: inventoryRaw })
       toast.success('✅ Inventory saved')
     } catch (error) {
       toast.error('Failed to save inventory')
@@ -311,13 +316,25 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
   const saveVars = async () => {
     if (!selectedFolder) return
 
+    let payload = varsRaw
+    if (editMode === 'structured') {
+      const { text, unpatchable } = applyScalarEdits(varsRaw, varsOriginal, vars)
+      payload = text
+      if (unpatchable.length > 0) {
+        toast.error(
+          `Not saved in structured mode: ${unpatchable.join(', ')}. Edit these in raw mode.`,
+          { duration: 6000 }
+        )
+      }
+    }
+
     try {
-      await axios.post(`/api/folders/${selectedFolder.name}/vars`,
-        editMode === 'raw' ? { raw: varsRaw } : vars
-      )
+      await axios.post(`/api/folders/${selectedFolder.name}/vars`, { raw: payload })
+      setVarsRaw(payload)
+      setVarsOriginal(JSON.parse(JSON.stringify(vars)))
       toast.success('✅ Variables saved')
-    } catch (error) {
-      toast.error('Failed to save variables')
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to save variables')
     }
   }
 
@@ -330,7 +347,8 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
         folder: selectedFolder.name,
         playbook: selectedPlaybook,
         inventory: 'inventory.ini',
-        vars: vars
+        check: checkMode,
+        diff: checkMode
       })
 
       setCurrentJob({
@@ -534,6 +552,18 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
                       </option>
                     ))}
                   </select>
+                  <label
+                    className={`flex items-center gap-2 px-4 py-3 border rounded-lg cursor-pointer select-none ${styles.input}`}
+                    title="Dry run: passes --check --diff, changes nothing on the target"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checkMode}
+                      onChange={(e) => setCheckMode(e.target.checked)}
+                      className="accent-green-500 w-4 h-4"
+                    />
+                    <span className="text-sm whitespace-nowrap">Dry run</span>
+                  </label>
                   <button
                     onClick={runPlaybook}
                     disabled={running || !selectedPlaybook}
@@ -596,19 +626,36 @@ function Dashboard({ theme }: { theme: 'dark' | 'light' }) {
 
                   {editMode === 'structured' ? (
                     <div className="space-y-4">
-                      {Object.entries(vars).map(([key, value]) => (
-                        <div key={key}>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">
-                            {key}
-                          </label>
-                          <input
-                            type="text"
-                            value={String(value)}
-                            onChange={(e) => updateVarValue(key, e.target.value)}
-                            className="w-full px-4 py-3 bg-gray-900 border border-green-500/30 rounded-lg text-gray-300 focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                          />
-                        </div>
-                      ))}
+                      {Object.entries(vars).map(([key, value]) => {
+                        // Only scalars can be written back without reformatting the
+                        // file (and losing its comments). Lists and maps are shown
+                        // read-only and must be edited in YAML mode.
+                        const isScalar =
+                          value === null || ['string', 'number', 'boolean'].includes(typeof value)
+                        return (
+                          <div key={key}>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              {key}
+                              {!isScalar && (
+                                <span className="ml-2 text-xs text-amber-400 font-normal">
+                                  {Array.isArray(value) ? 'list' : 'map'} — edit in YAML mode
+                                </span>
+                              )}
+                            </label>
+                            <input
+                              type="text"
+                              readOnly={!isScalar}
+                              value={isScalar ? String(value ?? '') : JSON.stringify(value)}
+                              onChange={(e) => isScalar && updateVarValue(key, e.target.value)}
+                              className={`w-full px-4 py-3 bg-gray-900 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                                isScalar
+                                  ? 'border-green-500/30 text-gray-300'
+                                  : 'border-amber-500/30 text-gray-500 cursor-not-allowed'
+                              }`}
+                            />
+                          </div>
+                        )
+                      })}
                     </div>
                   ) : (
                     <div className={`border ${styles.borderAccent} rounded-lg overflow-hidden`} style={{ height: '400px' }}>
@@ -907,7 +954,7 @@ function HistoryPage({ theme }: { theme: 'dark' | 'light' }) {
 }
 
 // Statistics Page Component
-function StatisticsPage({ theme }: { theme: 'dark' | 'light' }) {
+function StatisticsPage(_props: { theme: 'dark' | 'light' }) {
   const [stats, setStats] = useState<Statistics | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -1048,6 +1095,16 @@ function StatisticsPage({ theme }: { theme: 'dark' | 'light' }) {
 // Main App with Router
 function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(getTheme())
+  const [authed, setAuthed] = useState<boolean>(!!getToken())
+
+  // A 401 anywhere drops the stored token and returns to the gate.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setAuthed(false))
+  }, [])
+
+  if (!authed) {
+    return <TokenGate onAuthenticated={() => setAuthed(true)} />
+  }
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark'
@@ -1063,7 +1120,6 @@ function App() {
     ? 'bg-gray-900 border-b border-green-500/30 shadow-lg shadow-green-500/10'
     : 'bg-white border-b border-green-500/30 shadow-lg shadow-green-500/10'
 
-  const textPrimaryClass = theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
   const textSecondaryClass = theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
 
   return (

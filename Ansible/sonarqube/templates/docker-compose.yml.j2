@@ -1,0 +1,65 @@
+{{ ansible_managed | comment }}
+# Modelled on the official example:
+# https://github.com/SonarSource/docker-sonarqube/blob/master/example-compose-files/sq-with-postgres/docker-compose.yml
+services:
+  sonarqube:
+    image: {{ sonarqube_image }}
+    container_name: {{ sonarqube_container_name }}
+    hostname: sonarqube
+    read_only: true
+    restart: {{ sonarqube_restart_policy }}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: "jdbc:postgresql://{{ postgresql_container_name }}:5432/{{ sonarqube_db_name }}"
+      SONAR_JDBC_USERNAME: "{{ sonarqube_db_user }}"
+      SONAR_JDBC_PASSWORD: "{{ sonarqube_db_password }}"
+    ulimits:
+      nofile:
+        soft: {{ sonarqube_ulimit_nofile }}
+        hard: {{ sonarqube_ulimit_nofile }}
+      nproc:
+        soft: {{ sonarqube_ulimit_nproc }}
+        hard: {{ sonarqube_ulimit_nproc }}
+    tmpfs:
+      - /tmp:size=256M,mode=1777
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_temp:/opt/sonarqube/temp
+    ports:
+      - "{{ sonarqube_port }}:9000"
+    networks:
+      - {{ sonarqube_network }}
+
+  db:
+    image: {{ postgresql_image }}
+    container_name: {{ postgresql_container_name }}
+    hostname: postgresql
+    restart: {{ sonarqube_restart_policy }}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      POSTGRES_USER: "{{ sonarqube_db_user }}"
+      POSTGRES_PASSWORD: "{{ sonarqube_db_password }}"
+      POSTGRES_DB: "{{ sonarqube_db_name }}"
+    volumes:
+      - postgresql:/var/lib/postgresql
+    networks:
+      - {{ sonarqube_network }}
+
+volumes:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  sonarqube_temp:
+  postgresql:
+
+networks:
+  {{ sonarqube_network }}:
+    driver: bridge

@@ -1,37 +1,188 @@
 ---
-- name: Install kubectl for x86_64 or arm64 architecture
+# The old apt.kubernetes.io / packages.cloud.google.com repositories were retired by
+# upstream in 2023. The current package repo is pkgs.k8s.io, versioned per minor.
+- name: Install kubectl
   hosts: all
-  become: yes
-  vars:
-    kubectl_architecture: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
-    
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
   tasks:
-    - name: Download kubectl binary
-      ansible.builtin.get_url:
-        url: "https://dl.k8s.io/release/{{ lookup('url', 'https://dl.k8s.io/release/stable.txt') }}/bin/linux/{{ kubectl_architecture }}/kubectl"
-        dest: /tmp/kubectl
-        mode: '0755'
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert supported platform
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+              supported. Supported: Debian/Ubuntu (apt), RHEL/Rocky/Alma/Fedora/Amazon
+              (yum/dnf), openSUSE/SLES (zypper).
+            quiet: true
 
-    - name: Download kubectl sha256 file
-      ansible.builtin.get_url:
-        url: "https://dl.k8s.io/release/{{ lookup('url', 'https://dl.k8s.io/release/stable.txt') }}/bin/linux/{{ kubectl_architecture }}/kubectl.sha256"
-        dest: /tmp/kubectl.sha256
+        - name: Assert supported architecture
+          ansible.builtin.assert:
+            that:
+              - ansible_architecture in kubectl_arch_map
+            fail_msg: >-
+              {{ ansible_architecture }} has no kubectl_arch_map entry. Supported:
+              {{ kubectl_arch_map.keys() | list }}.
+            quiet: true
 
-    - name: Verify kubectl sha256 checksum
-      ansible.builtin.shell: |
-        echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum --check
-      register: sha256_check
-      failed_when: "'OK' not in sha256_check.stdout"
+        - name: Assert a supported install method was chosen
+          ansible.builtin.assert:
+            that:
+              - kubectl_install_method in ['package', 'binary']
+            fail_msg: "kubectl_install_method must be 'package' or 'binary', got '{{ kubectl_install_method }}'."
+            quiet: true
 
-    - name: Install kubectl
-      ansible.builtin.command:
-        cmd: "install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl"
+    # -------------------------------------------------------- package: Debian repo
+    - name: Configure the pkgs.k8s.io repository (Debian family)
+      when:
+        - ansible_os_family == 'Debian'
+        - kubectl_install_method == 'package'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - apt-transport-https
+              - ca-certificates
+              - curl
+              - gnupg
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
 
-    - name: Check kubectl version
-      ansible.builtin.command:
-        cmd: kubectl version --client
-      register: kubectl_version
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
 
-    - name: Show kubectl version
-      debug:
-        var: kubectl_version.stdout
+        - name: Fetch the Kubernetes GPG key
+          ansible.builtin.get_url:
+            url: "https://pkgs.k8s.io/core:/stable:/v{{ kubectl_minor_version }}/deb/Release.key"
+            dest: "{{ kubectl_keyring_path }}"
+            mode: '0644'
+
+        - name: Add the Kubernetes APT repository
+          ansible.builtin.deb822_repository:
+            name: kubernetes
+            types: [deb]
+            uris: "https://pkgs.k8s.io/core:/stable:/v{{ kubectl_minor_version }}/deb/"
+            suites: ["/"]
+            signed_by: "{{ kubectl_keyring_path }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # -------------------------------------------------------- package: RHEL repo
+    - name: Configure the pkgs.k8s.io repository (RedHat family)
+      ansible.builtin.yum_repository:
+        name: kubernetes
+        description: "Kubernetes v{{ kubectl_minor_version }}"
+        baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ kubectl_minor_version }}/rpm/"
+        gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ kubectl_minor_version }}/rpm/repodata/repomd.xml.key"
+        gpgcheck: true
+        enabled: true
+      when:
+        - ansible_os_family == 'RedHat'
+        - kubectl_install_method == 'package'
+      tags: [install]
+
+    # -------------------------------------------------------- package: SUSE repo
+    - name: Configure the pkgs.k8s.io repository (SUSE family)
+      community.general.zypper_repository:
+        name: kubernetes
+        repo: "https://pkgs.k8s.io/core:/stable:/v{{ kubectl_minor_version }}/rpm/"
+        auto_import_keys: true
+        state: present
+      when:
+        - ansible_os_family == 'Suse'
+        - kubectl_install_method == 'package'
+      tags: [install]
+
+    # -------------------------------------------------------------- package install
+    - name: Install kubectl from the package repository (unpinned)
+      ansible.builtin.package:
+        name: kubectl
+        state: present
+      when:
+        - kubectl_install_method == 'package'
+        - kubectl_package_version | length == 0
+      tags: [install]
+
+    - name: Install kubectl from the package repository (pinned, Debian)
+      ansible.builtin.apt:
+        name: "kubectl={{ kubectl_package_version }}"
+        state: present
+      when:
+        - kubectl_install_method == 'package'
+        - kubectl_package_version | length > 0
+        - ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install kubectl from the package repository (pinned, RedHat/SUSE)
+      ansible.builtin.package:
+        name: "kubectl-{{ kubectl_package_version }}"
+        state: present
+      when:
+        - kubectl_install_method == 'package'
+        - kubectl_package_version | length > 0
+        - ansible_os_family in ['RedHat', 'Suse']
+      tags: [install]
+
+    # ------------------------------------------------------------------- binary
+    - name: Install kubectl as a standalone binary
+      when: kubectl_install_method == 'binary'
+      tags: [install]
+      block:
+        - name: Resolve the latest stable version
+          ansible.builtin.uri:
+            url: https://dl.k8s.io/release/stable.txt
+            return_content: true
+          register: kubectl_stable
+          when: kubectl_version | length == 0
+          check_mode: false
+
+        - name: Set the resolved kubectl version
+          ansible.builtin.set_fact:
+            kubectl_resolved_version: "{{ kubectl_version if kubectl_version | length > 0 else kubectl_stable.content | trim }}"
+
+        - name: Download and verify the kubectl binary
+          ansible.builtin.get_url:
+            url: >-
+              https://dl.k8s.io/release/{{ kubectl_resolved_version }}/bin/linux/{{
+              kubectl_arch_map[ansible_architecture] }}/kubectl
+            checksum: >-
+              sha256:https://dl.k8s.io/release/{{ kubectl_resolved_version }}/bin/linux/{{
+              kubectl_arch_map[ansible_architecture] }}/kubectl.sha256
+            dest: "{{ kubectl_bin_dir }}/kubectl"
+            owner: root
+            group: root
+            mode: '0755'
+
+    # -------------------------------------------------------------------- verify
+    - name: Check the installed kubectl version
+      ansible.builtin.command: kubectl version --client --output=yaml
+      changed_when: false
+      check_mode: false
+      register: kubectl_installed_version
+      tags: [verify]
+
+    - name: Show the installed kubectl version
+      ansible.builtin.debug:
+        var: kubectl_installed_version.stdout_lines
+      tags: [verify]

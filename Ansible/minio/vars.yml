@@ -1,4 +1,54 @@
 ---
+# minio/minio and minio/mc are both ARCHIVED upstream ("THIS REPOSITORY IS NO LONGER
+# MAINTAINED"). The community edition is now source-code-only; dl.min.io still serves
+# working packages today but they are the LAST ever build and will never be patched
+# again. Pinning the exact frozen release here is deliberate, not laziness — there is
+# no "latest" to track anymore. See README for the upstream-recommended path forward
+# (build from source, or MinIO Inc.'s "AIStor Free").
+minio_version: "RELEASE.2025-09-07T16-13-09Z"
+minio_mc_version: "RELEASE.2025-08-13T08-35-41Z"
+minio_install_mc: true
+
+minio_download_base: "https://dl.min.io"
+
+# dl.min.io deb/binary paths use amd64/arm64; the .rpm assets use x86_64/aarch64
+# (ansible_architecture's own naming) directly — two different schemes, verified live.
+minio_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+
+minio_install_dir: /usr/local/bin
+minio_user: minio-user
+minio_group: minio-user
+
+# Data volume passed to MINIO_VOLUMES.
 minio_directory: /mnt/data
-minio_admin_user: admin
-minio_admin_user_password: wo#*4fd-LDSsgsa
+
+minio_api_port: 9000
+minio_console_port: 9001
+minio_api_address: ":{{ minio_api_port }}"
+minio_console_address: ":{{ minio_console_port }}"
+
+# Two-file layout, current upstream pattern (minio/minio-service, not archived):
+#   /etc/default/minio   -> bootstrap vars read by systemd, REQUIRED (unit asserts
+#                            it is non-empty), never holds secrets.
+#   /etc/minio/config.env -> root credentials + everything else, 0600, hot-reloadable
+#                            via `mc admin service restart` without a full unit restart.
+minio_default_env_path: /etc/default/minio
+minio_config_dir: /etc/minio
+minio_config_env_path: /etc/minio/config.env
+
+# --- root credentials --------------------------------------------------------------
+# MUST be supplied via a vault-encrypted var file, e.g.:
+#   vault_minio_root_user: s3-admin
+#   vault_minio_root_password: <32+ random chars>
+# install_minio.yml asserts both are non-empty and not equal to the well-known
+# "minioadmin" default before writing config.env; the write task itself is no_log.
+minio_root_user: "{{ vault_minio_root_user | default('') }}"
+minio_root_password: "{{ vault_minio_root_password | default('') }}"
+
+minio_service_enabled: true
+minio_service_state: started
+
+# uninstall_minio.yml: also wipe the data directory.
+minio_purge_data: false

@@ -1,6 +1,229 @@
 ---
-- name: Install HAProxy
+# Installs HAProxy and renders haproxy.cfg from templates/haproxy.cfg.j2. Replaces the three
+# overlapping playbooks this module used to ship (install.yml via the geerlingguy.haproxy
+# Galaxy role, haproxy_2_8_debian.yml, specific-version.yml) with one version-parameterised
+# play driven by haproxy_branch.
+- name: Install and configure HAProxy
   hosts: haproxy_servers
-  become: yes
-  roles:
-    - role: geerlingguy.haproxy
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Reload the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Restart haproxy
+      ansible.builtin.systemd_service:
+        name: "{{ haproxy_service_name }}"
+        state: restarted
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert the platform is supported
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+              - ansible_os_family != 'Debian' or ansible_distribution in ['Debian', 'Ubuntu']
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+              Debian uses the haproxy.debian.net repo, Ubuntu the vbernat PPA, RHEL/Rocky/
+              AlmaLinux/CentOS Stream and openSUSE/SLES use their own distribution package.
+            quiet: true
+
+        - name: Assert the stats page is not exposed without a password
+          ansible.builtin.assert:
+            that:
+              - haproxy_stats_password | length > 0
+            fail_msg: >-
+              haproxy_stats_bind is not loopback-only ({{ haproxy_stats_bind }}) but
+              haproxy_stats_password (vault_haproxy_stats_password) is empty. Set a vaulted
+              password before exposing the stats page off-host.
+            quiet: true
+          when:
+            - haproxy_stats_enabled | bool
+            - not (haproxy_stats_bind is search('^(127\.0\.0\.1|localhost)'))
+
+        - name: Warn about the outdated AppStream build on RHEL/Rocky/Alma 8
+          ansible.builtin.debug:
+            msg: >-
+              {{ ansible_distribution }} 8's AppStream ships haproxy 1.8.27, years past
+              HAProxy's own EOL (haproxy.org lists LTS branches from 2.6 onward). No official
+              newer repository exists for this OS. Consider RHEL/Rocky/Alma 9+ for production.
+          when:
+            - ansible_os_family == 'RedHat'
+            - ansible_distribution_major_version | int == 8
+            - haproxy_warn_on_outdated_rhel8 | bool
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the haproxy.debian.net repository (Debian only)
+      when: ansible_distribution == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name: [ca-certificates, curl]
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the haproxy.debian.net signing key
+          ansible.builtin.get_url:
+            url: "{{ haproxy_debian_net_keyring_url }}"
+            dest: /etc/apt/keyrings/haproxy-archive-keyring.gpg
+            mode: '0644'
+
+        - name: Add the haproxy.debian.net repository
+          ansible.builtin.deb822_repository:
+            name: haproxy
+            types: [deb]
+            uris: https://haproxy.debian.net
+            suites: ["{{ ansible_distribution_release }}-backports-{{ haproxy_branch }}"]
+            components: [main]
+            signed_by: /etc/apt/keyrings/haproxy-archive-keyring.gpg
+            enabled: true
+            state: present
+          notify: Reload the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: Ubuntu
+    # haproxy.debian.net has no repository for Ubuntu (verified against its own release/
+    # version matrix) — every Ubuntu release only offers "official" or this PPA.
+    - name: Configure the vbernat PPA (Ubuntu only)
+      when: ansible_distribution == 'Ubuntu'
+      tags: [install]
+      block:
+        - name: Install software-properties-common
+          ansible.builtin.apt:
+            name: software-properties-common
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        # deb822_repository has no `ppa:` shorthand resolution (that logic lives in
+        # software-properties-common/apt_repository only); apt_repository is deprecated for
+        # 2.25 but remains the only builtin module that can resolve a PPA short name.
+        - name: Add the vbernat HAProxy PPA
+          ansible.builtin.apt_repository:
+            repo: "{{ haproxy_ubuntu_ppa }}"
+            state: present
+
+    # ------------------------------------------------------------------ install
+    - name: Install haproxy (Debian/Ubuntu repository)
+      ansible.builtin.apt:
+        name: "haproxy={{ haproxy_branch }}.*"
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install haproxy (RedHat/SUSE distribution package)
+      ansible.builtin.package:
+        name: "{{ haproxy_package_name }}"
+        state: present
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [install]
+
+    # --------------------------------------------------------------- SELinux
+    - name: Set the SELinux booleans haproxy needs
+      ansible.posix.seboolean:
+        name: "{{ item }}"
+        state: true
+        persistent: true
+      loop: "{{ haproxy_selinux_booleans }}"
+      when:
+        - ansible_os_family == 'RedHat'
+        - haproxy_manage_selinux | bool
+        - ansible_selinux is defined
+        - ansible_selinux.status | default('disabled') == 'enabled'
+      tags: [configure]
+
+    # --------------------------------------------------------------------- sysctl
+    # Required only when a frontend binds directly to a VIP that may not be present on the
+    # interface yet (e.g. failed over by keepalived/VRRP) — confirmed against Red Hat's "Load
+    # Balancer Administration" guide.
+    - name: Allow binding to non-local addresses
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_nonlocal_bind
+        value: '1'
+        sysctl_set: true
+        state: present
+        reload: true
+      when: haproxy_enable_nonlocal_bind | bool
+      tags: [configure]
+
+    # ---------------------------------------------------------------- configure
+    - name: Write haproxy.cfg
+      ansible.builtin.template:
+        src: haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        group: root
+        mode: '0644'
+        validate: "haproxy -c -f %s"
+      notify: Restart haproxy
+      tags: [configure]
+
+    # ------------------------------------------------------------------ firewall
+    - name: Collect the service list
+      ansible.builtin.service_facts:
+      when: haproxy_manage_firewall | bool
+      tags: [configure]
+
+    - name: Open haproxy frontend/stats ports in firewalld
+      ansible.posix.firewalld:
+        port: "{{ item.split(':')[-1] }}/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop: "{{ (haproxy_frontends | map(attribute='bind') | list) + ([haproxy_stats_bind] if haproxy_stats_enabled else []) }}"
+      when:
+        - haproxy_manage_firewall | bool
+        - ansible_facts.services['firewalld.service'].state | default('') == 'running'
+      tags: [configure]
+
+    - name: Open haproxy frontend/stats ports in ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.split(':')[-1] }}"
+        proto: tcp
+      loop: "{{ (haproxy_frontends | map(attribute='bind') | list) + ([haproxy_stats_bind] if haproxy_stats_enabled else []) }}"
+      when:
+        - haproxy_manage_firewall | bool
+        - ansible_facts.services['ufw.service'].state | default('') == 'running'
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start haproxy
+      ansible.builtin.systemd_service:
+        name: "{{ haproxy_service_name }}"
+        enabled: "{{ haproxy_service_enabled }}"
+        state: "{{ haproxy_service_state }}"
+        daemon_reload: true
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed version
+      ansible.builtin.command: haproxy -v
+      changed_when: false
+      check_mode: false
+      register: haproxy_verify
+      tags: [verify]
+
+    - name: Show the installed version
+      ansible.builtin.debug:
+        msg: "{{ haproxy_verify.stdout_lines }}"
+      tags: [verify]

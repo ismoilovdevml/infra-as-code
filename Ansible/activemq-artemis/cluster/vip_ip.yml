@@ -1,0 +1,79 @@
+---
+# Gives Artemis clients one floating IP that follows the shared-store primary/
+# active backup. keepalived/VRRP is a generic HA pattern, not an Artemis-specific
+# upstream recommendation — see cluster/README.md.
+- name: Configure the Artemis client-facing virtual IP
+  hosts: master,nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart keepalived
+      ansible.builtin.systemd_service:
+        name: keepalived
+        state: restarted
+
+  tasks:
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+          supported. keepalived is packaged for Debian/Ubuntu and RHEL family only
+          in this playbook.
+        quiet: true
+      tags: [always]
+
+    - name: Install keepalived (Debian family)
+      ansible.builtin.apt:
+        name: keepalived
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install keepalived (RedHat family)
+      ansible.builtin.dnf:
+        name: keepalived
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    - name: Deploy the Artemis health-check script
+      ansible.builtin.template:
+        src: check_artemis.sh.j2
+        dest: /usr/local/bin/check_artemis.sh
+        owner: root
+        group: root
+        mode: '0755'
+      tags: [configure]
+
+    - name: Deploy keepalived.conf
+      ansible.builtin.template:
+        src: keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: '0640'
+      notify: Restart keepalived
+      tags: [configure]
+
+    - name: Enable and start keepalived
+      ansible.builtin.systemd_service:
+        name: keepalived
+        enabled: true
+        state: started
+      tags: [service]
+
+    - name: Collect service facts
+      ansible.builtin.service_facts:
+      tags: [verify]
+
+    - name: Show the keepalived status
+      ansible.builtin.debug:
+        msg: "keepalived on {{ inventory_hostname }}: {{ ansible_facts.services['keepalived.service'].state | default('unknown') }}"
+      tags: [verify]

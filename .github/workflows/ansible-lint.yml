@@ -1,0 +1,53 @@
+---
+name: Ansible Lint
+
+on:
+  push:
+    branches: [main]
+    paths: ['Ansible/**', '.github/workflows/ansible-lint.yml']
+  pull_request:
+    paths: ['Ansible/**', '.github/workflows/ansible-lint.yml']
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: syntax-check + ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tooling
+        run: pip install --upgrade "ansible-core>=2.17" ansible-lint yamllint
+
+      - name: Install declared collections
+        working-directory: Ansible
+        run: |
+          find . -name requirements.yml -not -path "./wazuh-ansible/*" -print0 \
+            | xargs -0 -r -I{} ansible-galaxy collection install -r {}
+
+      - name: yamllint
+        working-directory: Ansible
+        run: yamllint -c .yamllint .
+
+      - name: ansible-playbook --syntax-check
+        working-directory: Ansible
+        run: |
+          rc=0
+          while IFS= read -r f; do
+            d=$(dirname "$f"); b=$(basename "$f")
+            ( cd "$d" && ansible-playbook --syntax-check -i localhost, "$b" ) || rc=1
+          done < <(find . -name '*.yml' \
+                     -not -path './wazuh-ansible/*' \
+                     -not -name 'vars.yml' \
+                     -not -name 'requirements.yml' \
+                     -not -path '*/templates/*' | sort)
+          exit $rc
+        shell: bash
+
+      - name: ansible-lint
+        working-directory: Ansible
+        run: ansible-lint --profile production .

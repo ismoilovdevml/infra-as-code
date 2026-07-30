@@ -1,26 +1,40 @@
 ---
 - name: Uninstall Kubernetes Dashboard
-  hosts: all
-  become: yes
-  vars:
-    dashboard_namespace: "kubernetes-dashboard"  # Namespace for Kubernetes dashboard
-    helm_release_name: "kubernetes-dashboard"  # Helm release name
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Uninstall the Kubernetes Dashboard using Helm
-      ansible.builtin.command:
-        cmd: helm uninstall {{ helm_release_name }} --namespace {{ dashboard_namespace }}
-      register: helm_uninstall_output
+    - name: Remove the Ingress
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        template: templates/ingress.yaml.j2
+      tags: [uninstall]
 
-    - name: Show Helm uninstall output
-      debug:
-        var: helm_uninstall_output.stdout
+    - name: Remove the admin-user ServiceAccount and ClusterRoleBinding
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        template: templates/admin-user-rbac.yaml.j2
+      tags: [uninstall]
 
-    - name: Delete the Kubernetes Dashboard namespace
-      ansible.builtin.command:
-        cmd: kubectl delete namespace {{ dashboard_namespace }}
-      register: delete_namespace_output
+    - name: Uninstall the Kubernetes Dashboard Helm release
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ dashboard_release_name }}"
+        release_namespace: "{{ dashboard_namespace }}"
+        state: absent
+        wait: true
+      tags: [uninstall]
 
-    - name: Show namespace deletion output
-      debug:
-        var: delete_namespace_output.stdout
+    - name: Remove the Kubernetes Dashboard namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        kind: Namespace
+        name: "{{ dashboard_namespace }}"
+        wait: true
+      tags: [uninstall]

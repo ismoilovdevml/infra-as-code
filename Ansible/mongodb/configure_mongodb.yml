@@ -1,46 +1,115 @@
 ---
+# Renders mongod.conf with the current bind address / auth setting, then creates
+# the admin user via the localhost exception (MongoDB permits unauthenticated
+# localhost connections until the first user exists) and restarts. Run install.yml
+# first — this play assumes MongoDB is already installed.
 - name: Configure MongoDB
   hosts: mongodb_servers
   become: true
-  vars:
-    admin_user: "admin"
-    admin_password: "sdlkjqe092"
-    database_name: "admin"
-    mongodb_port: 27017
-    auth_mechanism: "SCRAM-SHA-256"
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
-  roles:
-    - role: community.mongodb.mongodb_mongod
+  handlers:
+    - name: Restart mongod
+      ansible.builtin.systemd_service:
+        name: "{{ mongodb_service_name }}"
+        state: restarted
 
   tasks:
-    - name: Configure MongoDB without authentication
-      include_role:
-        name: community.mongodb.mongodb_mongod
-      vars:
-        mongodb_mongod_security_authorization: "disabled"
-        mongodb_mongod_net_bind_ip: "0.0.0.0"
-        mongodb_mongod_net_port: "{{ mongodb_port }}"
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        quiet: true
+      tags: [always]
 
-    - name: Create admin user
-      community.mongodb.mongodb_user:
-        name: "{{ admin_user }}"
-        password: "{{ admin_password }}"
-        roles:
-          - role: "userAdminAnyDatabase"
-            db: "{{ database_name }}"
-        database: "{{ database_name }}"
-        auth_mechanism: "{{ auth_mechanism }}"
+    # A non-loopback bind with no admin password turns MongoDB into an open,
+    # unauthenticated database reachable from the network. Refuse that outright.
+    - name: Assert a password is set before binding beyond loopback
+      ansible.builtin.assert:
+        that:
+          - mongodb_admin_password | length > 0
+        fail_msg: >-
+          mongodb_bind_address is set to {{ mongodb_bind_address }} but
+          mongodb_admin_password is empty. Set vault_mongodb_admin_password (vaulted)
+          before exposing MongoDB beyond 127.0.0.1.
+        quiet: true
+      when: mongodb_bind_address != '127.0.0.1'
+      no_log: true
+      tags: [configure]
 
-    - name: Enable MongoDB authentication
-      include_role:
-        name: community.mongodb.mongodb_mongod
-      vars:
-        mongodb_mongod_security_authorization: "enabled"
-        mongodb_mongod_net_bind_ip: "0.0.0.0"
-        mongodb_mongod_net_port: "{{ mongodb_port }}"
+    - name: Write mongod.conf
+      ansible.builtin.template:
+        src: mongod.conf.j2
+        dest: "{{ mongodb_config_path }}"
+        owner: root
+        group: mongod
+        mode: '0640'
+      notify: Restart mongod
+      no_log: true
+      tags: [configure]
 
-    - name: Restart MongoDB with authentication
-      ansible.builtin.systemd:
-        name: mongod
-        state: restarted
-        enabled: true
+    - name: Apply the configuration now
+      ansible.builtin.meta: flush_handlers
+      tags: [configure]
+
+    - name: Wait for the MongoDB port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ mongodb_port }}"
+        timeout: 30
+      tags: [configure]
+
+    # ------------------------------------------------------------- admin user
+    # Idempotency: try authenticating first. rc==0 means the user already exists
+    # with this password, so creation is skipped. A non-zero rc covers both "no
+    # user yet" (localhost exception open) and "wrong password" (creation below
+    # then fails loudly instead of silently drifting).
+    - name: Check whether the admin user can already authenticate
+      ansible.builtin.command:
+        argv:
+          - mongosh
+          - --quiet
+          - --host
+          - "127.0.0.1"
+          - --port
+          - "{{ mongodb_port | string }}"
+          - -u
+          - "{{ mongodb_admin_user }}"
+          - -p
+          - "{{ mongodb_admin_password }}"
+          - --authenticationDatabase
+          - "{{ mongodb_admin_database }}"
+          - --eval
+          - "db.runCommand('ping').ok"
+      register: mongodb_admin_ping
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      no_log: true
+      when: mongodb_admin_password | length > 0
+      tags: [configure]
+
+    - name: Create the admin user via the localhost exception
+      ansible.builtin.command:
+        argv:
+          - mongosh
+          - --quiet
+          - --host
+          - "127.0.0.1"
+          - --port
+          - "{{ mongodb_port | string }}"
+          - --eval
+          - >-
+            db.getSiblingDB('{{ mongodb_admin_database }}').createUser({
+            user: '{{ mongodb_admin_user }}',
+            pwd: '{{ mongodb_admin_password }}',
+            roles: [{role: 'root', db: '{{ mongodb_admin_database }}'}] })
+      when:
+        - mongodb_admin_password | length > 0
+        - mongodb_admin_ping.rc != 0
+      changed_when: true
+      no_log: true
+      tags: [configure]

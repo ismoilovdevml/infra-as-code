@@ -1,0 +1,4 @@
+---
+collections:
+  - name: community.general   # community.general.zypper_repository, SUSE only
+    version: ">=9.0.0"

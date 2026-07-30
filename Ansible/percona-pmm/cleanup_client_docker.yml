@@ -1,37 +1,37 @@
 ---
-- name: Cleanup PMM Client Docker Setup
+- name: Uninstall the PMM Client Docker deployment
   hosts: pmm_clients
   become: true
+  gather_facts: false
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Stop PMM client container if exists
-      docker_container:
+    - name: Stop the PMM client container if it exists
+      community.docker.docker_container:
         name: "{{ pmm_client_container }}"
         state: stopped
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove PMM client container if exists
-      docker_container:
+    - name: Remove the PMM client container if it exists
+      community.docker.docker_container:
         name: "{{ pmm_client_container }}"
         state: absent
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove PMM client Docker image if exists
-      docker_image:
+    - name: Remove the PMM client Docker image if it exists
+      community.docker.docker_image:
         name: "{{ pmm_client_docker_image }}"
         tag: "{{ pmm_client_docker_tag }}"
         state: absent
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove PMM data directory if exists
-      file:
+    - name: Remove the PMM client data directory
+      ansible.builtin.file:
         path: "{{ pmm_data_host_path }}"
         state: absent
-        force: yes
-      ignore_errors: yes
-      failed_when: false
+      when: pmm_purge_data | bool
+      tags: [uninstall]

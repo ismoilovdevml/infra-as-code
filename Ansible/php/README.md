@@ -1,75 +1,67 @@
-# 📋 PHP Installation Playbook
+# PHP
 
-This Ansible playbook installs a specified version of PHP on multiple servers using the **geerlingguy.php-versions** and **geerlingguy.php** roles. If you're using Nginx as your web server, this playbook can also configure Nginx to work with PHP.
+Installs PHP-FPM and a common extension set from each platform's own repository:
+deb.sury.org on Debian/Ubuntu, Remi on Enterprise Linux (RHEL/Rocky/Alma/CentOS
+Stream/Oracle), the distribution's own channel on Fedora/Amazon Linux and openSUSE/SLES.
 
-## 🛠️ Usage
+## Supported platforms
 
-### Install PHP
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Debian 11+, Ubuntu 20.04+ | `packages.sury.org` APT repo, versioned packages (`php8.4-*`) |
+| RedHat (EL) | RHEL/Rocky/Alma/CentOS Stream/Oracle 8-9 | Remi + EPEL + CRB/PowerTools, DNF module stream `php:remi-<version>` |
+| RedHat (EL10) | RHEL/Rocky/Alma/CentOS Stream/Oracle 10 | Remi, versioned side-by-side packages (`php84-*`) — RHEL 10 dropped DNF modularity |
+| RedHat (native) | Fedora 40+, Amazon Linux 2023 | distro's own `php-*` packages, no version pinning |
+| Suse | openSUSE Leap 15.x, SLES 15 | distro's own `php8`/`php8-*` packages, no version pinning |
 
-To install PHP on your servers, follow these steps:
+Anything else fails in preflight with an explicit message.
 
-1. Install the required Ansible role:
-   ```bash
-   ansible-galaxy role install geerlingguy.php-versions
-   ansible-galaxy role install geerlingguy.repo-remi
-   ansible-galaxy role install geerlingguy.php
-   ansible-galaxy role install geerlingguy.nginx
-   ```
-2. Run the playbook to install PHP:
-   ```bash
-   ansible-playbook -i inventory.ini install_php.yml
-   ```
-The PHP version can be customized in the playbook by setting the `php_version` variable.
+## Requirements
 
-### Example
+- Ansible core >= 2.15 (`deb822_repository`)
+- `ansible-galaxy collection install -r requirements.yml` (`community.general`, for
+  `dnf_config_manager` and `zypper`)
+- `sudo` on the target
 
-To install PHP version `8.3`, set the `php_version` variable in the playbook as shown below:
+## Usage
 
-```yml
-vars:
-  php_version: "8.3"
+```bash
+ansible-playbook install_php.yml
+ansible-playbook install_php.yml -e php_version=8.5
+ansible-playbook install_php.yml --check --diff
+ansible-playbook uninstall_php.yml
 ```
 
-### Web Server Configuration
-This playbook is designed to work with both Apache and Nginx. By default, it assumes Apache is the web server. However, if you're using Nginx, you need to specify that by setting the `php_webserver_daemon` variable to `nginx` in the playbook.
+## Variables
 
-```yml
-vars:
-  php_webserver_daemon: "nginx"
+| Variable | Default | Description |
+|---|---|---|
+| `php_version` | `"8.4"` | Full `major.minor` — used verbatim in Debian/Sury and EL module-stream package names |
+| `php_extensions_debian` | see `vars.yml` | Suffixes installed as `php<version>-<ext>` |
+| `php_extensions_redhat` | see `vars.yml` | Suffixes installed as `php-<ext>` (EL module stream / Fedora / Amazon) or `php<compact>-<ext>` (EL10) |
+| `php_fpm_state` | `started` | Passed to the `php-fpm` service |
+
+## Verify
+
+```bash
+php -v
+systemctl status php8.4-fpm       # Debian/Sury
+systemctl status php-fpm          # RHEL module-stream / Fedora / Amazon / SUSE
+systemctl status php84-php-fpm    # RHEL 10 (no DNF modules)
 ```
-If Nginx is **not installed** on your servers, you can install it by adding the **geerlingguy.nginx** role to your playbook as shown below:
 
-```yml
-roles:
-  - name: geerlingguy.nginx  # Installs Nginx if not already installed
-  - geerlingguy.php
-```
+## Notes
 
-### Playbook Explanation
-
-* **Role used:** 
-    * [geerlingguy.php-version](https://github.com/geerlingguy/ansible-role-php-versions)
-    * [geerlingguy.php](https://github.com/geerlingguy/ansible-role-php)
-    * [geerlingguy.nginx](https://github.com/geerlingguy/ansible-role-nginx) (optional if Nginx is not installed)
-
-* This role simplifies the installation of different PHP versions on supported operating systems.
-
-
-### 💻 Supported Linux Operating Systems
-This playbook supports the following Linux distributions:
-* 🐧 **Debian:** 10,11
-* 🐧 **Ubuntu:** 20.04,22.04
-* 🐧 **CentOS:** 7,8
-
-### ⚙️ Supported Ansible Versions
-* ✅ ansible-core 2.11.0
-* ✅  ansible-core 2.12.5
-* ❗️ ansible [core 2.17.3] (compatibility issues)
-
-> Note: Ensure you run the playbook with appropriate privileges (e.g., use become: yes if needed).
-
-### Resources
-
-* [Ansible Galaxy - geerlingguy.php-version Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/php-versions/documentation/)
-* [Ansible Galaxy - geerlingguy.php Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/php/documentation/)
-* [Ansible Galaxy - geerlingguy.nginx Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/nginx/documentation/)
+- `php_version` must match exactly what the target repository publishes: `8.4` on
+  Debian/Sury and EL module streams. On Fedora, Amazon Linux and SUSE there is no version
+  control at all — whatever the distro ships is installed, and `php_version` is not used
+  in the package name on those paths.
+- **RHEL 10 dropped DNF modularity.** `dnf module enable php:remi-X.Y` no longer applies;
+  this playbook detects the major version and switches to Remi's versioned side-by-side
+  packages (`php84-cli`, `php84-fpm`, ...) automatically. Re-running with a different
+  `php_version` on EL8/EL9 resets the module stream first so the switch is clean.
+- Sury's Ubuntu PPA (`ppa:ondrej/php`) is mid-migration to `packages.sury.org` as of 2026;
+  this playbook always uses `packages.sury.org` directly, never the PPA.
+- openSUSE/SLES have no official vendor PHP repository equivalent to Sury/Remi; the OBS
+  community project `devel:languages:php:phpNN` is the only way to pin an exact version
+  there, and this playbook does not add it automatically.

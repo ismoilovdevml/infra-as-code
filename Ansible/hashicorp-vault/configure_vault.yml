@@ -1,86 +1,172 @@
-- name: Configure and Initialize Vault
-  hosts: all
+---
+- name: Configure and initialise HashiCorp Vault
+  hosts: vault_nodes
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart vault
+      ansible.builtin.systemd_service:
+        name: vault
+        state: restarted
+        daemon_reload: true
+
   tasks:
-    - name: Create directories for Vault configuration and data
-      file:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert init parameters are sane
+      ansible.builtin.assert:
+        that:
+          - vault_init_key_threshold | int > 0
+          - vault_init_key_threshold | int <= vault_init_key_shares | int
+        fail_msg: "vault_init_key_threshold must be > 0 and <= vault_init_key_shares."
+        quiet: true
+      tags: [always]
+
+    - name: Assert TLS material is provided when TLS is enabled
+      ansible.builtin.assert:
+        that:
+          - vault_tls_cert_file | length > 0
+          - vault_tls_key_file | length > 0
+        fail_msg: >-
+          vault_tls_disable is false but vault_tls_cert_file/vault_tls_key_file are
+          empty. Provide a real certificate and key already present on the host.
+        quiet: true
+      when: not vault_tls_disable | bool
+      tags: [always]
+
+    # ---------------------------------------------------------------- directories
+    - name: Create the Vault configuration, data and log directories
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        mode: '0755'
+        owner: vault
+        group: vault
+        mode: '0750'
       loop:
         - "{{ vault_config_path }}"
         - "{{ vault_data_path }}"
+        - "{{ vault_log_path }}"
+      tags: [configure]
 
-    - name: Deploy Vault configuration file
-      template:
+    # ----------------------------------------------------------------- configure
+    - name: Write vault.hcl
+      ansible.builtin.template:
         src: vault.hcl.j2
         dest: "{{ vault_config_path }}/vault.hcl"
-        mode: '0644'
-
-    - name: Start and enable Vault service
-      service:
-        name: vault
-        state: started
-        enabled: true
-
-    - name: Add VAULT_ADDR to user's bashrc
-      lineinfile:
-        path: ~/.bashrc
-        line: "export VAULT_ADDR='{{ vault_api_addr }}'"
-        create: yes
-
-    - name: Source the updated bashrc
-      shell: source ~/.bashrc
-      args:
-        executable: /bin/bash
-
-    - name: Check if Vault is already initialized
-      command: VAULT_ADDR={{ vault_api_addr }} vault status
-      register: vault_status_output
-      failed_when: vault_status_output.rc not in [0, 2]
-      changed_when: false
-
-    - name: Remove old Vault data if already initialized
-      file:
-        path: "{{ vault_data_path }}"
-        state: absent
-      when: "'Initialized: true' in vault_status_output.stdout"
-      notify: Restart Vault Service
-
-    - name: Recreate Vault data directory
-      file:
-        path: "{{ vault_data_path }}"
-        state: directory
-        mode: '0755'
         owner: vault
         group: vault
-      when: "'Initialized: true' in vault_status_output.stdout"
+        mode: '0640'
+      notify: Restart vault
+      tags: [configure]
 
-    - name: Restart Vault service
-      service:
+    # ------------------------------------------------------------------ service
+    # Uses the systemd unit shipped by the official package (already hardened with
+    # AmbientCapabilities=CAP_IPC_LOCK, NoNewPrivileges=yes) — this repo does not
+    # template a competing unit file.
+    - name: Enable and start vault
+      ansible.builtin.systemd_service:
         name: vault
-        state: restarted
-      when: "'Initialized: true' in vault_status_output.stdout"
+        enabled: "{{ vault_service_enabled }}"
+        state: "{{ vault_service_state }}"
+        daemon_reload: true
+      tags: [service]
 
-    - name: Initialize Vault if not already initialized
-      command: vault operator init -format=json
+    - name: Wait for the Vault API port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ vault_listen_port }}"
+        timeout: 120
+      tags: [verify]
+
+    # ------------------------------------------------------------- init/unseal
+    # Only the first node of the group bootstraps the raft cluster. Every other node
+    # joins it via retry_join (already in vault.hcl) once it is unsealed.
+    - name: Initialisation and unseal (bootstrap node only)
+      when:
+        - vault_init_enabled | bool
+        - inventory_hostname == groups['vault_nodes'] | first
+        - not ansible_check_mode
+      tags: [init]
+      block:
+        - name: Check whether Vault is already initialised
+          ansible.builtin.command: vault status -format=json
+          environment:
+            VAULT_ADDR: "{{ vault_api_addr }}"
+          register: vault_status
+          failed_when: vault_status.rc not in [0, 2]
+          changed_when: false
+          check_mode: false
+
+        - name: Parse the status output
+          ansible.builtin.set_fact:
+            vault_is_initialized: "{{ (vault_status.stdout | from_json).initialized }}"
+
+        # SECURITY: this command's stdout is the root token and every unseal key.
+        # no_log hides it from the console, the log and any callback plugin.
+        - name: Initialise Vault
+          ansible.builtin.command: >-
+            vault operator init
+            -key-shares={{ vault_init_key_shares }}
+            -key-threshold={{ vault_init_key_threshold }}
+            -format=json
+          environment:
+            VAULT_ADDR: "{{ vault_api_addr }}"
+          register: vault_init_result
+          no_log: true
+          changed_when: true
+          when: not vault_is_initialized
+
+        # Handoff artifact for the operator. Root-only, 0600, and this is a ONE-TIME
+        # handoff: copy it off this host immediately, then delete it — see README.
+        # Grouped in a block (single `when`) rather than repeated on every task, since
+        # each of these only makes sense right after a fresh initialisation.
+        - name: Persist the init output and unseal the freshly initialised cluster
+          when: not vault_is_initialized
+          block:
+            - name: Persist the init output for the operator to collect
+              ansible.builtin.copy:
+                content: "{{ vault_init_result.stdout }}"
+                dest: "{{ vault_init_output_path }}"
+                owner: root
+                group: root
+                mode: '0600'
+              no_log: true
+
+            - name: Extract the freshly generated unseal keys
+              ansible.builtin.set_fact:
+                vault_unseal_keys: "{{ (vault_init_result.stdout | from_json).unseal_keys_b64 }}"
+              no_log: true
+
+            - name: Unseal Vault with the freshly generated keys
+              ansible.builtin.command: "vault operator unseal {{ item }}"
+              environment:
+                VAULT_ADDR: "{{ vault_api_addr }}"
+              loop: "{{ vault_unseal_keys[: vault_init_key_threshold | int] }}"
+              no_log: true
+              changed_when: true
+
+            - name: Warn the operator about the handoff file
+              ansible.builtin.debug:
+                msg: >-
+                  Vault was initialised. Unseal keys and the root token were written,
+                  no_log, mode 0600, to {{ vault_init_output_path }} on {{ inventory_hostname }}.
+                  Copy that file to a password manager or secret store OFF this host now,
+                  then delete it here. Leaving unseal keys on the Vault host defeats the
+                  purpose of Shamir sealing.
+
+    - name: Show the Vault status
+      ansible.builtin.command: vault status
       environment:
         VAULT_ADDR: "{{ vault_api_addr }}"
-      when: "'Initialized: true' not in vault_status_output.stdout"
-      register: vault_init_output
+      register: vault_status_final
       changed_when: false
+      failed_when: vault_status_final.rc not in [0, 2]
+      check_mode: false
+      tags: [verify]
 
-    - name: Display unseal keys and root token if initialization occurred
-      debug:
-        msg: |
-          Vault has been successfully initialized.
-          Access the UI at: {{ vault_api_addr }}
-          Unseal Keys (Base64):
-          {% for key in vault_init_output.stdout | from_json | json_query('unseal_keys_b64') %}
-          - {{ key }}
-          {% endfor %}
-          Root Token: {{ vault_init_output.stdout | from_json | json_query('root_token') }}
-      when: vault_init_output is defined
+    - name: Display the Vault status
+      ansible.builtin.debug:
+        msg: "{{ vault_status_final.stdout_lines }}"
+      tags: [verify]

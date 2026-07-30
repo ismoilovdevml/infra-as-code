@@ -1,0 +1,56 @@
+---
+# Repository channel: "stable" (LTS, recommended for production) or "weekly".
+# https://www.jenkins.io/doc/book/installing/linux/
+jenkins_channel: stable
+
+jenkins_apt_repo_base:
+  stable: https://pkg.jenkins.io/debian-stable
+  weekly: https://pkg.jenkins.io/debian
+jenkins_yum_repo_base:
+  stable: https://pkg.jenkins.io/rpm-stable
+  weekly: https://pkg.jenkins.io/rpm
+
+jenkins_apt_repo_url: "{{ jenkins_apt_repo_base[jenkins_channel] }}"
+jenkins_yum_repo_url: "{{ jenkins_yum_repo_base[jenkins_channel] }}"
+
+# The repo signing key rotated: the old jenkins.io-2023.key expired 2026-03-26.
+# The new key has been live since 2026-01-21 (LTS) / 2025-12-23 (weekly).
+# https://www.jenkins.io/blog/2025/12/23/repository-signing-keys-changing/
+# Bump this filename the next time upstream rotates the key.
+jenkins_gpg_key_filename: jenkins.io-2026.key
+jenkins_apt_key_url: "{{ jenkins_apt_repo_url }}/{{ jenkins_gpg_key_filename }}"
+jenkins_yum_key_url: "{{ jenkins_yum_repo_url }}/{{ jenkins_gpg_key_filename }}"
+jenkins_yum_repo_file_url: "{{ jenkins_yum_repo_url }}/jenkins.repo"
+
+# The current LTS/weekly trains require Java 21 minimum (Java 17 support was
+# dropped). https://www.jenkins.io/doc/book/platform-information/support-policy-java/
+jenkins_java_packages:
+  Debian: openjdk-21-jre
+  RedHat: java-21-openjdk
+  Suse: java-21-openjdk
+
+# Companion packages installed alongside Java and Jenkins itself, per upstream's
+# own per-OS install instructions (openSUSE additionally needs dejavu-fonts).
+jenkins_extra_packages:
+  Debian: [fontconfig]
+  RedHat: [fontconfig]
+  Suse: [dejavu-fonts, fontconfig]
+
+# https://www.jenkins.io/doc/book/installing/linux/ ("JENKINS_HOME")
+jenkins_home: /var/lib/jenkins
+
+# Since Jenkins 2.335 / 2.332.1 the package is systemd-managed. JENKINS_PORT and
+# JAVA_OPTS are now set via a systemd drop-in, not /etc/default/jenkins (Debian)
+# or /etc/sysconfig/jenkins (RHEL) as on older packages.
+jenkins_http_port: 8080
+jenkins_java_opts: ""
+
+jenkins_service_enabled: true
+jenkins_service_state: started
+
+# Refuse to run on releases upstream does not package for. Set to false to try anyway.
+jenkins_strict_platform_check: true
+
+# uninstall_jenkins.yml only: also wipe JENKINS_HOME (destroys every job, credential
+# and config). Off by default.
+jenkins_purge_data: false

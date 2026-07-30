@@ -1,71 +1,94 @@
 ---
-- name: Firewalld management on RHEL/CentOS based systems
+# firewalld management for RHEL/Rocky/Alma/Fedora/CentOS Stream/openSUSE/SLES.
+# Importable standalone (`ansible-playbook firewalld.yml`) or via configure.yml,
+# which dispatches by OS family. Every task is gated on ansible_os_family so
+# this file is a safe no-op on non-RedHat/Suse hosts.
+- name: Manage firewalld on RHEL/SUSE
   hosts: all
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  vars:
-    install_firewalld: "{{ firewalld_vars.install_firewalld }}"
-    open_ports: "{{ firewalld_vars.open_ports }}"
-    close_ports: "{{ firewalld_vars.close_ports }}"
 
   tasks:
-    - name: Check if firewalld is installed
-      ansible.builtin.package_facts:
-    
-    - name: Set fact if firewalld is installed
-      set_fact:
-        firewalld_installed: "{{ 'firewalld' in ansible_facts.packages }}"
+    # CRITICAL SAFETY: refuse to run if there is no SSH allow rule. firewalld's
+    # zones are already default-deny for anything not explicitly permitted, so a
+    # missing SSH rule (or reloading a zone that never had one) locks out SSH.
+    - name: Assert firewall_rules includes an SSH allow rule
+      ansible.builtin.assert:
+        that:
+          - firewall_rules
+              | selectattr('rule', 'equalto', 'allow')
+              | map(attribute='port') | map('string') | list
+              | intersect([firewall_ssh_port | string])
+              | length > 0
+        fail_msg: >-
+          firewall_rules has no allow rule for port {{ firewall_ssh_port }} (SSH).
+          Applying rules to this zone without an SSH allow rule can lock out the
+          current connection. Add one to firewall_rules before running this play.
+        quiet: true
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [always]
 
-    - name: Display message if firewalld is not installed and install_firewalld is false
-      debug:
-        msg: "Firewalld is not installed, install_firewalld is false, skipping all tasks."
-      when: not firewalld_installed and install_firewalld == false
-
-    - name: Install firewalld if not installed and install_firewalld is true
-      yum:
+    - name: Install firewalld
+      ansible.builtin.package:
         name: firewalld
         state: present
-      when: not firewalld_installed and install_firewalld == true
-      tags: firewalld_install
+      when:
+        - ansible_os_family in ['RedHat', 'Suse']
+        - firewall_install | bool
+      tags: [install]
 
-    - name: Skip remaining tasks if firewalld is not installed
-      meta: end_play
-      when: not firewalld_installed and install_firewalld == false
-
-    - name: Ensure firewalld is started and enabled
-      ansible.builtin.service:
+    - name: Enable and start firewalld
+      ansible.builtin.systemd_service:
         name: firewalld
-        state: started
         enabled: true
-      when: firewalld_installed or install_firewalld == true
+        state: started
+      when:
+        - ansible_os_family in ['RedHat', 'Suse']
+        - firewall_enable | bool
+      tags: [service]
 
-    - name: Open ports in firewalld
+    # Allow rules first: they only ever widen access, so staging them before any
+    # deny rule (and before the connection could otherwise be affected) is safe
+    # and is what keeps the SSH session alive.
+    - name: Apply allow rules
       ansible.posix.firewalld:
-        port: "{{ item }}/tcp"
-        permanent: true
+        zone: "{{ firewalld_default_zone }}"
+        port: "{{ item.port }}/{{ item.proto | default('tcp') }}"
+        source: "{{ (item.src | default('any')) if (item.src | default('any')) != 'any' else omit }}"
         state: enabled
-      loop: "{{ open_ports }}"
-      when: firewalld_installed or install_firewalld == true
-
-    - name: Close unnecessary ports in firewalld
-      ansible.posix.firewalld:
-        port: "{{ item }}/tcp"
         permanent: true
+        immediate: true
+      loop: "{{ firewall_rules | selectattr('rule', 'equalto', 'allow') | list }}"
+      loop_control:
+        label: "{{ item.name | default(item.port) }}"
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [configure]
+
+    - name: Apply deny rules
+      ansible.posix.firewalld:
+        zone: "{{ firewalld_default_zone }}"
+        port: "{{ item.port }}/{{ item.proto | default('tcp') }}"
         state: disabled
-      loop: "{{ close_ports }}"
-      when: firewalld_installed or install_firewalld == true
+        permanent: true
+        immediate: true
+      loop: "{{ firewall_deny_rules }}"
+      loop_control:
+        label: "{{ item.name | default(item.port) }}"
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [configure]
 
-    - name: Reload firewalld to apply changes
-      command: firewall-cmd --reload
-      when: firewalld_installed or install_firewalld == true
+    - name: Read firewalld zone configuration
+      ansible.builtin.command: "firewall-cmd --zone={{ firewalld_default_zone }} --list-all"
+      register: firewall_firewalld_status
+      changed_when: false
+      check_mode: false
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [verify]
 
-    - name: Display active firewalld rules
-      command: firewall-cmd --list-all
-      register: firewalld_status
-      when: firewalld_installed or install_firewalld == true
-
-    - name: Show firewalld status
-      debug:
-        msg: "{{ firewalld_status.stdout }}"
-      when: firewalld_installed or install_firewalld == true
+    - name: Show firewalld zone configuration
+      ansible.builtin.debug:
+        var: firewall_firewalld_status.stdout_lines
+      when: ansible_os_family in ['RedHat', 'Suse']
+      tags: [verify]

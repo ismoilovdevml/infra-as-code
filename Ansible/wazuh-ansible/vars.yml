@@ -1,0 +1,29 @@
+---
+# Official Wazuh packages. Verified live 2026-07-31: the 4.x apt repo was last
+# regenerated 2026-07-29 and the current release is v4.14.7.
+wazuh_repo_major: "4.x"
+wazuh_apt_url: "https://packages.wazuh.com/{{ wazuh_repo_major }}/apt"
+wazuh_yum_url: "https://packages.wazuh.com/{{ wazuh_repo_major }}/yum"
+wazuh_gpg_key_url: "https://packages.wazuh.com/key/GPG-KEY-WAZUH"
+wazuh_apt_keyring: /etc/apt/keyrings/wazuh.gpg
+
+# Optional exact pin, e.g. "4.14.7-1". Empty installs the repo's current version.
+wazuh_version: ""
+
+# Address agents report to. Required for the agent play.
+wazuh_manager_address: ""
+wazuh_agent_group: default
+wazuh_registration_password: "{{ vault_wazuh_registration_password | default('') }}"
+
+wazuh_manager_service: wazuh-manager
+wazuh_agent_service: wazuh-agent
+
+# The manager listens on 1514/udp (agent events) and 1515/tcp (agent registration).
+wazuh_manager_port: 1514
+wazuh_registration_port: 1515
+
+# Packages are held by default: an unplanned agent upgrade can break the connection
+# to an older manager. Wazuh requires the manager to be >= the agent version.
+wazuh_hold_packages: true
+
+wazuh_purge_data: false

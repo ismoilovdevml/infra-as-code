@@ -1,0 +1,6 @@
+{{ ansible_managed | comment }}
+# See exports(5). Each line: <path> <client>(<options>) ...
+{% for export in nfs_exports %}
+{{ export.path }}{% for client in export.clients %} {{ client.host }}({{ client.options }}){% endfor %}
+
+{% endfor %}

@@ -1,0 +1,128 @@
+---
+- name: Remove the client-facing virtual IP
+  hosts: master,nodes
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Stop and disable keepalived
+      ansible.builtin.systemd_service:
+        name: keepalived
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the keepalived config and health-check script
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/keepalived/keepalived.conf
+        - /usr/local/bin/check_artemis.sh
+      tags: [uninstall]
+
+- name: Uninstall ActiveMQ Artemis from the cluster hosts
+  hosts: master,nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Stop and disable artemis
+      ansible.builtin.systemd_service:
+        name: artemis
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/artemis.service
+        state: absent
+      tags: [uninstall]
+
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      tags: [uninstall]
+
+    - name: Unmount the shared NFS directory
+      ansible.posix.mount:
+        path: "{{ nfs_mount_paths[inventory_hostname] }}"
+        state: unmounted
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Artemis instance data (on the NFS mount) if purging
+      ansible.builtin.file:
+        path: "{{ nfs_mount_paths[inventory_hostname] }}/data"
+        state: absent
+      when: artemis_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the Artemis instance directory
+      ansible.builtin.file:
+        path: "{{ artemis_instance_dir }}"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the Artemis installation
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ artemis_install_dir }}"
+        - "{{ artemis_versioned_dir }}"
+      tags: [uninstall]
+
+    - name: Remove the downloaded tarball
+      ansible.builtin.file:
+        path: "/tmp/{{ artemis_tarball }}"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the artemis user
+      ansible.builtin.user:
+        name: "{{ artemis_user }}"
+        state: absent
+        remove: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the artemis group
+      ansible.builtin.group:
+        name: "{{ artemis_group }}"
+        state: absent
+      failed_when: false
+      tags: [uninstall]
+
+- name: Remove the NFS export
+  hosts: nfs_server
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Stop and disable the NFS service
+      ansible.builtin.systemd_service:
+        name: "{{ nfs_service_name[ansible_os_family] }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the NFS export configuration
+      ansible.builtin.file:
+        path: /etc/exports
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the NFS export directory
+      ansible.builtin.file:
+        path: "{{ nfs_export_path }}"
+        state: absent
+      when: artemis_purge_data | bool
+      tags: [uninstall]

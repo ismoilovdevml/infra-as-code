@@ -1,3 +1,58 @@
+---
+# Prometheus
+#
+# IMPORTANT: this version is NOT auto-verified by this repo. Check
+# https://github.com/prometheus/prometheus/releases for the current release before deploying,
+# and update this value accordingly. The prometheus.prometheus.prometheus role derives the
+# download URL from it as:
+#   https://github.com/prometheus/prometheus/releases/download/v<version>/prometheus-<version>.linux-<arch>.tar.gz
+# and verifies the downloaded tarball against the release's sha256sums.txt. Architecture is
+# mapped from ansible_architecture by the role (x86_64 -> amd64, aarch64 -> arm64,
+# armv7l -> armv7) - never hardcode an architecture here.
+prometheus_version: "3.7.3"
+prometheus_http_port: 9090
+prometheus_web_listen_address: "0.0.0.0:{{ prometheus_http_port }}"
+prometheus_storage_retention: "30d"
+prometheus_external_labels:
+  environment: "{{ inventory_hostname }}"
+
+# Base scrape_configs entry; per-exporter jobs are appended dynamically in install_prometheus.yml
+# from the enabled entries below and the target_servers inventory group, so no real hostnames
+# or IP addresses are hardcoded in this repo. See templates/prometheus.yml.j2 for a reference
+# sample of the resulting rendered configuration.
+prometheus_scrape_configs_base:
+  - job_name: prometheus
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "localhost:{{ prometheus_http_port }}"
+
+# Port each exporter listens on. Used together with `exporters` below to build one scrape job
+# per enabled exporter, targeting every host in the target_servers inventory group.
+exporter_ports:
+  node_exporter: 9100
+  alertmanager: 9093
+  bind_exporter: 9119
+  blackbox_exporter: 9115
+  cadvisor: 8080
+  chrony_exporter: 9188
+  fail2ban_exporter: 9191
+  ipmi_exporter: 9290
+  memcached_exporter: 9150
+  mongodb_exporter: 9216
+  mysqld_exporter: 9104
+  nginx_exporter: 9113
+  postgres_exporter: 9187
+  process_exporter: 9256
+  pushgateway: 9091
+  redis_exporter: 9121
+  smartctl_exporter: 9633
+  smokeping_prober: 9374
+  snmp_exporter: 9116
+  systemd_exporter: 9559
+
+# Selects which exporters prometheus_exporters.yml installs on target_servers, and which
+# scrape jobs install_prometheus.yml adds to the Prometheus server.
 exporters:
   node_exporter: true
   alertmanager: true
@@ -19,3 +74,19 @@ exporters:
   smokeping_prober: false
   snmp_exporter: true
   systemd_exporter: true
+
+# Alertmanager -> Discord notifications.
+# Vault-backed secret - do not put a real webhook URL here. Populate it in an encrypted file,
+# e.g. group_vars/all/vault.yml, and run playbooks with --ask-vault-pass / --vault-password-file.
+vault_alertmanager_discord_webhook_url: ""
+alertmanager_receivers:
+  - name: discord
+    webhook_configs:
+      - send_resolved: true
+        url: "{{ vault_alertmanager_discord_webhook_url }}"
+alertmanager_route:
+  group_by: ["alertname", "cluster", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+  receiver: discord

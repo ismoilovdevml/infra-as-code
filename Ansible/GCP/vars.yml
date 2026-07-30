@@ -1,0 +1,33 @@
+---
+# GCP project and placement.
+gcp_project: "my-project-id"
+gcp_region: us-central1
+gcp_zone: us-central1-a
+
+# Authentication. "serviceaccount" reads a JSON key file; "machineaccount" uses the
+# metadata server when running on GCE; "application" uses Application Default
+# Credentials (gcloud auth application-default login).
+gcp_auth_kind: serviceaccount
+gcp_service_account_file: "~/.gcp/credentials.json"
+gcp_scopes:
+  - https://www.googleapis.com/auth/compute
+
+# Instances to manage. Each entry is created, started, stopped or deleted according
+# to gcp_state.
+gcp_instances:
+  - name: vm-instance-1
+    machine_type: e2-medium
+    disk_size_gb: 30
+    disk_type: pd-balanced
+    # Ubuntu 20.04 reached end of standard support in 2025; default to a current LTS.
+    image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64
+    network: global/networks/default
+    assign_external_ip: true
+    tags: []
+    labels: {}
+
+# present | started | stopped | absent
+gcp_state: present
+
+# Deleting an instance leaves its boot disk behind unless this is true.
+gcp_delete_disks: false

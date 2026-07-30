@@ -1,0 +1,29 @@
+{{ ansible_managed | comment }}
+{% for instance in keepalived_instances %}
+vrrp_instance {{ instance.name }} {
+    state {{ instance.state }}
+    interface {{ instance.interface }}
+    virtual_router_id {{ instance.virtual_router_id }}
+    priority {{ instance.priority }}
+    advert_int {{ instance.advert_int | default(1) }}
+{% if keepalived_use_unicast %}
+    unicast_src_ip {{ hostvars[inventory_hostname][keepalived_peer_address_attr] | default(inventory_hostname) }}
+    unicast_peer {
+{% for peer in groups[keepalived_group] if peer != inventory_hostname %}
+        {{ hostvars[peer][keepalived_peer_address_attr] | default(peer) }}
+{% endfor %}
+    }
+{% endif %}
+{% if instance.auth_pass | default('') | length > 0 %}
+    authentication {
+        auth_type PASS
+        auth_pass {{ instance.auth_pass }}
+    }
+{% endif %}
+    virtual_ipaddress {
+{% for vip in instance.virtual_ipaddresses %}
+        {{ vip }}
+{% endfor %}
+    }
+}
+{% endfor %}

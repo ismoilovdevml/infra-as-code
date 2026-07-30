@@ -1,0 +1,75 @@
+---
+# Installs the Wazuh manager from the official repository.
+#
+# This does NOT deploy the Wazuh indexer or dashboard. For a full indexer +
+# dashboard cluster use upstream's own collection — see the README.
+- name: Install the Wazuh manager
+  hosts: wazuh_manager
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Restart the Wazuh manager
+      ansible.builtin.systemd_service:
+        name: "{{ wazuh_manager_service }}"
+        state: restarted
+
+  tasks:
+    - name: Configure the Wazuh repository
+      ansible.builtin.include_tasks: includes/repo.yml
+      tags: [install]
+
+    # apt separates a version pin with '=', dnf with '-'.
+    - name: Install the Wazuh manager
+      ansible.builtin.package:
+        name: "wazuh-manager{{ wazuh_pin }}"
+        state: present
+      vars:
+        wazuh_pin: >-
+          {{ '' if wazuh_version | length == 0
+             else ('=' if ansible_os_family == 'Debian' else '-') ~ wazuh_version }}
+      tags: [install]
+
+    # Wazuh requires the manager to be at least the agent version, so an
+    # unplanned upgrade of either side can break the fleet.
+    - name: Hold the Wazuh package (Debian family)
+      ansible.builtin.dpkg_selections:
+        name: wazuh-manager
+        selection: hold
+      when:
+        - ansible_os_family == 'Debian'
+        - wazuh_hold_packages | bool
+      tags: [install]
+
+    - name: Enable and start the Wazuh manager
+      ansible.builtin.systemd_service:
+        name: "{{ wazuh_manager_service }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for the agent registration port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ wazuh_registration_port }}"
+        timeout: 120
+      tags: [verify]
+
+    - name: Read the installed version
+      ansible.builtin.slurp:
+        src: /var/ossec/etc/ossec-init.conf
+      register: wazuh_init
+      failed_when: false
+      tags: [verify]
+
+    - name: Show the manager status
+      ansible.builtin.debug:
+        msg: "Wazuh manager listening on {{ wazuh_registration_port }}/tcp (registration) and {{ wazuh_manager_port }}/udp (events)"
+      tags: [verify]

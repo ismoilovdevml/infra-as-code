@@ -1,0 +1,45 @@
+---
+# STATUS: Kubernetes Dashboard is archived upstream (GitHub repo moved to
+# kubernetes-retired/dashboard and archived 2026-01-21; see README.md "Status"
+# section). Upstream recommends Headlamp (https://headlamp.dev/) instead.
+#
+# Path to the kubeconfig used for every kubernetes.core task in this module.
+kubeconfig_path: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+# The chart repo moved when the project was archived. kubernetes.github.io/dashboard/
+# now 404s — verified live 2026-07-31. Use the corrected URL below, not the one still
+# printed in upstream's own (now stale) README.
+dashboard_chart_repo_name: kubernetes-dashboard
+dashboard_chart_repo_url: "https://kubernetes-retired.github.io/dashboard/"
+dashboard_chart_ref: "kubernetes-dashboard/kubernetes-dashboard"
+
+# Final release published before archival — verified against the corrected repo's
+# own index.yaml on 2026-07-31. There will be no newer version.
+dashboard_chart_version: "7.14.0"
+
+dashboard_namespace: "kubernetes-dashboard"
+dashboard_release_name: "kubernetes-dashboard"
+dashboard_metrics_scraper_enabled: true
+
+dashboard_wait: true
+dashboard_wait_timeout: "300s"
+
+# admin-user ServiceAccount, bound to cluster-admin — the "sample user" quick-start
+# pattern from upstream's own guide. Not a production-scoped RBAC recommendation;
+# see README.
+dashboard_admin_service_account: "admin-user"
+dashboard_admin_token_duration: "1h"
+
+# Explicit acknowledgement gate. install.yml refuses to run until this is true, so
+# nobody deploys an archived project by accident via a copy-pasted command.
+dashboard_accept_unmaintained_software: false
+
+# --- expose_kubernetes_dashboard.yml (Ingress) --------------------------------------
+dashboard_ingress_name: "k8s-dashboard-ingress"
+dashboard_ingress_host: "dashboard.example.com"
+dashboard_ingress_tls_secret_name: "k8s-dashboard-tls"
+dashboard_cluster_issuer_name: "letsencrypt-prod"
+dashboard_ingress_class: "nginx"
+# Kong is the reverse proxy the chart deploys in front of the dashboard component.
+dashboard_service_name: "{{ dashboard_release_name }}-kong-proxy"
+dashboard_service_port: 443

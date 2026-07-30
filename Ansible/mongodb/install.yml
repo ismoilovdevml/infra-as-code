@@ -1,24 +1,174 @@
 ---
-- name: Install MongoDB
+- name: Install MongoDB Community Edition
   hosts: mongodb_servers
   become: true
-  vars:
-    mongodb_version: "7.0"
-  collections:
-    - community.mongodb
-  roles:
-      - mongodb_repository
-      - mongodb_install
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart mongod
+      ansible.builtin.systemd_service:
+        name: "{{ mongodb_service_name }}"
+        state: restarted
+
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
 
   tasks:
-    - name: Start MongoDB service
-      ansible.builtin.systemd:
-        name: mongod
-        state: started
-        enabled: true
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+          MongoDB Community publishes official packages only for Debian/Ubuntu (APT)
+          and RHEL/Rocky/AlmaLinux (YUM). No official SUSE repository exists.
+        quiet: true
+      tags: [always]
 
-    - name: Wait for MongoDB service to be up
+    - name: Assert the RHEL family major version is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution_major_version in mongodb_rpm_supported_majors
+        fail_msg: >-
+          MongoDB {{ mongodb_series }} is not published for RHEL family major version
+          {{ ansible_distribution_major_version }}. RHEL 7 was dropped after the 7.x
+          series; supported majors are {{ mongodb_rpm_supported_majors | join(', ') }}.
+        quiet: true
+      when: ansible_os_family == 'RedHat'
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Configure the MongoDB repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+              - python3-debian
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        # The key is published per MAJOR line only (server-8.0.asc), never per minor
+        # series — do not template this from mongodb_series directly (server-8.2.asc
+        # and server-8.3.asc both 404).
+        - name: Fetch the MongoDB GPG key
+          ansible.builtin.get_url:
+            url: "{{ mongodb_gpg_key_url }}"
+            dest: "{{ mongodb_apt_keyring_path }}"
+            mode: '0644'
+
+        # Ubuntu publishes under the "multiverse" component, Debian under "main" —
+        # confirmed against the live Packages index for both distributions.
+        - name: Add the MongoDB repository
+          ansible.builtin.deb822_repository:
+            name: "mongodb-org-{{ mongodb_series }}"
+            types: [deb]
+            uris: "https://repo.mongodb.org/apt/{{ ansible_distribution | lower }}"
+            suites: ["{{ ansible_distribution_release }}/mongodb-org/{{ mongodb_series }}"]
+            components: ["{{ 'multiverse' if ansible_distribution == 'Ubuntu' else 'main' }}"]
+            architectures: ["{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"]
+            signed_by: "{{ mongodb_apt_keyring_path }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Configure the MongoDB repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Import the MongoDB GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ mongodb_gpg_key_url }}"
+            state: present
+
+        - name: Add the MongoDB repository
+          ansible.builtin.yum_repository:
+            name: "mongodb-org-{{ mongodb_series }}"
+            description: "MongoDB Repository"
+            baseurl: >-
+              https://repo.mongodb.org/yum/redhat/{{ ansible_distribution_major_version }}/mongodb-org/{{ mongodb_series }}/x86_64/
+            gpgcheck: true
+            gpgkey: "{{ mongodb_gpg_key_url }}"
+            enabled: true
+
+    # ------------------------------------------------------------------ install
+    - name: Install MongoDB (Debian family)
+      ansible.builtin.apt:
+        name: "{{ mongodb_packages }}"
+        state: present
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+
+    - name: Install MongoDB (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ mongodb_packages }}"
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Ensure the log directory exists
+      ansible.builtin.file:
+        path: "{{ mongodb_log_dir }}"
+        state: directory
+        owner: mongod
+        group: mongod
+        mode: '0750'
+      tags: [configure]
+
+    - name: Write mongod.conf
+      ansible.builtin.template:
+        src: mongod.conf.j2
+        dest: "{{ mongodb_config_path }}"
+        owner: root
+        group: mongod
+        mode: '0640'
+      notify: Restart mongod
+      no_log: true
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start MongoDB
+      ansible.builtin.systemd_service:
+        name: "{{ mongodb_service_name }}"
+        enabled: "{{ mongodb_service_enabled }}"
+        state: "{{ mongodb_service_state }}"
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the MongoDB port
       ansible.builtin.wait_for:
-        host: "{{ ansible_host }}"
-        port: 27017
-        state: started
+        host: 127.0.0.1
+        port: "{{ mongodb_port }}"
+        timeout: 30
+      tags: [verify]
+
+    - name: Report the installed version
+      ansible.builtin.command: mongod --version
+      changed_when: false
+      check_mode: false
+      register: mongodb_verify
+      tags: [verify]
+
+    - name: Show the installed version
+      ansible.builtin.debug:
+        msg: "{{ mongodb_verify.stdout_lines | first }}"
+      tags: [verify]

@@ -1,68 +1,74 @@
-# 📋 Node.js Installation Playbook
+# Node.js
 
-This Ansible playbook installs a specified version of Node.js on multiple servers using either the geerlingguy.nodejs role or by managing Node.js with nvm.
+Two independent, clearly separated install paths:
 
-## 🛠️ Usage
+- **`install_nodejs.yml`** — system-wide install from the official NodeSource repository
+  (`nodejs` package, available to every user/service via `$PATH`). Use this for servers.
+- **`install_nodejs_nvm.yml`** — per-user install via nvm, into the connecting
+  `ansible_user`'s `$HOME/.nvm`. Use this on platforms NodeSource does not package for
+  (openSUSE/SLES), or when a single host needs more than one Node.js version per user.
 
-### 🚀 Install Node.js using the geerlingguy.nodejs role
+## Supported platforms
 
-Follow these steps to install Node.js on your servers using the geerlingguy.nodejs role:
+| OS family | `install_nodejs.yml` | `install_nodejs_nvm.yml` |
+|---|---|---|
+| Debian | Debian 10-12, Ubuntu 20.04/22.04/24.04 — NodeSource DEB repo | supported |
+| RedHat | RHEL/Rocky/Alma 8-9, Fedora 29+, Amazon Linux 2023 — NodeSource RPM repo | supported |
+| Suse | not supported (NodeSource publishes no SUSE packages) — fails fast, points here | supported |
 
-1. 📥 Install the required Ansible role:
-   ```bash
-   ansible-galaxy role install geerlingguy.nodejs
-   ```
-2. ▶️ Run the playbook to install Node.js:
-   ```bash
-   ansible-playbook -i inventory.ini install_nodejs.yml
-   ```
-   > **⚠️ Important:** There may be compatibility issues on **RedHat-based** systems with the geerlingguy.nodejs role, especially for newer Node.js versions. For RedHat-based systems, it's recommended to use the `install_nodejs_nvm.yml` playbook instead (see below).
+Ubuntu 18.04 and RHEL 7 are explicitly unsupported by NodeSource and are not covered by
+`install_nodejs.yml` either. Anything outside the matrix fails in preflight with a clear
+message.
 
-The Node.js version can be customized in the playbook by setting the `nodejs_version` variable.
+## Requirements
 
-## 🟢 Install Node.js using NVM (Recommended)
-For systems that encounter issues with the `install_nodejs.yml` playbook (particularly RedHat-based systems like CentOS, Rocky Linux, and RHEL), you can use nvm (Node Version Manager) to install Node.js.
+- Ansible core >= 2.15 (`deb822_repository`)
+- `ansible-galaxy collection install -r requirements.yml` (`community.general`, SUSE
+  dependency install for the nvm path only)
+- `sudo` on the target for `install_nodejs.yml`; a regular non-root `ansible_user` for
+  `install_nodejs_nvm.yml` (it deliberately runs without `become`)
 
-### ▶️ Run the playbook to install Node.js via NVM:
+## Usage
+
 ```bash
-ansible-playbook -i inventory.ini install_nodejs_nvm.yml
-```
-This playbook installs the specified Node.js version using **nvm**, ensuring better compatibility and flexibility, particularly for managing multiple Node.js versions.
+# system-wide (Debian/RHEL)
+ansible-playbook install_nodejs.yml
+ansible-playbook install_nodejs.yml -e nodejs_version=24
+ansible-playbook uninstall_nodejs.yml
 
-### 🔧 Example
-
-To install Node.js version `21.x`, set the `nodejs_version` variable in the playbook as shown below:
-
-```yml
-vars:
-  nodejs_version: "21.x"
+# per-user via nvm (any supported family, including SUSE)
+ansible-playbook install_nodejs_nvm.yml
+ansible-playbook install_nodejs_nvm.yml -e nodejs_nvm_version=24
+ansible-playbook uninstall_nodejs_nvm.yml
 ```
 
-### Playbook Explanation
+## Variables
 
-* 📦 **Role used:** [geerlingguy.nodejs](https://github.com/geerlingguy/ansible-role-nodejs) for `install_nodejs.yml`.
+| Variable | Default | Description |
+|---|---|---|
+| `nodejs_version` | `"22"` | NodeSource major line for `install_nodejs.yml` (Active LTS: 22 or 24) |
+| `nodejs_nvm_version` | `"22"` | Version `nvm install` resolves for `install_nodejs_nvm.yml` |
+| `nvm_version` | `v0.40.6` | Pinned nvm release tag — never `master` |
+| `nvm_dir` | `{{ ansible_user_dir }}/.nvm` | Per-user nvm install root |
 
-* 🛠️ **Alternative: nvm** is used in `install_nodejs_nvm.yml` for better compatibility on RedHat-based systems.
+## Verify
 
-* The role and playbooks simplify the Node.js installation process by downloading and installing the required version.
+```bash
+node --version && npm --version   # system-wide
+```
 
-* This role simplifies the Node.js installation process by downloading and installing the required version.
+```bash
+export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; node --version   # nvm
+```
 
+## Notes
 
-### 💻 Supported Linux Operating Systems
-This playbook supports the following Linux distributions:
-* 🐧 **Debian:** 10,11
-* 🐧 **Ubuntu:** 20.04,22.04
-* 🐧 **CentOS:** 7,8
-
-### ⚙️ Supported Ansible Versions
-* ✅ ansible-core 2.11.0
-* ✅  ansible-core 2.12.5
-* ❗️ ansible [core 2.17.3] (compatibility issues)
-
-> Note: Ensure you run the playbook with appropriate privileges (e.g., use become: yes if needed).
-
-### 📚 Resources
-* [🌐 Ansible Galaxy - geerlingguy.nodejs Role](https://galaxy.ansible.com/ui/standalone/roles/geerlingguy/nodejs/documentation/)
-* [🌐 GitHub - geerlingguy/ansible-role-nodejs](https://github.com/geerlingguy/ansible-role-nodejs)
-* [🌐 nvm - (Node Version Manager) Github](https://github.com/nvm-sh/nvm)
+- NodeSource's repository layout keys the Node major into the repo path itself
+  (`nodistro` is the only suite); switching `nodejs_version` and re-running replaces the
+  sources file rather than appending a second, conflicting one.
+- nvm's install script is fetched over HTTPS and pinned to an exact tag before being run —
+  this is the one place in this repo that runs a downloaded script directly, because nvm
+  has no packaged install path and its own README documents nothing else.
+- `install_nodejs_nvm.yml` intentionally runs its second play with `become: false`; Node.js
+  installed this way is only on that user's `$PATH`, not visible system-wide or to
+  `systemd` units.

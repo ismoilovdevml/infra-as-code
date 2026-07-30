@@ -1,0 +1,64 @@
+---
+- name: Uninstall ActiveMQ Artemis
+  hosts: artemis_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable artemis
+      ansible.builtin.systemd_service:
+        name: artemis
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/artemis.service
+        state: absent
+      tags: [uninstall]
+
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      tags: [uninstall]
+
+    - name: Remove the Artemis instance directory
+      ansible.builtin.file:
+        path: "{{ artemis_instance_dir }}"
+        state: absent
+      when: artemis_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the Artemis installation
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ artemis_install_dir }}"
+        - "{{ artemis_versioned_dir }}"
+      tags: [uninstall]
+
+    - name: Remove the downloaded tarball
+      ansible.builtin.file:
+        path: "/tmp/{{ artemis_tarball }}"
+        state: absent
+      tags: [uninstall]
+
+    - name: Remove the artemis user
+      ansible.builtin.user:
+        name: "{{ artemis_user }}"
+        state: absent
+        remove: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the artemis group
+      ansible.builtin.group:
+        name: "{{ artemis_group }}"
+        state: absent
+      failed_when: false
+      tags: [uninstall]

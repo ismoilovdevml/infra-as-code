@@ -1,139 +1,180 @@
 ---
-- name: Configure PostgreSQL for PMM
+- name: Configure PostgreSQL monitoring for PMM
   hosts: postgresql-servers
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart PostgreSQL
+      ansible.builtin.systemd_service:
+        name: "{{ postgresql_service_name }}"
+        state: restarted
+
+    - name: Reload PostgreSQL
+      ansible.builtin.systemd_service:
+        name: "{{ postgresql_service_name }}"
+        state: reloaded
+
   tasks:
-    #Add Percona repository on Debian/Ubuntu
-    - name: Add Percona repository on Debian/Ubuntu
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+          supported. Percona publishes repo.percona.com packages for
+          Debian/Ubuntu and RHEL family only.
+        quiet: true
+      tags: [always]
+
+    - name: Assert secrets are set
+      ansible.builtin.assert:
+        that:
+          - admin_password | length > 0
+          - postgresql_admin_password | length > 0
+          - pmm_postgresql_password | length > 0
+        fail_msg: >-
+          One or more vault-backed passwords are empty
+          (vault_pmm_admin_password, vault_postgresql_admin_password,
+          vault_pmm_postgresql_password). Set them via ansible-vault before
+          running this playbook.
+        quiet: true
+      tags: [always]
+
+    # ------------------------------------------------------------- repo: Debian
+    - name: Add the Percona repository (Debian family)
+      when: ansible_os_family == 'Debian'
+      tags: [install]
       block:
-        - name: Install required packages for Percona repository
-          ansible.builtin.package:
-            name: 
+        - name: Install repository prerequisites
+          ansible.builtin.apt:
+            name:
               - curl
               - gnupg2
               - lsb-release
             state: present
+            update_cache: true
+            cache_valid_time: 3600
 
-        - name: Download Percona repository package
-          ansible.builtin.get_url:
-            url: "{{ percona_deb_repo_url }}"
-            dest: "/tmp/percona-release_latest.generic_all.deb"
-
-        - name: Install Percona repository package
-          ansible.builtin.shell: |
-            apt install -y /tmp/percona-release_latest.generic_all.deb
-          args:
-            executable: /bin/bash
-
-        - name: Refresh the local cache
+        - name: Install the Percona release package
           ansible.builtin.apt:
-            update_cache: yes
+            deb: "{{ percona_deb_repo_url }}"
+            state: present
 
-        - name: Setup Percona repository for PostgreSQL
-          ansible.builtin.shell: |
-            percona-release setup ppg{{ postgresql_version }}
-          args:
-            executable: /bin/bash
-      when: ansible_os_family == "Debian"
+        - name: Refresh the APT cache
+          ansible.builtin.apt:
+            update_cache: true
 
-    # Add Percona repository on RedHat/CentOS
-    - name: Add Percona repository on RedHat/CentOS
+        - name: Enable the Percona Distribution for PostgreSQL repository
+          ansible.builtin.command: "percona-release setup -y ppg{{ postgresql_version }}"
+          register: pmm_pg_release
+          changed_when: pmm_pg_release.rc == 0
+
+    # ------------------------------------------------------------- repo: RedHat
+    - name: Add the Percona repository (RedHat family)
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
       block:
-        - name: Install Percona repository package
-          ansible.builtin.shell: |
-            yum install -y {{ percona_rpm_repo_url }}
-          args:
-            executable: /bin/bash
+        - name: Install the Percona release package
+          ansible.builtin.dnf:
+            name: "{{ percona_rpm_repo_url }}"
+            state: present
+            disable_gpg_check: true
 
-        - name: Setup Percona repository for PostgreSQL
-          ansible.builtin.shell: |
-            percona-release setup ppg{{ postgresql_version }}
-          args:
-            executable: /bin/bash
-      when: ansible_os_family == "RedHat"
+        - name: Enable the Percona Distribution for PostgreSQL repository
+          ansible.builtin.command: "percona-release setup -y ppg{{ postgresql_version }}"
+          register: pmm_pg_release
+          changed_when: pmm_pg_release.rc == 0
 
-    # Install pg_stat_monitor package
-    - name: Install pg_stat_monitor package
+    - name: Install the pg_stat_monitor package
       ansible.builtin.package:
         name: "percona-pg-stat-monitor{{ postgresql_version }}"
         state: present
+      tags: [install]
 
-    # Create PMM user with SUPERUSER role
-    - name: Create PMM user in PostgreSQL
+    # ---------------------------------------------------------------- configure
+    - name: Create the PMM user in PostgreSQL
       community.postgresql.postgresql_user:
         name: "{{ pmm_postgresql_user }}"
         password: "{{ pmm_postgresql_password }}"
-        encrypted: yes
+        encrypted: true
         role_attr_flags: "SUPERUSER"
         state: present
         login_user: "{{ postgresql_admin_user }}"
         login_password: "{{ postgresql_admin_password }}"
         db: postgres
         port: 5432
+      become: true
       become_user: postgres
+      no_log: true
+      tags: [configure]
 
-    # Allow PMM user in pg_hba.conf
-    - name: Allow PMM user in pg_hba.conf for IPv4
+    - name: Allow the PMM user in pg_hba.conf (IPv4)
       ansible.builtin.lineinfile:
         path: "{{ pg_hba_conf_path }}"
         line: "host    all             {{ pmm_postgresql_user }}             0.0.0.0/0               md5"
         state: present
       notify: Restart PostgreSQL
+      tags: [configure]
 
-    - name: Allow PMM user in pg_hba.conf for IPv6
+    - name: Allow the PMM user in pg_hba.conf (IPv6)
       ansible.builtin.lineinfile:
         path: "{{ pg_hba_conf_path }}"
         line: "host    all             {{ pmm_postgresql_user }}             ::/0                    md5"
         state: present
       notify: Restart PostgreSQL
+      tags: [configure]
 
-    # Configure shared_preload_libraries in postgresql.conf
     - name: Configure shared_preload_libraries
       ansible.builtin.lineinfile:
         path: "{{ postgresql_conf_path }}"
         regexp: "^#?shared_preload_libraries\\s*=\\s*.*"
-        line: "shared_preload_libraries = '{{ ','.join(pg_extensions) }}'"
+        line: "shared_preload_libraries = '{{ pg_extensions | join(',') }}'"
         state: present
       notify: Reload PostgreSQL
+      tags: [configure]
 
-    # Install PostgreSQL extensions
-    - name: Install PostgreSQL extensions
+    - name: Install the PostgreSQL extensions
       community.postgresql.postgresql_ext:
         name: "{{ item }}"
         db: postgres
         state: present
-      with_items: "{{ pg_extensions }}"
+      loop: "{{ pg_extensions }}"
+      become: true
       become_user: postgres
+      tags: [configure]
 
-    # Configure PMM Client to connect to PMM Server
-    - name: Register PMM Client with PMM Server
-      ansible.builtin.command: >
-        pmm-admin config
-        --server-insecure-tls
-        --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
-        {{ inventory_hostname }} --force
+    # pmm-admin config is idempotent by design (it re-registers the node), so
+    # no additional guard is required here.
+    - name: Register the PMM client with the PMM Server
+      ansible.builtin.command:
+        cmd: >-
+          pmm-admin config --server-insecure-tls
+          --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
+          {{ inventory_hostname }} --force
       register: pmm_config_output
       changed_when: false
+      no_log: true
+      tags: [configure]
 
-    # Add PostgreSQL service to PMM
-    - name: Add PostgreSQL to PMM
-      ansible.builtin.shell: |
-        pmm-admin add postgresql \
-        --username={{ pmm_postgresql_user }} \
-        --password={{ pmm_postgresql_password }} \
-        --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }} \
-        --server-insecure-tls \
-        --service-name={{ inventory_hostname }}-postgresql
-      args:
-        executable: /bin/bash
+    # `pmm-admin add postgresql` fails on a second run if the service already
+    # exists, so it is not idempotent by itself; failed_when tolerates that
+    # specific case instead of using ignore_errors.
+    - name: Add the PostgreSQL service to PMM
+      ansible.builtin.command:
+        cmd: >-
+          pmm-admin add postgresql
+          --username={{ pmm_postgresql_user }}
+          --password={{ pmm_postgresql_password }}
+          --server-url=https://{{ pmm_server_username }}:{{ admin_password }}@{{ pmm_server_address }}
+          --server-insecure-tls
+          --service-name={{ inventory_hostname }}-postgresql
       register: pmm_add_service_output
-      changed_when: false
-
-  handlers:
-    - name: Reload PostgreSQL
-      ansible.builtin.service:
-        name: "{{ postgresql_service_name }}"
-        state: reloaded
+      changed_when: "'already exists' not in pmm_add_service_output.stderr"
+      failed_when:
+        - pmm_add_service_output.rc != 0
+        - "'already exists' not in pmm_add_service_output.stderr"
+      no_log: true
+      tags: [configure]

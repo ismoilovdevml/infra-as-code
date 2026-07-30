@@ -1,60 +1,143 @@
 ---
-- name: Install NGINX Ingress using Helm
-  hosts: all
-  become: yes
+# =============================================================================
+# STATUS: ingress-nginx is RETIRED upstream.
+#   - Best-effort maintenance ended March 2026; repo archived read-only 2026-03-24.
+#   - No further releases, bugfixes, or security fixes will ever ship
+#     (https://kubernetes.io/blog/2026/01/29/ingress-nginx-statement/).
+#   - The planned successor, InGate, never matured and is also retired.
+#   - Upstream recommends migrating to Gateway API, or another maintained Ingress
+#     controller. See README.md "Status" section.
+#   This playbook is kept working, pinned to the final frozen release
+#   (chart 4.15.1 / app 1.15.1), and refuses to run until
+#   ingress_nginx_accept_retired_software=true is set explicitly.
+# =============================================================================
+#
+# Acts on the cluster via the Kubernetes API (kubernetes.core), not over SSH — see
+# inventory.ini. Requires a working kubeconfig and the helm binary on whichever host
+# runs this playbook.
+- name: Install ingress-nginx
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Add ingress-nginx Helm repo
-      ansible.builtin.command:
-        cmd: helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert the retirement risk has been accepted
+          ansible.builtin.assert:
+            that:
+              - ingress_nginx_accept_retired_software | bool
+            fail_msg: >-
+              ingress-nginx is retired upstream: no releases, bugfixes or security
+              fixes since March 2026 (https://kubernetes.io/blog/2026/01/29/ingress-nginx-statement/).
+              Migrate to Gateway API or another maintained Ingress controller. To
+              deploy this frozen release anyway, set
+              ingress_nginx_accept_retired_software=true.
+            quiet: true
 
-    - name: Update Helm repo
-      ansible.builtin.command:
-        cmd: helm repo update
+        - name: Assert the kubeconfig file exists
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: ingress_nginx_kubeconfig_stat
 
-    - name: Install ingress-nginx using Helm
-      ansible.builtin.command:
-        cmd: helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
-      register: helm_install
+        - name: Fail if the kubeconfig file is missing
+          ansible.builtin.assert:
+            that:
+              - ingress_nginx_kubeconfig_stat.stat.exists
+            fail_msg: "kubeconfig not found at {{ kubeconfig_path }}. Set kubeconfig_path or KUBECONFIG."
+            quiet: true
 
-    - name: Wait for 1 minute to let services and pods start
-      ansible.builtin.pause:
-        minutes: 1
+        - name: Check that the helm binary is available
+          block:
+            - name: Query the helm version
+              ansible.builtin.command: helm version --short
+              changed_when: false
+              check_mode: false
+          rescue:
+            - name: Fail with a clear message
+              ansible.builtin.fail:
+                msg: "helm binary not found on the controller. Install it first (see ../helm/)."
 
-    - name: Check NGINX service
-      ansible.builtin.command:
-        cmd: kubectl get svc -n ingress-nginx
-      register: nginx_svc_output
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+          register: ingress_nginx_cluster_check
 
-    - name: Show NGINX service output
-      debug:
-        var: nginx_svc_output.stdout
+        - name: Fail if the cluster is unreachable
+          ansible.builtin.assert:
+            that:
+              - ingress_nginx_cluster_check is not failed
+            fail_msg: "Could not reach the Kubernetes API using {{ kubeconfig_path }}."
+            quiet: true
 
-    - name: Check NGINX pods
-      ansible.builtin.command:
-        cmd: kubectl get pods -n ingress-nginx
-      register: nginx_pods_output
+    # ------------------------------------------------------------------- install
+    - name: Add the ingress-nginx Helm repository
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ ingress_nginx_chart_repo_name }}"
+        repo_url: "{{ ingress_nginx_chart_repo_url }}"
+      tags: [install]
 
-    - name: Show NGINX pods output
-      debug:
-        var: nginx_pods_output.stdout
+    - name: Compute the controller Prometheus scrape annotations
+      ansible.builtin.set_fact:
+        ingress_nginx_pod_annotations: >-
+          {{ {'prometheus.io/scrape': 'true', 'prometheus.io/port': ingress_nginx_metrics_port | string}
+             if ingress_nginx_metrics_enabled else {} }}
+      tags: [install]
 
-    - name: Upgrade NGINX with Prometheus annotations
-      ansible.builtin.command:
-        cmd: >
-          helm upgrade ingress-nginx ingress-nginx
-          --repo https://kubernetes.github.io/ingress-nginx
-          --namespace ingress-nginx
-          --set controller.metrics.enabled=true
-          --set-string controller.podAnnotations."prometheus\.io/scrape"="true"
-          --set-string controller.podAnnotations."prometheus\.io/port"="10254"
-      register: helm_upgrade
+    - name: Install ingress-nginx
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ ingress_nginx_release_name }}"
+        chart_ref: "{{ ingress_nginx_chart_ref }}"
+        chart_version: "{{ ingress_nginx_chart_version }}"
+        release_namespace: "{{ ingress_nginx_namespace }}"
+        create_namespace: true
+        wait: "{{ ingress_nginx_wait }}"
+        wait_timeout: "{{ ingress_nginx_wait_timeout }}"
+        values:
+          controller:
+            metrics:
+              enabled: "{{ ingress_nginx_metrics_enabled }}"
+            podAnnotations: "{{ ingress_nginx_pod_annotations }}"
+      tags: [install]
 
-    - name: Get Helm values for ingress-nginx
-      ansible.builtin.command:
-        cmd: helm get values ingress-nginx --namespace ingress-nginx
-      register: helm_values
+    # -------------------------------------------------------------------- verify
+    - name: List ingress-nginx services
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Service
+        namespace: "{{ ingress_nginx_namespace }}"
+      register: ingress_nginx_services
+      tags: [verify]
 
-    - name: Show Helm values output
-      debug:
-        var: helm_values.stdout
+    - name: List ingress-nginx pods
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Pod
+        namespace: "{{ ingress_nginx_namespace }}"
+      register: ingress_nginx_pods
+      tags: [verify]
+
+    - name: Assert ingress-nginx pods are running
+      ansible.builtin.assert:
+        that:
+          - ingress_nginx_pods.resources | length > 0
+          - ingress_nginx_pods.resources | map(attribute='status.phase') | unique == ['Running']
+        fail_msg: >-
+          ingress-nginx pods in namespace {{ ingress_nginx_namespace }} are not all Running:
+          {{ ingress_nginx_pods.resources | map(attribute='status.phase') | list }}
+        quiet: true
+      tags: [verify]
+
+    - name: Show ingress-nginx services and pods
+      ansible.builtin.debug:
+        msg:
+          services: "{{ ingress_nginx_services.resources | map(attribute='metadata.name') | list }}"
+          pods: "{{ ingress_nginx_pods.resources | map(attribute='metadata.name') | list }}"
+      tags: [verify]

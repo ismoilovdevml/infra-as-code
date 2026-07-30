@@ -1,159 +1,216 @@
 ---
-- name: Install ActiveMQ Artemis on multiple OS
+- name: Install ActiveMQ Artemis
   hosts: artemis_servers
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart artemis
+      ansible.builtin.systemd_service:
+        name: artemis
+        state: restarted
+        daemon_reload: true
+
   tasks:
-    - name: Ensure required packages are installed
-      package:
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in java_packages
+        fail_msg: >-
+          No Java 17 package mapping for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ java_packages.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    - name: Assert the admin password is set
+      ansible.builtin.assert:
+        that:
+          - artemis_admin_password | length > 0
+        fail_msg: >-
+          artemis_admin_password is empty. Set vault_artemis_admin_password via
+          ansible-vault before running this playbook.
+        quiet: true
+      tags: [always]
+
+    - name: Install required packages
+      ansible.builtin.package:
         name:
           - curl
           - wget
-          - net-tools
           - git
           - "{{ java_packages[ansible_os_family] }}"
         state: present
+      tags: [install]
 
-    - name: Locate Java 17 executable on Debian-based systems
-      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
-      register: debian_java_path
-      when: ansible_os_family == "Debian"
+    # Package paths differ per distro/arch, so the installed java binary is located
+    # rather than hardcoded; this is a read-only lookup, not a state change.
+    - name: Locate the Java 17 executable
+      ansible.builtin.shell:
+        cmd: "set -o pipefail; find /usr/lib/jvm -maxdepth 1 -name '*17*' -type d | head -n1"
+        executable: /bin/bash
+      register: artemis_java_home
+      changed_when: false
+      check_mode: false
+      tags: [install]
 
-    - name: Locate Java 17 executable on RedHat-based systems
-      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
-      register: redhat_java_path
-      when: ansible_os_family == "RedHat"
-
-    - name: Set Java 17 as the default alternative on Debian-based systems
+    - name: Set Java 17 as the default alternative
       community.general.alternatives:
         name: java
-        path: "{{ debian_java_path.stdout | trim }}"
+        path: "{{ artemis_java_home.stdout | trim }}/bin/java"
+        link: /usr/bin/java
         priority: 100
-      when: ansible_os_family == "Debian"
+      when: artemis_java_home.stdout | trim | length > 0
+      tags: [install]
 
-    - name: Set Java 17 as the default alternative on RedHat-based systems
-      community.general.alternatives:
-        name: java
-        path: "{{ redhat_java_path.stdout | trim }}"
-        link: "/usr/bin/java"
-        priority: 100
-      when: ansible_os_family == "RedHat"
-
-    - name: Verify Java 17 installation
+    - name: Verify the Java version
       ansible.builtin.command: java -version
-      register: java_version
-      ignore_errors: true
+      register: artemis_java_version
+      changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Display Java version
-      ansible.builtin.debug:
-        msg: "Java installed successfully. Version: {{ java_version.stderr_lines | default([]) | union(java_version.stdout_lines | default([])) }}"
-      when: java_version is defined
+    - name: Assert Java 17 or newer
+      ansible.builtin.assert:
+        that:
+          - (artemis_java_version.stderr | regex_search('version "([0-9]+)', '\1') | first | int) >= 17
+        fail_msg: "Artemis {{ artemis_version }} requires Java 17+; found: {{ artemis_java_version.stderr_lines | first }}"
+        quiet: true
+      tags: [install]
 
-    - name: Download ActiveMQ Artemis
-      get_url:
-        url: "{{ artemis_url }}"
-        dest: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
-
-    - name: Extract ActiveMQ Artemis
-      unarchive:
-        src: /tmp/apache-artemis-{{ artemis_version }}-bin.tar.gz
-        dest: /opt
-        remote_src: yes
-
-    - name: Check if Artemis installation directory exists
-      stat:
-        path: "{{ artemis_install_dir }}"
-      register: artemis_install_dir_stat
-
-    - name: Move extracted Artemis to installation directory
-      command: mv /opt/apache-artemis-{{ artemis_version }} {{ artemis_install_dir }}
-      when: not artemis_install_dir_stat.stat.exists
-
-    - name: Create artemis group
-      group:
+    # ------------------------------------------------------------------ account
+    - name: Create the artemis group
+      ansible.builtin.group:
         name: "{{ artemis_group }}"
-        state: present
+        system: true
+      tags: [install]
 
-    - name: Create artemis user and assign to group
-      user:
+    - name: Create the artemis user
+      ansible.builtin.user:
         name: "{{ artemis_user }}"
         group: "{{ artemis_group }}"
-        createhome: yes
-        shell: /bin/bash
-        state: present
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: true
+      tags: [install]
 
-    - name: Change ownership of Artemis directories
-      file:
-        path: "{{ item }}"
+    # ----------------------------------------------------------------- download
+    # Apache publishes .sha512 in two historical layouts:
+    #   "<hash>  <file>" and "<file>: <hash with spaces>". Normalise both.
+    - name: Fetch the release checksum
+      ansible.builtin.uri:
+        url: "{{ artemis_checksum_url }}/{{ artemis_version }}/{{ artemis_tarball }}.sha512"
+        return_content: true
+      register: artemis_sha512
+      check_mode: false
+      tags: [install]
+
+    - name: Normalise the checksum
+      ansible.builtin.set_fact:
+        artemis_sha512_digest: >-
+          {{ ((artemis_sha512.content.split(':') | last) if ':' in artemis_sha512.content
+              else (artemis_sha512.content.split() | first))
+             | regex_replace('\s+', '') | lower }}
+      tags: [install]
+
+    - name: Download the Artemis tarball
+      ansible.builtin.get_url:
+        url: "{{ artemis_mirror_url }}/{{ artemis_version }}/{{ artemis_tarball }}"
+        dest: "/tmp/{{ artemis_tarball }}"
+        checksum: "sha512:{{ artemis_sha512_digest }}"
+        owner: root
+        group: root
+        mode: '0644'
+      tags: [install]
+
+    - name: Unpack Artemis
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ artemis_tarball }}"
+        dest: "{{ artemis_install_root }}"
+        remote_src: true
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+        creates: "{{ artemis_versioned_dir }}"
+      tags: [install]
+
+    - name: Link the install root to the installed version
+      ansible.builtin.file:
+        src: "{{ artemis_versioned_dir }}"
+        dest: "{{ artemis_install_dir }}"
+        state: link
+        owner: "{{ artemis_user }}"
+        group: "{{ artemis_group }}"
+      tags: [install]
+
+    # ------------------------------------------------------------------ instance
+    # `artemis create` is not idempotent and does not accept re-running without
+    # --force (which would silently recreate the instance), so it is guarded by
+    # `creates:` against the instance's own startup script.
+    - name: Create the Artemis broker instance
+      ansible.builtin.command:
+        cmd: >-
+          {{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }}
+          --user {{ artemis_admin_user }} --password {{ artemis_admin_password }}
+          --host {{ artemis_web_bind_address }} --allow-anonymous --force
+        creates: "{{ artemis_instance_dir }}/bin/artemis-service"
+      no_log: true
+      tags: [install]
+
+    - name: Set ownership of the instance directory
+      ansible.builtin.file:
+        path: "{{ artemis_instance_dir }}"
         state: directory
         owner: "{{ artemis_user }}"
         group: "{{ artemis_group }}"
-        recurse: yes
-      loop:
-        - "{{ artemis_install_dir }}"
-        - "{{ artemis_instance_dir }}"
+        recurse: true
+      tags: [install]
 
-    - name: Ensure log directory exists and permissions are set
-      file:
-        path: "{{ artemis_instance_dir }}/log"
-        state: directory
-        owner: "{{ artemis_user }}"
-        group: "{{ artemis_group }}"
-        mode: '0755'
+    # ---------------------------------------------------------------- configure
+    - name: Bind the web console to the configured address
+      ansible.builtin.replace:
+        path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
+        regexp: '(<binding name="artemis" uri=")(.*)(:{{ artemis_web_port }}">)'
+        replace: '\1http://{{ artemis_web_bind_address }}\3'
+      notify: Restart artemis
+      tags: [configure]
 
-    - name: Ensure tmp/webapps directory exists and permissions are set
-      file:
-        path: "{{ artemis_instance_dir }}/tmp/webapps"
-        state: directory
-        owner: "{{ artemis_user }}"
-        group: "{{ artemis_group }}"
-        mode: '0755'
-        recurse: yes
+    - name: Allow Jolokia access from any origin
+      ansible.builtin.replace:
+        path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
+        regexp: '<allow-origin>.*</allow-origin>'
+        replace: '<allow-origin>*://*</allow-origin>'
+      notify: Restart artemis
+      tags: [configure]
 
-    - name: Set permissions Artemis instance data directory
-      file:
-        path: /opt/artemis-instance/data
-        owner: "{{ artemis_user }}"
-        group: "{{ artemis_group }}"
-        state: directory
-        recurse: yes
-
-    - name: Create Artemis instance
-      command: "{{ artemis_install_dir }}/bin/artemis create {{ artemis_instance_dir }} --user admin --password {{ artemis_password }} --allow-anonymous --force"
-
-    - name: Deploy Artemis systemd service file
-      template:
+    - name: Install the systemd unit
+      ansible.builtin.template:
         src: artemis.service.j2
         dest: /etc/systemd/system/artemis.service
         owner: root
         group: root
         mode: '0644'
+      notify: Restart artemis
+      tags: [configure]
 
-    - name: Reload systemd daemon
-      command: systemctl daemon-reload
-
-    - name: Enable and start the Artemis service
-      systemd:
+    # ------------------------------------------------------------------ service
+    - name: Enable and start artemis
+      ansible.builtin.systemd_service:
         name: artemis
-        enabled: yes
+        enabled: true
         state: started
+        daemon_reload: true
+      tags: [service]
 
-    - name: Update bootstrap.xml to bind to 0.0.0.0
-      replace:
-        path: "{{ artemis_instance_dir }}/etc/bootstrap.xml"
-        regexp: '(<binding name="artemis" uri=")(.*)(:8161">)'
-        replace: '\1http://0.0.0.0\3'
+    - name: Wait for the acceptor port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ artemis_acceptor_port }}"
+        timeout: 120
+      tags: [verify]
 
-    - name: Update Jolokia access to allow all origins
-      replace:
-        path: "{{ artemis_instance_dir }}/etc/jolokia-access.xml"
-        regexp: '<allow-origin>.*</allow-origin>'
-        replace: '<allow-origin>*://*</allow-origin>'
-
-    - name: Restart Artemis service after config changes
-      systemd:
-        name: artemis
-        state: restarted
-        enabled: yes
+    - name: Show the broker status
+      ansible.builtin.debug:
+        msg: "Artemis {{ artemis_version }} listening on {{ inventory_hostname }}:{{ artemis_acceptor_port }}"
+      tags: [verify]

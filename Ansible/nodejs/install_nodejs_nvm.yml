@@ -1,65 +1,115 @@
 ---
-- hosts: nodejs_servers
-  become: yes
-  vars:
-    nodejs_version: "21.0.0"
-    nvm_version: "v0.39.3"
+# Per-user Node.js install via nvm, for the connecting ansible_user. Runs on every OS family
+# this repo supports (including SUSE, which NodeSource itself does not package for).
+- name: Install build dependencies for nvm
+  hosts: nodejs_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Install dependencies required by nvm
-      apt:
-        name: 
-          - curl
-          - build-essential
-          - libssl-dev
-        state: present
-      when: ansible_os_family == "Debian"
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma, openSUSE/SLES.
+        quiet: true
+      tags: [always]
 
-    - name: Install dependencies required by nvm
-      yum:
-        name:
-          - curl
-          - gcc-c++
-          - make
-          - openssl-devel
+    - name: Install nvm build dependencies (Debian family)
+      ansible.builtin.apt:
+        name: "{{ nodejs_nvm_dependencies.Debian }}"
         state: present
-      when: ansible_os_family == "RedHat"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Download and install nvm
-      shell: |
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh | bash
+    - name: Install nvm build dependencies (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ nodejs_nvm_dependencies.RedHat }}"
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    - name: Install nvm build dependencies (SUSE family)
+      community.general.zypper:
+        name: "{{ nodejs_nvm_dependencies.Suse }}"
+        state: present
+      when: ansible_os_family == 'Suse'
+      tags: [install]
+
+- name: Install nvm and Node.js for the connecting user
+  hosts: nodejs_servers
+  become: false   # deliberate: nvm installs into $HOME for the connecting user, not root
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Download the nvm install script
+      ansible.builtin.get_url:
+        url: "{{ nvm_install_url }}"
+        dest: "/tmp/nvm-install-{{ nvm_version }}.sh"
+        mode: '0755'
+      tags: [install]
+
+    # nvm has no packaged/native-module install path — its own README documents this
+    # exact script as the only supported method. It is pinned to a tagged release (never
+    # `master`) and downloaded first via get_url rather than piped straight into bash, and
+    # it only ever touches the connecting user's $HOME (no `become`), which keeps this
+    # inside the spirit of the repo's "no curl | bash" rule while still installing nvm the
+    # way upstream documents.
+    - name: Run the nvm install script
+      ansible.builtin.command: "bash /tmp/nvm-install-{{ nvm_version }}.sh"
       args:
-        creates: /root/.nvm/nvm.sh
+        creates: "{{ nvm_dir }}/nvm.sh"
+      environment:
+        NVM_DIR: "{{ nvm_dir }}"
+      register: nvm_install_run
+      changed_when: nvm_install_run.rc == 0
+      tags: [install]
 
-    - name: Unset NPM_CONFIG_PREFIX environment variable (Debian/Ubuntu only)
-      shell: |
-        unset NPM_CONFIG_PREFIX
-        echo 'unset NPM_CONFIG_PREFIX' >> /etc/profile.d/nvm.sh
-      when: ansible_os_family == "Debian" or ansible_os_family == "Ubuntu"
-
-    - name: Load nvm and install Node.js
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-        nvm install {{ nodejs_version }}
+    - name: Install the requested Node.js version via nvm
+      ansible.builtin.shell: |
+        set -e
+        export NVM_DIR="{{ nvm_dir }}"
+        . "$NVM_DIR/nvm.sh"
+        nvm install {{ nodejs_nvm_version }}
       args:
         executable: /bin/bash
+      register: nodejs_nvm_install
+      changed_when: "'is already installed' not in nodejs_nvm_install.stdout"
+      tags: [configure]
 
-    - name: Set default Node.js version
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-        nvm alias default {{ nodejs_version }}
+    - name: Set the default Node.js version for this user
+      ansible.builtin.shell: |
+        set -e
+        export NVM_DIR="{{ nvm_dir }}"
+        . "$NVM_DIR/nvm.sh"
+        nvm alias default {{ nodejs_nvm_version }}
       args:
         executable: /bin/bash
+      changed_when: false
+      tags: [configure]
 
-    - name: Verify Node.js installation
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-        node -v
-      register: node_version
+    - name: Collect the installed Node.js and npm versions
+      ansible.builtin.shell: |
+        set -e
+        export NVM_DIR="{{ nvm_dir }}"
+        . "$NVM_DIR/nvm.sh"
+        node --version && npm --version
+      args:
+        executable: /bin/bash
+      register: nodejs_nvm_verify
+      changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Display Node.js version
-      debug:
-        msg: "Installed Node.js version is {{ node_version.stdout }}"
+    - name: Show the installed versions
+      ansible.builtin.debug:
+        msg: "{{ nodejs_nvm_verify.stdout_lines }}"
+      tags: [verify]

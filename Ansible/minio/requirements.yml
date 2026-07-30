@@ -1,0 +1,4 @@
+---
+# This module only uses ansible.builtin modules. No external collection is required.
+# Kept for structural consistency with other modules in this repo.
+collections: []

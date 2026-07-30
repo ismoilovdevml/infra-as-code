@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ dashboard_ingress_name }}
+  namespace: {{ dashboard_namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    cert-manager.io/cluster-issuer: {{ dashboard_cluster_issuer_name }}
+spec:
+  ingressClassName: {{ dashboard_ingress_class }}
+  rules:
+    - host: {{ dashboard_ingress_host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ dashboard_service_name }}
+                port:
+                  number: {{ dashboard_service_port }}
+  tls:
+    - hosts:
+        - {{ dashboard_ingress_host }}
+      secretName: {{ dashboard_ingress_tls_secret_name }}

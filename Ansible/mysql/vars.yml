@@ -1,3 +1,68 @@
 ---
-mysql_root_password: "wfllqw34p5lw"
-bind-address: "0.0.0.0"
+# MySQL release series to install (Oracle calendar versioning: YY.M).
+# Current LTS = 9.7 (2026-04-21, premier support to 2034-04). MySQL 8.0 reached EOL
+# in 2026-04 - do not deploy new 8.0 servers.
+mysql_series: "9.7"
+
+# Numeric form of mysql_series used in repo package/RPM filenames (e.g. "9.7" -> "97").
+mysql_series_nodot: "{{ mysql_series | regex_replace('\\.', '') }}"
+
+# Release-RPM suffix on dev.mysql.com/get/mysql<series>-community-release-el<N>-<suffix>.noarch.rpm.
+# Verified for the 9.7 series across el8/el9/el10/fc43/fc44 as of 2026-07-30; re-check
+# https://dev.mysql.com/downloads/repo/yum/ before pinning a different mysql_series.
+mysql_repo_rpm_release: "1"
+
+# APT bootstrap package (Debian/Ubuntu). Verify current filename at
+# https://dev.mysql.com/downloads/repo/apt/ before use.
+mysql_apt_config_deb: "mysql-apt-config_0.8.39-1_all.deb"
+
+mysql_port: 3306
+mysql_bind_address: "0.0.0.0"
+
+# Host pattern granted remote root access by configure_mysql.yml. '%' (any host) is the
+# original behaviour but is a wide-open default - narrow it to your admin subnet in prod.
+mysql_admin_remote_host: "%"
+
+# Vault-backed secret. Never commit a real value here.
+mysql_root_password: "{{ vault_mysql_root_password | default('') }}"
+
+# Per-OS-family service name, main config file and config drop-in directory.
+# Oracle MySQL Community Server only - MariaDB is out of scope for this module (RHEL's
+# distro-default "mysql" package is actually MariaDB; this playbook installs Oracle's
+# own repo/packages instead).
+mysql_paths:
+  Debian:
+    service: mysql
+    main_cnf: /etc/mysql/my.cnf
+    conf_dir: /etc/mysql/mysql.conf.d
+  RedHat:
+    service: mysqld
+    main_cnf: /etc/my.cnf
+    conf_dir: /etc/my.cnf.d
+  Suse:
+    service: mysql
+    main_cnf: /etc/my.cnf
+    conf_dir: /etc/my.cnf.d
+
+mysql_service_name: "{{ mysql_paths[ansible_os_family].service }}"
+mysql_conf_dir: "{{ mysql_paths[ansible_os_family].conf_dir }}"
+
+# Unix socket path used for local admin connections (mysql_user module).
+mysql_socket_paths:
+  Debian: /var/run/mysqld/mysqld.sock
+  RedHat: /var/lib/mysql/mysql.sock
+  Suse: /var/lib/mysql/mysql.sock
+
+mysql_socket_path: "{{ mysql_socket_paths[ansible_os_family] }}"
+
+# Error log location where the installer-generated temporary root password appears
+# on first start (RHEL/Suse only; Debian sets the root password via debconf preseed).
+mysql_error_log: /var/log/mysqld.log
+
+# Target-host python driver package required by ansible.mysql modules.
+mysql_pymysql_package:
+  Debian: python3-pymysql
+  RedHat: python3-PyMySQL
+  Suse: python3-PyMySQL
+
+mysql_uninstall_purge_data: false

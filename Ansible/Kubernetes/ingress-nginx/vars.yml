@@ -1,0 +1,31 @@
+---
+# STATUS: ingress-nginx is retired upstream (best-effort maintenance ended March 2026;
+# repo archived read-only 2026-03-24; no further releases, bugfixes, or security
+# fixes will ever ship). See README.md "Status" section before using this in new
+# deployments. Migrate to Gateway API or another maintained Ingress controller.
+#
+# Path to the kubeconfig used for every kubernetes.core task in this module.
+kubeconfig_path: "{{ lookup('env', 'KUBECONFIG') | default('~/.kube/config', true) }}"
+
+# The chart repo is frozen at its final published release — verified live against
+# https://kubernetes.github.io/ingress-nginx/index.yaml on 2026-07-31. There will be
+# no newer version; do not set this to "latest".
+ingress_nginx_chart_version: "4.15.1"
+ingress_nginx_app_version: "1.15.1"
+
+ingress_nginx_namespace: "ingress-nginx"
+ingress_nginx_chart_repo_name: ingress-nginx
+ingress_nginx_chart_repo_url: "https://kubernetes.github.io/ingress-nginx"
+ingress_nginx_release_name: ingress-nginx
+ingress_nginx_chart_ref: "ingress-nginx/ingress-nginx"
+
+ingress_nginx_wait: true
+ingress_nginx_wait_timeout: "300s"
+
+# Prometheus scrape annotations, preserved from this repo's pre-existing feature set.
+ingress_nginx_metrics_enabled: true
+ingress_nginx_metrics_port: 10254
+
+# Explicit acknowledgement gate. install_nginx_ingress.yml refuses to run until this
+# is set to true, so nobody deploys a dead project by accident via a copy-pasted command.
+ingress_nginx_accept_retired_software: false

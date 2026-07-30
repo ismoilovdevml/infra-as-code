@@ -1,35 +1,126 @@
 ---
-- name: Configure Keepalived on Master and Slave servers
-  hosts: all
+# Renders /etc/keepalived/keepalived.conf from keepalived_instances and, when
+# keepalived_use_unicast is true, computes unicast_peer from every other host in
+# keepalived_group. Run install.yml first.
+- name: Configure Keepalived
+  hosts: keepalived_nodes
   become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
-  tasks:
-    - name: Ensure Keepalived is installed
-      ansible.builtin.package:
-        name: keepalived
-        state: present
-
-    - name: Generate Keepalived configuration for master
-      ansible.builtin.template:
-        src: templates/master.conf.j2
-        dest: /etc/keepalived/keepalived.conf
-        owner: root
-        group: root
-        mode: 0644
-      when: "'master' in group_names"
-
-    - name: Generate Keepalived configuration for slaves
-      ansible.builtin.template:
-        src: templates/slave.conf.j2
-        dest: /etc/keepalived/keepalived.conf
-        owner: root
-        group: root
-        mode: 0644
-      when: "'slave' in group_names"
-
-    - name: Restart Keepalived service
-      ansible.builtin.service:
-        name: keepalived
+  handlers:
+    - name: Restart keepalived
+      ansible.builtin.systemd_service:
+        name: "{{ keepalived_service_name }}"
         state: restarted
+
+  tasks:
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert every VRRP instance has a valid virtual_router_id
+          ansible.builtin.assert:
+            that:
+              - item.virtual_router_id | int >= 1
+              - item.virtual_router_id | int <= 255
+            fail_msg: >-
+              {{ item.name }}: virtual_router_id must be 1-255 per keepalived.conf(5)
+              ("arbitrary unique number from 1 to 255"), got {{ item.virtual_router_id }}.
+            quiet: true
+          loop: "{{ keepalived_instances }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        # keepalived.conf(5): "Only the first eight (8) characters are used." A longer
+        # password is silently truncated by keepalived, not rejected — refuse it here instead.
+        - name: Assert auth_pass is set and at most 8 characters
+          ansible.builtin.assert:
+            that:
+              - item.auth_pass | default('') | length > 0
+              - item.auth_pass | default('') | length <= 8
+            fail_msg: >-
+              {{ item.name }}: auth_pass (vault_keepalived_auth_pass) must be set and at most
+              8 characters — keepalived truncates anything longer to 8 characters silently
+              per keepalived.conf(5), which would leave part of the vaulted secret unused
+              without warning.
+            quiet: true
+          loop: "{{ keepalived_instances }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Assert keepalived_group has at least this host and one peer for unicast
+          ansible.builtin.assert:
+            that:
+              - groups[keepalived_group] | length >= 2
+            fail_msg: >-
+              keepalived_use_unicast is true but group '{{ keepalived_group }}' has fewer than
+              2 hosts; unicast_peer would be empty.
+            quiet: true
+          when: keepalived_use_unicast | bool
+
+    - name: Write keepalived.conf
+      ansible.builtin.template:
+        src: keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: '0600'
+        validate: "keepalived -t -f %s"
+      notify: Restart keepalived
+      tags: [configure]
+
+    # ------------------------------------------------------------------ firewall
+    - name: Collect the service list
+      ansible.builtin.service_facts:
+      when: keepalived_manage_firewall | bool
+      tags: [configure]
+
+    - name: Open VRRP in firewalld
+      ansible.posix.firewalld:
+        service: vrrp
+        permanent: true
+        immediate: true
+        state: enabled
+      when:
+        - keepalived_manage_firewall | bool
+        - ansible_facts.services['firewalld.service'].state | default('') == 'running'
+      tags: [configure]
+
+    # VRRP is IP protocol 112 (IANA/RFC 5798), not TCP or UDP; ufw has no named profile for it.
+    - name: Open VRRP (protocol 112) in ufw
+      community.general.ufw:
+        rule: allow
+        proto: '112'
+      when:
+        - keepalived_manage_firewall | bool
+        - ansible_facts.services['ufw.service'].state | default('') == 'running'
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start keepalived
+      ansible.builtin.systemd_service:
+        name: "{{ keepalived_service_name }}"
+        enabled: "{{ keepalived_service_enabled }}"
+        state: "{{ keepalived_service_state }}"
+        daemon_reload: true
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Check the VRRP state
+      ansible.builtin.command: ip -o addr show
+      changed_when: false
+      check_mode: false
+      register: keepalived_addr
+      tags: [verify]
+
+    - name: Show whether the VIP is present on this host
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'VIP present (this host is likely MASTER)' if keepalived_addr.stdout is search(instance.virtual_ipaddresses[0])
+             else 'VIP absent (this host is likely BACKUP)' }}
+      loop: "{{ keepalived_instances }}"
+      loop_control:
+        loop_var: instance
+        label: "{{ instance.name }}"
+      tags: [verify]

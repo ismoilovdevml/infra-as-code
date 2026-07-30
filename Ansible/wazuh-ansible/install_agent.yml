@@ -1,0 +1,77 @@
+---
+# Installs the Wazuh agent and points it at the manager.
+- name: Install the Wazuh agent
+  hosts: wazuh_agents
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Restart the Wazuh agent
+      ansible.builtin.systemd_service:
+        name: "{{ wazuh_agent_service }}"
+        state: restarted
+
+  tasks:
+    - name: Assert the manager address is set
+      ansible.builtin.assert:
+        that:
+          - wazuh_manager_address | length > 0
+        fail_msg: >-
+          Set wazuh_manager_address to the address agents should report to. Without
+          it the agent installs but never registers.
+        quiet: true
+      tags: [always]
+
+    - name: Configure the Wazuh repository
+      ansible.builtin.include_tasks: includes/repo.yml
+      tags: [install]
+
+    # WAZUH_MANAGER and friends are read by the package post-install script and
+    # written into ossec.conf. Setting them here avoids editing the XML afterwards.
+    - name: Install the Wazuh agent
+      ansible.builtin.package:
+        name: wazuh-agent
+        state: present
+      environment:
+        WAZUH_MANAGER: "{{ wazuh_manager_address }}"
+        WAZUH_AGENT_GROUP: "{{ wazuh_agent_group }}"
+        WAZUH_REGISTRATION_PASSWORD: "{{ wazuh_registration_password }}"
+      no_log: "{{ wazuh_registration_password | length > 0 }}"
+      notify: Restart the Wazuh agent
+      tags: [install]
+
+    - name: Hold the Wazuh package (Debian family)
+      ansible.builtin.dpkg_selections:
+        name: wazuh-agent
+        selection: hold
+      when:
+        - ansible_os_family == 'Debian'
+        - wazuh_hold_packages | bool
+      tags: [install]
+
+    - name: Enable and start the Wazuh agent
+      ansible.builtin.systemd_service:
+        name: "{{ wazuh_agent_service }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Check the agent connection state
+      ansible.builtin.command: /var/ossec/bin/agent_control -i 000
+      register: wazuh_agent_state
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Show the agent status
+      ansible.builtin.debug:
+        msg: "Wazuh agent installed, reporting to {{ wazuh_manager_address }}"
+      tags: [verify]

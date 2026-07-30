@@ -1,0 +1,17 @@
+# Kibana configuration - managed by Ansible (kibana/templates/kibana.yml.j2).
+# Manual edits will be overwritten on the next configure.yml run.
+#
+# Reference: https://www.elastic.co/docs/reference/kibana/configuration-reference/general-settings
+#
+# elasticsearch.hosts / elasticsearch.serviceAccountToken /
+# elasticsearch.ssl.certificateAuthorities are intentionally NOT set here -
+# they are written by `kibana-setup --enrollment-token` in configure.yml so
+# that re-running install.yml never clobbers the enrollment.
+
+server.host: "{{ server_host }}"
+server.port: {{ server_port }}
+{% if server_public_base_url | length > 0 %}
+server.publicBaseUrl: "{{ server_public_base_url }}"
+{% endif %}
+
+logging.root.level: {{ kibana_log_level }}

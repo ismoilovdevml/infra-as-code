@@ -1,52 +1,53 @@
 ---
-- name: Expose Kubesphere Dashboard
-  hosts: all
-  become: yes
-  vars:
-    kubesphere_namespace: "kubesphere-system"
-    ingress_name: "kubesphere-dashboard-ingress"
-    ingress_host: "ui.helm.uz"
-    tls_secret_name: "ks-console-tls"
-    cluster_issuer: "letsencrypt-prod"
-    service_name: "ks-console"
-    service_port: 80  # Ichki port bo'lishi kerak
+# NOTE: the Service name/port here reflect KubeSphere v3.x's architecture (the
+# pre-existing playbook's assumption). Re-verify against whatever install path you
+# actually use — see install.yml and README.md "Status".
+- name: Expose KubeSphere Dashboard with Ingress
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Create Ingress configuration file
-      ansible.builtin.copy:
-        dest: /tmp/kubesphere-dashboard-ingress.yaml
-        content: |
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
-          metadata:
-            name: {{ ingress_name }}
-            namespace: {{ kubesphere_namespace }}
-            annotations:
-              cert-manager.io/cluster-issuer: "{{ cluster_issuer }}"
-              nginx.ingress.kubernetes.io/ssl-redirect: "true"
-          spec:
-            ingressClassName: "nginx"
-            rules:
-            - host: {{ ingress_host }}
-              http:
-                paths:
-                - path: /
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: {{ service_name }}
-                      port:
-                        number: {{ service_port }}  # ClusterIP port bo'lishi kerak
-            tls:
-            - hosts:
-              - {{ ingress_host }}
-              secretName: {{ tls_secret_name }}
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Verify the KubeSphere console Service exists
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Service
+            name: "{{ kubesphere_service_name }}"
+            namespace: "{{ kubesphere_namespace }}"
+          register: kubesphere_service_check
 
-    - name: Apply Ingress configuration
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/kubesphere-dashboard-ingress.yaml
-      register: ingress_apply_output
+        - name: Fail if the KubeSphere console Service does not exist
+          ansible.builtin.assert:
+            that:
+              - kubesphere_service_check.resources | length > 0
+            fail_msg: >-
+              Service {{ kubesphere_service_name }} not found in
+              {{ kubesphere_namespace }}. Install KubeSphere first (see install.yml
+              and README.md "Status").
+            quiet: true
 
-    - name: Show Ingress apply output
-      debug:
-        var: ingress_apply_output.stdout
+    - name: Apply the Ingress
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        template: templates/ingress.yaml.j2
+      tags: [configure]
+
+    - name: Show the Ingress status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Ingress
+        name: "{{ kubesphere_ingress_name }}"
+        namespace: "{{ kubesphere_namespace }}"
+      register: kubesphere_ingress_status
+      tags: [verify]
+
+    - name: Show the Ingress
+      ansible.builtin.debug:
+        var: kubesphere_ingress_status.resources
+      tags: [verify]

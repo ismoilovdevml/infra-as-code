@@ -1,41 +1,41 @@
-# cleanup.yml
-
-- name: Cleanup RabbitMQ Docker setup
-  hosts: all
+---
+- name: Clean up the RabbitMQ Docker deployment
+  hosts: rabbitmq_servers
   become: true
+  gather_facts: false
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Stop RabbitMQ container if it exists
-      ansible.builtin.docker_container:
-        name: "{{ container_name }}"
+    - name: Stop the RabbitMQ container if it exists
+      community.docker.docker_container:
+        name: "{{ rabbitmq_docker_container_name }}"
         state: stopped
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove RabbitMQ container if it exists
-      ansible.builtin.docker_container:
-        name: "{{ container_name }}"
+    - name: Remove the RabbitMQ container if it exists
+      community.docker.docker_container:
+        name: "{{ rabbitmq_docker_container_name }}"
         state: absent
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove RabbitMQ Docker image if it exists
-      ansible.builtin.docker_image:
-        name: "rabbitmq:{{ rabbitmq_image }}"
+    - name: Remove the RabbitMQ Docker image if it exists
+      community.docker.docker_image:
+        name: "rabbitmq:{{ rabbitmq_docker_image }}"
         state: absent
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove RabbitMQ data directory
-      file:
-        path: "{{ host_path }}"
+    - name: Remove the RabbitMQ data directory
+      ansible.builtin.file:
+        path: "{{ rabbitmq_docker_data_path }}"
         state: absent
-        force: yes
-      ignore_errors: yes
-      failed_when: false
+      when: rabbitmq_purge_data | bool
+      tags: [uninstall]
 
-    - name: Display cleanup completion message
-      debug:
-        msg: "RabbitMQ cleanup completed successfully."
+    - name: Show cleanup completion message
+      ansible.builtin.debug:
+        msg: "RabbitMQ Docker cleanup completed."
+      tags: [uninstall]

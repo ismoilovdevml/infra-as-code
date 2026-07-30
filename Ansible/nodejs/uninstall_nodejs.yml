@@ -1,0 +1,44 @@
+---
+- name: Uninstall the system-wide Node.js install
+  hosts: nodejs_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Remove the nodejs package (Debian family)
+      ansible.builtin.apt:
+        name: nodejs
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the nodejs package (RedHat family)
+      ansible.builtin.dnf:
+        name: nodejs
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the NodeSource repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/nodesource.sources
+        - "{{ nodejs_deb_keyring }}"
+        - /etc/apt/preferences.d/nodejs
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the NodeSource repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/nodesource-nodejs.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]

@@ -1,0 +1,9 @@
+{{ ansible_managed | comment }}
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Debian,codename=${distro_codename},label=Debian-Security";
+    "origin=Ubuntu,codename=${distro_codename},label=Ubuntu";
+};
+
+Unattended-Upgrade::Automatic-Reboot "{{ security_autoupdate_reboot | ternary('true', 'false') }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ security_autoupdate_reboot_time }}";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";

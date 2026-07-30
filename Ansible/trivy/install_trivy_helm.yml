@@ -1,52 +1,57 @@
 ---
-- name: Install Trivy using Helm
-  hosts: all
-  become: yes
-  tasks:
+- name: Install the Trivy Helm chart
+  hosts: trivy_helm_hosts
+  become: false
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
-    - name: Check if Helm is installed
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Check whether Helm is installed
       ansible.builtin.command: which helm
-      register: helm_installed
+      register: trivy_helm_present
       changed_when: false
       failed_when: false
+      check_mode: false
+      tags: [always]
 
-    - name: Show info message if Helm is not installed
-      ansible.builtin.debug:
-        msg: "Helm is not installed, skipping the installation of Trivy."
-      when: helm_installed.rc != 0
+    - name: Fail fast when Helm is not installed
+      ansible.builtin.fail:
+        msg: >-
+          Helm is required for install_trivy_helm.yml but was not found on
+          {{ inventory_hostname }}. Install Helm and configure kubectl access to the
+          target cluster before running this play.
+      when: trivy_helm_present.rc != 0
+      tags: [always]
 
-    - name: Skip tasks if Helm is not installed
-      ansible.builtin.meta: end_play
-      when: helm_installed.rc != 0
+    - name: Add the Aqua Security Helm repository
+      kubernetes.core.helm_repository:
+        name: "{{ trivy_helm_repo_name }}"
+        repo_url: "{{ trivy_helm_repo_url }}"
+      tags: [install]
 
-    - name: Add the AquaSecurity Helm repository
-      ansible.builtin.command:
-        cmd: helm repo add aquasecurity https://aquasecurity.github.io/helm-charts/
-      register: helm_repo_add
-      changed_when: "'Repository 'aquasecurity' has been added' in helm_repo_add.stdout"
+    - name: Install/upgrade the Trivy chart
+      kubernetes.core.helm:
+        name: "{{ trivy_helm_release_name }}"
+        chart_ref: "{{ trivy_helm_chart }}"
+        chart_version: "{{ trivy_helm_chart_version | default(omit, true) }}"
+        release_namespace: "{{ trivy_helm_namespace }}"
+        create_namespace: "{{ trivy_helm_create_namespace }}"
+        update_repo_cache: true
+        wait: true
+      tags: [install]
 
-    - name: Update the Helm repository
-      ansible.builtin.command:
-        cmd: helm repo update
-      register: helm_repo_update
-      changed_when: "'Update Complete' in helm_repo_update.stdout"
-
-    - name: Search for Trivy in the Helm repository
-      ansible.builtin.command:
-        cmd: helm search repo trivy
-      register: helm_search_trivy
+    # ------------------------------------------------------------------- verify
+    - name: Show the release status
+      kubernetes.core.helm_info:
+        name: "{{ trivy_helm_release_name }}"
+        release_namespace: "{{ trivy_helm_namespace }}"
+      register: trivy_helm_status
       changed_when: false
+      tags: [verify]
 
-    - name: Print the Helm search result for Trivy
-      debug:
-        msg: "{{ helm_search_trivy.stdout }}"
-
-    - name: Install Trivy using Helm
-      ansible.builtin.command:
-        cmd: helm install my-trivy aquasecurity/trivy
-      register: helm_install_trivy
-      changed_when: "'STATUS: deployed' in helm_install_trivy.stdout"
-
-    - name: Print the Trivy installation result
-      debug:
-        msg: "{{ helm_install_trivy.stdout }}"
+    - name: Display the release status
+      ansible.builtin.debug:
+        msg: "{{ trivy_helm_status.status.status | default('unknown') }}"
+      tags: [verify]

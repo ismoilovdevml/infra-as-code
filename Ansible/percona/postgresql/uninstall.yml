@@ -1,0 +1,45 @@
+---
+- name: Uninstall Percona Distribution for PostgreSQL
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        quiet: true
+      tags: [always]
+
+    - name: Stop and disable PostgreSQL service
+      ansible.builtin.systemd_service:
+        name: "{{ percona_pg_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove Percona PostgreSQL packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "percona-ppg-server-{{ percona_pg_version }}"
+        state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Percona PostgreSQL packages (RHEL family)
+      ansible.builtin.dnf:
+        name: "percona-ppg-server{{ percona_pg_version }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove PostgreSQL data directory
+      ansible.builtin.file:
+        path: "{{ percona_pg_data_dir }}"
+        state: absent
+      when: percona_pg_uninstall_purge_data | bool
+      tags: [uninstall]

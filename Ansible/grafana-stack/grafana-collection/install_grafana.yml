@@ -2,11 +2,59 @@
 - name: Install and configure Grafana
   hosts: grafana_servers
   become: true
-  collections:
-    - grafana.grafana
-  roles:
-    - grafana
-  vars:
-    grafana_security:
-      admin_user: admin
-      admin_password: adminpaswordp2184d90KHS
+
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          Grafana. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/CentOS Stream/Fedora/Amazon Linux,
+          openSUSE/SLES.
+        quiet: true
+      tags: always
+
+    - name: Assert Grafana admin password has been provided via vault
+      ansible.builtin.assert:
+        that:
+          - vault_grafana_admin_password | length > 0
+        fail_msg: >-
+          vault_grafana_admin_password is empty. Set it in an Ansible Vault file (e.g.
+          group_vars/all/vault.yml) and re-run with --ask-vault-pass / --vault-password-file.
+        quiet: true
+      no_log: true
+      tags: always
+
+  tasks:
+    - name: Install and configure Grafana via the grafana.grafana.grafana role
+      ansible.builtin.include_role:
+        name: grafana.grafana.grafana
+      vars:
+        grafana_version: "{{ grafana_version }}"
+        grafana_manage_repo: true
+        grafana_apt_release_channel: "{{ grafana_repo_channel }}"
+        grafana_ini:
+          security:
+            admin_user: "{{ grafana_admin_user }}"
+            admin_password: "{{ vault_grafana_admin_password }}"
+          server:
+            http_addr: "0.0.0.0"
+            http_port: "{{ grafana_http_port }}"
+      tags:
+        - install
+        - configure
+
+  post_tasks:
+    - name: Verify Grafana HTTP API is responding
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ grafana_http_port }}/api/health"
+        status_code: 200
+      register: grafana_health
+      until: grafana_health.status == 200
+      retries: 10
+      delay: 5
+      tags: verify

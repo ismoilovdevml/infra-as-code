@@ -1,59 +1,148 @@
 ---
+# Acts on the cluster via the Kubernetes API (kubernetes.core), not over SSH — see
+# inventory.ini. Requires a working kubeconfig and the helm binary on whichever host
+# runs this playbook.
 - name: Install MetalLB
-  hosts: all
-  become: yes
-  vars:
-    metallb_namespace: "metallb-system"
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Set strictARP to true in kube-proxy config
-      ansible.builtin.shell: |
-        kubectl get configmap kube-proxy -n kube-system -o yaml | \
-        sed -e "s/strictARP: false/strictARP: true/" | \
-        kubectl apply -f - -n kube-system
-      register: kube_proxy_output
-      changed_when: "'strictARP: true' in kube_proxy_output.stdout"
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert the kubeconfig file exists
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: metallb_kubeconfig_stat
 
-    - name: Add MetalLB Helm repo
-      ansible.builtin.command:
-        cmd: helm repo add metallb https://metallb.github.io/metallb
-      register: helm_repo_add
+        - name: Fail if the kubeconfig file is missing
+          ansible.builtin.assert:
+            that:
+              - metallb_kubeconfig_stat.stat.exists
+            fail_msg: "kubeconfig not found at {{ kubeconfig_path }}. Set kubeconfig_path or KUBECONFIG."
+            quiet: true
 
-    - name: Update Helm repo
-      ansible.builtin.command:
-        cmd: helm repo update
+        - name: Check that the helm binary is available
+          block:
+            - name: Query the helm version
+              ansible.builtin.command: helm version --short
+              changed_when: false
+              check_mode: false
+          rescue:
+            - name: Fail with a clear message
+              ansible.builtin.fail:
+                msg: "helm binary not found on the controller. Install it first (see ../helm/)."
 
-    - name: Check if MetalLB is already installed
-      ansible.builtin.command:
-        cmd: helm list -n {{ metallb_namespace }}
-      register: helm_list_output
-      ignore_errors: yes
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+          register: metallb_cluster_check
 
-    - name: Install MetalLB using Helm if not installed
-      ansible.builtin.command:
-        cmd: helm install metallb metallb/metallb --namespace {{ metallb_namespace }} --create-namespace
-      when: "'metallb' not in helm_list_output.stdout"
-      register: helm_install
+        - name: Fail if the cluster is unreachable
+          ansible.builtin.assert:
+            that:
+              - metallb_cluster_check is not failed
+            fail_msg: "Could not reach the Kubernetes API using {{ kubeconfig_path }}."
+            quiet: true
 
-    - name: Show Helm install output
-      debug:
-        var: helm_install.stdout
-      when: "'metallb' not in helm_list_output.stdout"
+    # -------------------------------------------------------------- strictARP
+    # MetalLB's Layer 2 mode needs exclusive control of ARP replies for service IPs;
+    # kube-proxy (particularly in IPVS mode) must not answer ARP for them itself.
+    # Clusters with no kube-proxy (e.g. eBPF dataplanes) simply have no ConfigMap to
+    # patch here — handled as a no-op, not a failure.
+    - name: Configure kube-proxy strictARP
+      tags: [configure]
+      block:
+        - name: Read the kube-proxy ConfigMap
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: ConfigMap
+            name: kube-proxy
+            namespace: kube-system
+          register: metallb_kube_proxy_cm
 
-    - name: Skip MetalLB installation as it is already installed
-      debug:
-        msg: "MetalLB is already installed, skipping installation."
-      when: "'metallb' in helm_list_output.stdout"
+        - name: Patch strictARP to true in the kube-proxy ConfigMap
+          kubernetes.core.k8s:
+            kubeconfig: "{{ kubeconfig_path }}"
+            state: present
+            definition:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: kube-proxy
+                namespace: kube-system
+              data:
+                config.conf: >-
+                  {{ metallb_kube_proxy_cm.resources[0].data['config.conf']
+                     | regex_replace('strictARP: false', 'strictARP: true') }}
+          register: metallb_kube_proxy_cm_patch
+          when: metallb_kube_proxy_cm.resources | length > 0
 
-    - name: Wait for 1 minute for MetalLB pods to start
-      ansible.builtin.pause:
-        minutes: 1
+        - name: Restart the kube-proxy DaemonSet to apply the strictARP change
+          kubernetes.core.k8s:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: DaemonSet
+            name: kube-proxy
+            namespace: kube-system
+            state: patched
+            definition:
+              spec:
+                template:
+                  metadata:
+                    annotations:
+                      kubectl.kubernetes.io/restartedAt: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+          when:
+            - metallb_restart_kube_proxy | bool
+            - metallb_kube_proxy_cm.resources | length > 0
+            - metallb_kube_proxy_cm_patch is changed
 
-    - name: Verify MetalLB pods
-      ansible.builtin.command:
-        cmd: kubectl get pods -n {{ metallb_namespace }}
-      register: pods_output
+    # ------------------------------------------------------------------- install
+    - name: Add the MetalLB Helm repository
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ metallb_chart_repo_name }}"
+        repo_url: "{{ metallb_chart_repo_url }}"
+      tags: [install]
 
-    - name: Show MetalLB pods output
-      debug:
-        var: pods_output.stdout
+    - name: Install MetalLB
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ metallb_release_name }}"
+        chart_ref: "{{ metallb_chart_ref }}"
+        chart_version: "{{ metallb_chart_version }}"
+        release_namespace: "{{ metallb_namespace }}"
+        create_namespace: true
+        wait: "{{ metallb_wait }}"
+        wait_timeout: "{{ metallb_wait_timeout }}"
+        values: "{{ metallb_extra_values }}"
+      tags: [install]
+
+    # -------------------------------------------------------------------- verify
+    - name: List MetalLB pods
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Pod
+        namespace: "{{ metallb_namespace }}"
+      register: metallb_pods
+      tags: [verify]
+
+    - name: Assert MetalLB pods are running
+      ansible.builtin.assert:
+        that:
+          - metallb_pods.resources | length > 0
+          - metallb_pods.resources | map(attribute='status.phase') | unique == ['Running']
+        fail_msg: >-
+          MetalLB pods in namespace {{ metallb_namespace }} are not all Running:
+          {{ metallb_pods.resources | map(attribute='status.phase') | list }}
+        quiet: true
+      tags: [verify]
+
+    - name: Show the MetalLB pods
+      ansible.builtin.debug:
+        msg: "{{ metallb_pods.resources | map(attribute='metadata.name') | list }}"
+      tags: [verify]

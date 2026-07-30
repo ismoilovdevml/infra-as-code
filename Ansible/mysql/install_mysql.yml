@@ -1,13 +1,197 @@
 ---
-- name: Install MySQL
+- name: Install MySQL from the official Oracle Community repositories
   hosts: mysql_servers
-  become: yes
+  become: true
+  vars_files:
+    - vars.yml
 
-  vars:
-    mysql_root_password: "123"
-    mysql_bind_address: '0.0.0.0'
-    mysql_root_password_update: true
-    mysql_enabled_on_startup: true
+  tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          MySQL. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/Oracle/Fedora, SLES 15.
+        quiet: true
+      tags: [always]
 
-  roles:
-    - role: geerlingguy.mysql
+    - name: Fail on distributions with no Oracle MySQL repository
+      ansible.builtin.fail:
+        msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} has no Oracle MySQL
+          Community repository. Oracle does not publish packages for Amazon Linux, CentOS
+          Stream or openSUSE (SLES 15 is the only supported SUSE target).
+      when: >-
+        ansible_distribution == 'Amazon' or
+        ansible_distribution == 'CentOS' or
+        ansible_distribution == 'openSUSE Leap'
+      tags: [always]
+
+    - name: Assert vault-backed root password is set
+      ansible.builtin.assert:
+        that:
+          - mysql_root_password | length > 0
+        fail_msg: >-
+          mysql_root_password is empty. Set vault_mysql_root_password via ansible-vault
+          (see README).
+        quiet: true
+      tags: [always]
+
+    - name: Debian/Ubuntu install
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Ensure gnupg is installed (needed by the mysql-apt-config postinst)
+          ansible.builtin.apt:
+            name: gnupg
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Preseed mysql-apt-config server series selection
+          ansible.builtin.debconf:
+            name: mysql-apt-config
+            question: mysql-apt-config/select-server
+            value: "mysql-{{ mysql_series }}-lts"
+            vtype: select
+
+        - name: Preseed mysql-community-server root password
+          ansible.builtin.debconf:
+            name: mysql-community-server
+            question: mysql-community-server/root-pass
+            value: "{{ mysql_root_password }}"
+            vtype: password
+          no_log: true
+
+        - name: Preseed mysql-community-server root password confirmation
+          ansible.builtin.debconf:
+            name: mysql-community-server
+            question: mysql-community-server/re-root-pass
+            value: "{{ mysql_root_password }}"
+            vtype: password
+          no_log: true
+
+        - name: Download mysql-apt-config bootstrap package
+          ansible.builtin.get_url:
+            url: "https://dev.mysql.com/get/{{ mysql_apt_config_deb }}"
+            dest: "/tmp/{{ mysql_apt_config_deb }}"
+            mode: '0644'
+
+        - name: Install mysql-apt-config (non-interactive)
+          ansible.builtin.apt:
+            deb: "/tmp/{{ mysql_apt_config_deb }}"
+            state: present
+          environment:
+            DEBIAN_FRONTEND: noninteractive
+
+        - name: Update apt cache after adding the Oracle MySQL repository
+          ansible.builtin.apt:
+            update_cache: true
+
+        - name: Install MySQL packages
+          ansible.builtin.apt:
+            name:
+              - mysql-community-server
+              - mysql-community-client
+              - "{{ mysql_pymysql_package.Debian }}"
+            state: present
+          environment:
+            DEBIAN_FRONTEND: noninteractive
+
+    - name: RHEL family install
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Disable built-in mysql/mariadb module streams (EL8 only)
+          ansible.builtin.command: "dnf -qy module disable {{ item }}"
+          # No dedicated module manages DNF module streams; EL9/EL10 have no such
+          # AppStream module, so this only applies to EL8.
+          loop:
+            - mysql
+            - mariadb
+          register: mysql_module_disable
+          changed_when: "'Nothing to do' not in mysql_module_disable.stdout"
+          when: ansible_distribution_major_version | int == 8 and ansible_distribution != 'Fedora'
+
+        - name: Install Oracle MySQL repository RPM (EL)
+          ansible.builtin.dnf:
+            name: >-
+              https://dev.mysql.com/get/mysql{{ mysql_series_nodot }}-community-release-el{{
+              ansible_distribution_major_version }}-{{ mysql_repo_rpm_release }}.noarch.rpm
+            state: present
+          when: ansible_distribution != 'Fedora'
+
+        - name: Install Oracle MySQL repository RPM (Fedora)
+          ansible.builtin.dnf:
+            name: >-
+              https://dev.mysql.com/get/mysql{{ mysql_series_nodot }}-community-release-fc{{
+              ansible_distribution_major_version }}-{{ mysql_repo_rpm_release }}.noarch.rpm
+            state: present
+          when: ansible_distribution == 'Fedora'
+
+        - name: Check for the MySQL RPM GPG key file
+          ansible.builtin.stat:
+            path: /etc/pki/rpm-gpg/RPM-GPG-KEY-mysql-2025
+          register: mysql_gpg_key_file
+
+        - name: Import MySQL RPM GPG key
+          # Defensive: the repository RPM installs this key file itself, but dnf may
+          # still prompt to trust it on first transaction without an explicit import.
+          ansible.builtin.rpm_key:
+            key: /etc/pki/rpm-gpg/RPM-GPG-KEY-mysql-2025
+            state: present
+          when: mysql_gpg_key_file.stat.exists
+
+        - name: Install MySQL packages
+          ansible.builtin.dnf:
+            name:
+              - mysql-community-server
+              - mysql-community-client
+              - "{{ mysql_pymysql_package.RedHat }}"
+            state: present
+
+    - name: SUSE family install
+      when: ansible_os_family == 'Suse'
+      tags: [install]
+      block:
+        - name: Install Oracle MySQL repository RPM (SLES 15)
+          community.general.zypper:
+            name: >-
+              https://dev.mysql.com/get/mysql{{ mysql_series_nodot }}-community-release-sl15-{{
+              mysql_repo_rpm_release }}.noarch.rpm
+            state: present
+            disable_gpg_check: true
+
+        - name: Install MySQL packages
+          community.general.zypper:
+            name:
+              - mysql-community-server
+              - "{{ mysql_pymysql_package.Suse }}"
+            state: present
+
+    - name: Enable and start MySQL service
+      ansible.builtin.systemd_service:
+        name: "{{ mysql_service_name }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for MySQL to accept connections
+      ansible.builtin.wait_for:
+        port: "{{ mysql_port }}"
+        host: 127.0.0.1
+        timeout: 60
+      tags: [verify]
+
+    - name: Verify installed MySQL version
+      ansible.builtin.command: mysqld --version
+      changed_when: false
+      register: mysql_version_check
+      tags: [verify]
+
+    - name: Show installed MySQL version
+      ansible.builtin.debug:
+        msg: "{{ mysql_version_check.stdout }}"
+      tags: [verify]

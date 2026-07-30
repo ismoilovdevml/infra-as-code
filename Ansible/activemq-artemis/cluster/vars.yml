@@ -1,28 +1,56 @@
 ---
+# Apache Artemis is a pure-JVM broker; Java 17 has been required since 2.39.0.
+# https://artemis.apache.org/components/artemis/documentation/latest/versions.html
 java_packages:
-  Debian: "openjdk-17-jdk"
-  RedHat: "java-17-openjdk"
+  Debian: openjdk-17-jdk
+  RedHat: java-17-openjdk
 
-artemis_version: "2.38.0"
-artemis_url: "https://downloads.apache.org/activemq/activemq-artemis/{{ artemis_version }}/apache-artemis-{{ artemis_version }}-bin.tar.gz"
-artemis_install_dir: "/opt/artemis"
+# dlcdn only serves currently-supported releases; point artemis_mirror_url at
+# archive.apache.org/dist/activemq/activemq-artemis when this version ages out.
+artemis_version: "2.55.0"
+artemis_mirror_url: "https://dlcdn.apache.org/activemq/activemq-artemis"
+# Checksums are published under a different path segment than the tarball mirror
+# and always come from downloads.apache.org, never from a mirror.
+artemis_checksum_url: "https://downloads.apache.org/artemis/artemis"
+artemis_tarball: "apache-artemis-{{ artemis_version }}-bin.tar.gz"
+
+artemis_install_root: /opt
+artemis_versioned_dir: "{{ artemis_install_root }}/apache-artemis-{{ artemis_version }}"
+artemis_install_dir: "{{ artemis_install_root }}/artemis"     # symlink -> versioned dir
 artemis_instance_dir: "/opt/artemis-instance"
-artemis_user: "artemis"
-artemis_group: "artemis"
-artemis_password: "329awfas"
 
+artemis_user: artemis
+artemis_group: artemis
+artemis_admin_password: "{{ vault_artemis_admin_password | default('') }}"
+
+# --- NFS shared storage (shared-store HA) --------------------------------------
+# All broker instances share ONE data directory tree over NFS. The NFS server is a
+# single point of failure for this topology; it is out of scope to make it highly
+# available here.
 nfs_export_path: "/srv/nfs"
 nfs_allowed_hosts: "*"
 nfs_service_name:
   RedHat: nfs-server
   Debian: nfs-kernel-server
-nfs_server_ip: "34.70.204.185"
+# Placeholder RFC1918 address — set to the real NFS server's address per environment.
+nfs_server_ip: "10.0.0.20"
 nfs_mount_paths:
-  master: "/mnt/artemis-cluster-master-prod"
-  node1: "/mnt/artemis-cluster-node1-prod"
-  node2: "/mnt/artemis-cluster-node2-prod"
+  master: "/mnt/artemis-cluster-master"
+  node1: "/mnt/artemis-cluster-node1"
+  node2: "/mnt/artemis-cluster-node2"
 
 connectors:
   master: "tcp://{{ hostvars['master']['ansible_host'] }}:61616"
   node1: "tcp://{{ hostvars['node1']['ansible_host'] }}:61616"
   node2: "tcp://{{ hostvars['node2']['ansible_host'] }}:61616"
+
+# --- client-facing virtual IP (vip_ip.yml) --------------------------------------
+# keepalived/VRRP is a generic HA pattern, not an Artemis-specific upstream
+# recommendation; it gives clients one address that follows the active broker.
+artemis_vip_address: "10.0.0.30"
+artemis_vip_interface: eth0
+artemis_vip_router_id: 51
+artemis_vip_check_port: 61616
+
+# cleanup.yml: also delete the instance data directories on the shared NFS mount.
+artemis_purge_data: false

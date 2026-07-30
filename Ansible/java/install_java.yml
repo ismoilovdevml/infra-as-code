@@ -1,30 +1,230 @@
 ---
-- hosts: java_servers
-  become: yes
+- name: Install OpenJDK
+  hosts: java_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
   tasks:
-    - name: Install Java on RHEL-based systems
-      include_role:
-        name: geerlingguy.java
-      vars:
-        java_packages:
-          - java-11-openjdk
-          - java-11-openjdk-devel
-      when: ansible_os_family == 'RedHat'
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert supported platform
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+              this Java playbook. Supported: Debian/Ubuntu, RHEL/Rocky/Alma, openSUSE/SLES.
+            quiet: true
 
-    - name: Install Java on Debian-based systems
-      include_role:
-        name: geerlingguy.java
-      vars:
-        java_packages:
-          - openjdk-17-jdk
-          - default-jdk
-          - default-jre
+        - name: Assert the install method and version selection are valid
+          ansible.builtin.assert:
+            that:
+              - java_install_method in ['distro', 'temurin']
+              - java_default_version in java_versions
+            fail_msg: >-
+              java_install_method must be 'distro' or 'temurin', and java_default_version
+              must be one of java_versions ({{ java_versions | join(', ') }}).
+            quiet: true
+
+        - name: Read /etc/os-release
+          ansible.builtin.slurp:
+            src: /etc/os-release
+          register: java_os_release_raw
+
+        # Upstream Adoptium repo config keys the RPM/DEB tree off the distro's own
+        # /etc/os-release fields (ID, UBUNTU_CODENAME/VERSION_CODENAME), not lsb_release,
+        # which is absent on minimal images.
+        - name: Parse /etc/os-release
+          ansible.builtin.set_fact:
+            java_os_release: >-
+              {{ java_os_release | default({})
+                 | combine({item.split('=', 1)[0]: item.split('=', 1)[1] | trim('"')}) }}
+          loop: "{{ (java_os_release_raw.content | b64decode).splitlines() | select('match', '^[A-Z_]+=') | list }}"
+          loop_control:
+            label: "{{ item.split('=', 1)[0] }}"
+
+        - name: Resolve the APT suite and the os-release ID
+          ansible.builtin.set_fact:
+            java_apt_suite: >-
+              {{ java_os_release.UBUNTU_CODENAME
+                 | default(java_os_release.VERSION_CODENAME, true)
+                 | default(ansible_distribution_release, true) }}
+            java_os_release_id: "{{ java_os_release.ID | default(ansible_distribution | lower) }}"
+
+        - name: Resolve the packages to install for each requested JDK version
+          ansible.builtin.set_fact:
+            java_resolved_packages: >-
+              {{ java_resolved_packages | default([]) +
+                 (['temurin-' ~ item ~ '-jdk'] if java_install_method == 'temurin'
+                  else java_package_name_patterns[ansible_os_family] | map('replace', '{version}', item) | list) }}
+          loop: "{{ java_versions }}"
+          loop_control:
+            label: "{{ item }}"
+
+    # --------------------------------------------------------- repo: Temurin (Debian family)
+    - name: Configure the Temurin repository (Debian family)
+      when:
+        - ansible_os_family == 'Debian'
+        - java_install_method == 'temurin'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - ca-certificates
+              - gnupg
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Create the APT keyring directory
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Fetch the Temurin GPG key
+          ansible.builtin.get_url:
+            url: "{{ java_temurin_gpg_key_url }}"
+            dest: "{{ java_temurin_deb_keyring }}"
+            mode: '0644'
+
+        - name: Add the Temurin repository
+          ansible.builtin.deb822_repository:
+            name: adoptium
+            types: [deb]
+            uris: "{{ java_temurin_deb_repo_uri }}"
+            suites: ["{{ java_apt_suite }}"]
+            components: [main]
+            architectures: ["{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"]
+            signed_by: "{{ java_temurin_deb_keyring }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+    # --------------------------------------------------------- repo: Temurin (RedHat family)
+    - name: Configure the Temurin repository (RedHat family)
+      when:
+        - ansible_os_family == 'RedHat'
+        - java_install_method == 'temurin'
+      tags: [install]
+      block:
+        - name: Add the Temurin repository
+          ansible.builtin.yum_repository:
+            name: adoptium
+            description: Adoptium Temurin
+            baseurl: "{{ java_temurin_rpm_baseurl }}"
+            gpgkey: "{{ java_temurin_gpg_key_url }}"
+            gpgcheck: true
+            enabled: true
+
+    # ----------------------------------------------------------- repo: Temurin (SUSE family)
+    - name: Configure the Temurin repository (SUSE family)
+      when:
+        - ansible_os_family == 'Suse'
+        - java_install_method == 'temurin'
+      tags: [install]
+      block:
+        - name: Import the Temurin GPG key
+          ansible.builtin.rpm_key:
+            key: "{{ java_temurin_gpg_key_url }}"
+            state: present
+
+        - name: Add the Temurin repository
+          community.general.zypper_repository:
+            name: adoptium
+            repo: "{{ java_temurin_rpm_baseurl }}"
+            auto_import_keys: true
+            state: present
+
+    # ------------------------------------------------------------------ install
+    - name: Install the requested JDKs (Debian family)
+      ansible.builtin.apt:
+        name: "{{ java_resolved_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
       when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Install Java on Ubuntu systems
-      include_role:
-        name: geerlingguy.java
-      vars:
-        java_packages:
-          - openjdk-11-jdk
-      when: ansible_distribution == 'Ubuntu'
+    - name: Install the requested JDKs (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ java_resolved_packages }}"
+        state: present
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+
+    - name: Install the requested JDKs (SUSE family)
+      community.general.zypper:
+        name: "{{ java_resolved_packages }}"
+        state: present
+      when: ansible_os_family == 'Suse'
+      tags: [install]
+
+    # ------------------------------------------------------ alternatives (default version)
+    # Replaces the old `shell: find /usr/lib/jvm | grep java-17` hack with a real Ansible
+    # module (no shell, no reliance on grep's exit status). Package directory names are
+    # hyphen-delimited around the major version on every family (e.g. java-17-openjdk-amd64,
+    # temurin-17-jdk-amd64), so matching "*-<version>-*" avoids "8" falsely matching "18".
+    - name: Locate the JVM home directories
+      ansible.builtin.find:
+        paths: /usr/lib/jvm
+        file_type: directory
+        patterns: "*-{{ item }}-*"
+      register: java_jvm_dirs
+      loop: "{{ java_versions }}"
+      loop_control:
+        label: "{{ item }}"
+      changed_when: false
+      tags: [configure]
+
+    - name: Assert the default version's JVM home was found
+      ansible.builtin.assert:
+        that:
+          - (java_jvm_dirs.results | selectattr('item', 'equalto', java_default_version) | map(attribute='files') | first | length) > 0
+        fail_msg: "No JVM home found under /usr/lib/jvm matching *-{{ java_default_version }}-*"
+        quiet: true
+      tags: [configure]
+
+    - name: Resolve the JVM home for the default version
+      ansible.builtin.set_fact:
+        java_default_jvm_home: >-
+          {{ (java_jvm_dirs.results
+              | selectattr('item', 'equalto', java_default_version)
+              | map(attribute='files') | first
+              | map(attribute='path') | sort | first) }}
+      tags: [configure]
+
+    - name: Register the default JDK with alternatives
+      community.general.alternatives:
+        name: "{{ item }}"
+        path: "{{ java_default_jvm_home }}/bin/{{ item }}"
+        link: "/usr/bin/{{ item }}"
+        priority: "{{ java_alternatives_priority }}"
+      loop: "{{ java_alternatives_tools }}"
+      tags: [configure]
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the active java version
+      ansible.builtin.command: java -version
+      register: java_verify
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the active java version
+      ansible.builtin.debug:
+        msg: "{{ java_verify.stderr_lines | default([]) | union(java_verify.stdout_lines | default([])) }}"
+      tags: [verify]

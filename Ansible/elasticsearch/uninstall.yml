@@ -1,0 +1,81 @@
+---
+- name: Uninstall Elasticsearch
+  hosts: elasticsearch
+  become: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable Elasticsearch service
+      ansible.builtin.systemd_service:
+        name: elasticsearch
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch package (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: elasticsearch
+        state: absent
+        purge: true
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch APT repository
+      ansible.builtin.deb822_repository:
+        name: "elastic-{{ elastic_major_version }}.x"
+        types: deb
+        uris: "{{ elastic_repo_url_apt }}"
+        suites: stable
+        components: main
+        signed_by: "{{ elastic_apt_keyring }}"
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch APT keyring
+      ansible.builtin.file:
+        path: "{{ elastic_apt_keyring }}"
+        state: absent
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch package (RHEL/Rocky/AlmaLinux/Oracle/Amazon Linux)
+      ansible.builtin.dnf:
+        name: elasticsearch
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch YUM repository
+      ansible.builtin.yum_repository:
+        name: elasticsearch
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch package (SUSE/openSUSE)
+      community.general.zypper:
+        name: elasticsearch
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch zypper repository
+      community.general.zypper_repository:
+        name: elasticsearch
+        state: absent
+      when: ansible_os_family == 'Suse'
+      tags: [uninstall]
+
+    - name: Remove Elasticsearch data, log, and config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/elasticsearch
+        - /var/lib/elasticsearch
+        - /var/log/elasticsearch
+        - /root/.elastic_password
+      tags: [uninstall]

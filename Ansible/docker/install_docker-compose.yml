@@ -1,39 +1,58 @@
 ---
-- name: Install Docker Compose on Multiple OS and Architectures
+# LEGACY. Compose v2+ ships as the `docker-compose-plugin` package, which
+# install_docker.yml already installs, and is invoked as `docker compose`.
+# Upstream marks the standalone `/usr/local/bin/docker-compose` binary as legacy
+# and does not recommend it. Use this only for tooling that still shells out to
+# the hyphenated command.
+- name: Install the legacy standalone Docker Compose binary
   hosts: all
   become: true
-  vars:
-    compose_version: "2.29.7"
-    compose_architectures:
-      linux:
-        - x86_64
-        - aarch64
-        - armv7
-        - ppc64le
-        - riscv64
-        - s390x
-      windows:
-        - x86_64
-        - aarch64
-    download_url: "https://github.com/docker/compose/releases/download"
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Set the Docker Compose binary URL based on architecture and OS
-      set_fact:
-        compose_url: "{{ download_url }}/v{{ compose_version }}/docker-compose-{{ ansible_system | lower }}-{{ ansible_architecture }}"
+    - name: Assert the architecture is published upstream
+      ansible.builtin.assert:
+        that:
+          - ansible_system == 'Linux'
+          - ansible_architecture in docker_compose_arch_map
+        fail_msg: >-
+          No standalone Compose binary is published for {{ ansible_system }}/{{ ansible_architecture }}.
+          Published: {{ docker_compose_arch_map.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
 
-    - name: Download Docker Compose binary
+    - name: Download the expected checksum
+      ansible.builtin.uri:
+        url: >-
+          https://github.com/docker/compose/releases/download/{{ docker_compose_standalone_version }}/docker-compose-linux-{{
+          docker_compose_arch_map[ansible_architecture] }}.sha256
+        return_content: true
+      register: docker_compose_checksum
+      check_mode: false
+      tags: [install]
+
+    - name: Download the Compose binary
       ansible.builtin.get_url:
-        url: "{{ compose_url }}"
-        dest: /usr/local/bin/docker-compose
+        url: >-
+          https://github.com/docker/compose/releases/download/{{ docker_compose_standalone_version }}/docker-compose-linux-{{
+          docker_compose_arch_map[ansible_architecture] }}
+        dest: "{{ docker_compose_standalone_path }}"
+        checksum: "sha256:{{ docker_compose_checksum.content.split() | first }}"
+        owner: root
+        group: root
         mode: '0755'
-      when: ansible_architecture in compose_architectures[ansible_system | lower]
+      tags: [install]
 
-    - name: Verify installation
-      ansible.builtin.command: docker-compose --version
-      register: compose_version_output
-      ignore_errors: yes
+    - name: Report the installed version
+      ansible.builtin.command: "{{ docker_compose_standalone_path }} version"
+      changed_when: false
+      check_mode: false
+      register: docker_compose_version
+      tags: [verify]
 
-    - name: Show Docker Compose version
+    - name: Show the installed version
       ansible.builtin.debug:
-        msg: "{{ compose_version_output.stdout }}"
+        msg: "{{ docker_compose_version.stdout }}"
+      tags: [verify]

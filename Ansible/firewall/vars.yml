@@ -1,19 +1,57 @@
 ---
-firewalld_vars:
-  install_firewalld: false
-  open_ports:
-    - 80    # HTTP
-    - 443   # HTTPS
-    - 22    # SSH
-  close_ports:
-    - 8080  # Example of closing port 8080
-    - 3306  # MySQL
-ufw_vars:
-  install_ufw: false
-  open_ports:
-    - 80    # HTTP
-    - 443   # HTTPS
-    - 22    # SSH
-  close_ports:
-    - 8080  # Example of closing port 8080
-    - 3306  # MySQL
+# Portable rule list applied by both backends. `configure.yml` is the single entry
+# point: it dispatches these rules to ufw on Debian/Ubuntu and to firewalld on
+# RHEL/Rocky/Alma/Fedora/SUSE, based on ansible_os_family.
+#
+# SAFETY: firewall_ssh_port below MUST have a matching allow rule in this list.
+# The play refuses to run (preflight assert) unless that rule is present, and it
+# always applies allow rules before it touches the default/incoming policy or
+# enables the firewall. Removing the SSH rule anyway, or narrowing its `src` to
+# something that excludes the host you connect from, can still lock you out.
+# See README "Notes" for recovery.
+firewall_ssh_port: '22'
+
+firewall_rules:
+  - name: ssh
+    rule: allow
+    proto: tcp
+    port: "{{ firewall_ssh_port }}"
+    src: any
+  - name: http
+    rule: allow
+    proto: tcp
+    port: '80'
+    src: any
+  - name: https
+    rule: allow
+    proto: tcp
+    port: '443'
+    src: any
+
+# Explicit deny/close entries. Both backends already default-deny anything not
+# listed in firewall_rules, so this is only needed to shut off a port that some
+# other process (or a previous run) opened outside of this play.
+firewall_deny_rules: []
+#  - name: mysql
+#    proto: tcp
+#    port: '3306'
+#    src: any
+
+# Default policy, applied AFTER firewall_rules are staged (ufw only — firewalld's
+# built-in zones are already default-deny for anything not explicitly permitted,
+# so no separate "default policy" step is applied there).
+firewall_default_incoming: deny    # allow | deny | reject
+firewall_default_outgoing: allow   # allow | deny | reject
+
+# Install the firewall package if missing.
+firewall_install: true
+
+# Actually flip the firewall to the running/enabled state. Set to false to only
+# stage rules (e.g. to review with --check --diff before enforcing anything).
+firewall_enable: true
+
+# ufw-only.
+ufw_logging: low   # off | on | low | medium | high | full
+
+# firewalld-only.
+firewalld_default_zone: public

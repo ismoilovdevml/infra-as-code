@@ -1,17 +1,62 @@
 ---
-# Variables used for Cassandra installation and configuration
+# Apache Cassandra, installed from the official Apache repositories.
+#
+# "50x" is the current GA series (Cassandra 5.0, "Maintained until 8.0 release" per
+# https://cassandra.apache.org/_/download.html). "41x" (Cassandra 4.1) is still
+# upstream-supported ("Previous Stable Version", maintained until 7.0) but is not
+# the recommended series for a new install — it was only the collection's own
+# untouched default, not a deliberate pin. Both series were independently confirmed
+# live on APT and RPM (see scratchpad facts/cassandra.md, "Live verification
+# addendum") before being used here.
+cassandra_series: "50x"
 
-cassandra_user: cassandra
-cassandra_password: DL3sdf@jdxsw
-listen_address: 0.0.0.0
-rpc_address: 0.0.0.0
-broadcast_address: "{{ ansible_default_ipv4.address }}"
-authenticator: PasswordAuthenticator
-authorizer: CassandraAuthorizer
-cassandra_version: "41x"  # Specify the desired version
-firewall_ports:
-  - "7000"
-  - "7001"
-  - "7199"
-  - "9042"
-  - "9160"
+cassandra_gpg_key_url: https://downloads.apache.org/cassandra/KEYS
+cassandra_apt_keyring_path: /etc/apt/keyrings/apache-cassandra.asc
+
+cassandra_packages:
+  - cassandra
+  - cassandra-tools
+
+cassandra_service_name: cassandra
+cassandra_config_path: /etc/cassandra/cassandra.yaml
+
+# Cassandra 5.0 requires Java 11 or 17 (mixing build/run JDK major versions is
+# unsupported); this defaults to 17. 4.1/4.0 additionally support Java 8 — not
+# relied on here since the default series is 50x.
+cassandra_java_packages:
+  Debian: openjdk-17-jre-headless
+  RedHat: java-17-openjdk-headless
+
+cassandra_data_dirs:
+  - /var/lib/cassandra/data
+  - /var/lib/cassandra/commitlog
+  - /var/lib/cassandra/saved_caches
+  - /var/lib/cassandra/hints
+cassandra_log_dir: /var/log/cassandra
+
+cassandra_cluster_name: "Test Cluster"
+
+# Thrift (9160) was fully removed in Cassandra 4.0 — no yaml option or port exists
+# for it any more. Only the current, real ports are opened/configured here.
+cassandra_storage_port: 7000
+cassandra_ssl_storage_port: 7001
+cassandra_native_transport_port: 9042
+cassandra_jmx_port: 7199
+
+cassandra_listen_address: "{{ ansible_default_ipv4.address }}"
+cassandra_rpc_address: "127.0.0.1"
+cassandra_seeds: "{{ [ansible_default_ipv4.address] }}"
+
+cassandra_authenticator: PasswordAuthenticator
+cassandra_authorizer: CassandraAuthorizer
+
+cassandra_admin_user: cassandra
+# Empty by default; configure_cassandra.yml refuses to enable password auth
+# without this set. Provide via vault: vault_cassandra_admin_password.
+cassandra_admin_password: "{{ vault_cassandra_admin_password | default('') }}"
+
+cassandra_service_enabled: true
+cassandra_service_state: started
+
+# uninstall.yml: also delete the data/commitlog/log directories.
+cassandra_purge_data: false

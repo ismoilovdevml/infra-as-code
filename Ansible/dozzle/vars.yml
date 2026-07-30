@@ -1,12 +1,45 @@
-# vars.yml
-dozzle_version: "latest"
-dozzle_port: 8081
-agent_port: 7007
-auth_provider: "simple"
-auth_ttl: "48h"
-dozzle_data_path: "/data/dozzle"
-users_file_path: "{{ dozzle_data_path }}/users.yml"
-admin_username: "admin"
-admin_password: "oqw0f3092l"
-admin_email: "admin@example.com"
-admin_name: "Admin"
+---
+# Pin the version. `latest` makes rollouts non-reproducible and silently changes
+# behaviour on every container recreate.
+dozzle_version: "v10.6.13"
+dozzle_registry: "amir20/dozzle"          # ghcr.io/amir20/dozzle mirrors it where Docker Hub is blocked
+
+dozzle_server_container: dozzle
+dozzle_agent_container: dozzle_agent
+
+# Server UI. Bind to 127.0.0.1 and front it with a reverse proxy for anything
+# public — Docker publishes ports past ufw/firewalld.
+dozzle_bind_address: "0.0.0.0"
+dozzle_port: 8080
+
+# Agent listen port. If the server and agent share a Docker network you do not
+# need to publish this at all.
+dozzle_agent_port: 7007
+dozzle_agent_publish: true
+
+# Host directory bind-mounted at /data. Without it, notification settings and the
+# simple-auth users file are lost every time the container is recreated.
+dozzle_data_path: /var/lib/dozzle
+
+dozzle_docker_socket: /var/run/docker.sock
+dozzle_restart_policy: always
+
+# --- authentication -----------------------------------------------------------
+# "none" | "simple" | "forward-proxy"
+dozzle_auth_provider: simple
+dozzle_auth_ttl: "48h"
+
+dozzle_admin_username: admin
+dozzle_admin_email: "admin@example.com"
+dozzle_admin_name: "Admin"
+# Vault-backed. Never commit a real value.
+dozzle_admin_password: "{{ vault_dozzle_admin_password | default('') }}"
+
+# --- optional features (off by default upstream, and deliberately kept off) ----
+# Container shell access and start/stop actions from the UI.
+dozzle_enable_actions: false
+dozzle_enable_shell: false
+dozzle_log_level: info
+
+# uninstall.yml: also delete /var/lib/dozzle and the users file.
+dozzle_purge_data: false

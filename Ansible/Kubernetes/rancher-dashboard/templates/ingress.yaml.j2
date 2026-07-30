@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ rancher_ingress_name }}
+  namespace: {{ rancher_namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ rancher_cluster_issuer_name }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: {{ rancher_ingress_class }}
+  rules:
+    - host: {{ rancher_hostname }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ rancher_service_name }}
+                port:
+                  number: {{ rancher_service_port }}
+  tls:
+    - hosts:
+        - {{ rancher_hostname }}
+      secretName: {{ rancher_ingress_tls_secret_name }}

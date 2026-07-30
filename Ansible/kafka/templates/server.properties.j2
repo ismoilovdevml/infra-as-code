@@ -1,0 +1,34 @@
+{{ ansible_managed | comment }}
+# KRaft mode. Kafka 4.x has no ZooKeeper — there is no zookeeper.connect here.
+
+process.roles={{ kafka_process_roles }}
+node.id={{ kafka_node_id }}
+controller.quorum.bootstrap.servers={{ kafka_controller_quorum }}
+
+listeners=PLAINTEXT://{{ kafka_listen_address }}:{{ kafka_broker_port }},CONTROLLER://{{ kafka_listen_address }}:{{ kafka_controller_port }}
+advertised.listeners=PLAINTEXT://{{ kafka_advertised_host }}:{{ kafka_broker_port }}
+controller.listener.names=CONTROLLER
+inter.broker.listener.name=PLAINTEXT
+listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+
+log.dirs={{ kafka_data_dir }}
+
+num.partitions={{ kafka_num_partitions }}
+default.replication.factor={{ kafka_default_replication_factor }}
+min.insync.replicas={{ kafka_min_insync_replicas }}
+offsets.topic.replication.factor={{ kafka_default_replication_factor }}
+transaction.state.log.replication.factor={{ kafka_default_replication_factor }}
+transaction.state.log.min.isr={{ kafka_min_insync_replicas }}
+
+auto.create.topics.enable={{ kafka_auto_create_topics_enable | lower }}
+delete.topic.enable={{ kafka_delete_topic_enable | lower }}
+
+log.retention.hours={{ kafka_log_retention_hours }}
+log.segment.bytes={{ kafka_log_segment_bytes }}
+log.retention.check.interval.ms={{ kafka_log_retention_check_interval_ms }}
+
+num.network.threads=3
+num.io.threads=8
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600

@@ -1,0 +1,24 @@
+{{ ansible_managed | comment }}
+# Upstream ships no systemd unit; this one is authored by this repository.
+# start-foreground is used with Type=simple: `zkServer.sh start` daemonises itself,
+# which systemd cannot track.
+[Unit]
+Description=Apache ZooKeeper
+Documentation=https://zookeeper.apache.org/doc/current/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ zookeeper_user }}
+Group={{ zookeeper_group }}
+Environment="JVMFLAGS={{ zookeeper_heap_opts }}"
+Environment="ZOO_LOG_DIR={{ zookeeper_log_dir }}"
+ExecStart={{ zookeeper_dir }}/bin/zkServer.sh start-foreground
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

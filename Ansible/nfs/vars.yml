@@ -1,6 +1,43 @@
 ---
-nfs_export_path: /srv/nfs
-nfs_allowed_hosts: "*"
-nfs_service_name:
-  RedHat: nfs-server
+# One entry per export. `clients` is a list of host/CIDR -> options pairs.
+#
+# SECURITY: the defaults below are root_squash and a private CIDR on purpose.
+# `no_root_squash` combined with a `*` client hands root on the export to any host
+# that can reach the port. Only relax this for a specific, trusted host.
+nfs_exports:
+  - path: /srv/nfs
+    owner: root
+    group: root
+    mode: '0755'
+    clients:
+      - host: "10.0.0.0/24"
+        options: "rw,sync,root_squash,no_subtree_check"
+
+# Mounts configured by nfs_client.yml.
+nfs_client_mounts: []
+#  - src: "10.0.0.11:/srv/nfs"
+#    path: /mnt/nfs
+#    opts: "rw,hard,nfsvers=4.2,_netdev"
+#    state: mounted            # mounted | present | absent
+
+nfs_packages:
+  server:
+    Debian: [nfs-kernel-server, nfs-common]
+    RedHat: [nfs-utils]
+    Suse: [nfs-kernel-server]
+  client:
+    Debian: [nfs-common]
+    RedHat: [nfs-utils]
+    Suse: [nfs-client]
+
+nfs_server_service:
   Debian: nfs-kernel-server
+  RedHat: nfs-server
+  Suse: nfs-server
+
+# NFSv4 only by default: v3 needs rpcbind plus statd/lockd on extra ports, which
+# is far harder to firewall. Set to false if you have v3 clients.
+nfs_v4_only: true
+
+# Open the NFS port with firewalld / ufw when one of them is active.
+nfs_manage_firewall: true

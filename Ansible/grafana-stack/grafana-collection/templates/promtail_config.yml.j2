@@ -1,0 +1,55 @@
+#
+# Ansible managed - {{ ansible_managed }}
+#
+# Promtail is END OF LIFE upstream (since 2026-03-02). Plan a migration to Grafana Alloy:
+# https://grafana.com/docs/alloy/latest/tasks/migrate/from-promtail/
+
+server:
+  http_listen_port: {{ promtail_http_listen_port }}
+  http_listen_address: "{{ promtail_http_listen_address }}"
+  grpc_listen_port: 0
+
+positions:
+  filename: "{{ promtail_positions_path }}/positions.yaml"
+
+clients:
+  - url: "{{ promtail_loki_push_url }}"
+
+scrape_configs:
+  - job_name: flog_scrape
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: "container"
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "logstream"
+      - source_labels: ["__meta_docker_container_label_logging_jobname"]
+        target_label: "job"
+
+  - job_name: systemd-journal
+    journal_sd_configs:
+      - path: /var/log/journal
+    relabel_configs:
+      - source_labels: ["__systemd_unit"]
+        target_label: "systemd_unit"
+      - source_labels: ["__hostname"]
+        target_label: "instance"
+
+  - job_name: varlogs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*.log
+
+  - job_name: nginx-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          __path__: /var/log/nginx/*.log

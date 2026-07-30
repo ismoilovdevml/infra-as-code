@@ -1,0 +1,156 @@
+---
+# Safe unattended package upgrade per OS family, with autoremove/clean and
+# reboot-required detection. Actually rebooting is opt-in — see
+# update_upgrade_reboot_if_required in vars.yml.
+- name: Upgrade packages and detect reboot requirement
+  hosts: all
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Assert the OS family is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }}
+          ({{ ansible_os_family }}) is not supported by this update-upgrade
+          module. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/Fedora/CentOS
+          Stream/Amazon Linux, SUSE.
+        quiet: true
+      tags: [always]
+
+    # ----------------------------------------------------------- Debian/Ubuntu
+    - name: Update and upgrade Debian/Ubuntu
+      when: ansible_os_family == 'Debian'
+      tags: [upgrade]
+      block:
+        - name: Refresh the apt cache
+          ansible.builtin.apt:
+            update_cache: true
+            cache_valid_time: "{{ update_upgrade_cache_valid_time }}"
+
+        - name: Full-upgrade all packages (apt-get dist-upgrade)
+          ansible.builtin.apt:
+            upgrade: dist
+
+        - name: Remove unused dependencies and clean the local package cache
+          ansible.builtin.apt:
+            autoremove: "{{ update_upgrade_autoremove }}"
+            autoclean: "{{ update_upgrade_clean_cache }}"
+
+    - name: Check whether Debian/Ubuntu requires a reboot
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: update_upgrade_debian_reboot
+      when: ansible_os_family == 'Debian'
+      tags: [verify]
+
+    # ------------------------------------------------------------- RHEL family
+    - name: Update and upgrade the RHEL family
+      when: ansible_os_family == 'RedHat'
+      tags: [upgrade]
+      block:
+        - name: Refresh the dnf cache
+          ansible.builtin.dnf:
+            update_cache: true
+
+        # state=latest against name='*' is the point of this task (the
+        # equivalent of `dnf upgrade`) — the non-idempotency ansible-lint
+        # warns about here is inherent to "upgrade everything", not a bug.
+        - name: Upgrade all packages (dnf upgrade)  # noqa: package-latest
+          ansible.builtin.dnf:
+            name: '*'
+            state: latest
+
+        - name: Remove unused dependencies
+          ansible.builtin.dnf:
+            autoremove: true
+          when: update_upgrade_autoremove | bool
+
+        # dnf has no idempotent module state for cache cleanup; this only
+        # clears cached package/metadata files, which is not a tracked state
+        # change, so changed_when is explicitly false (STANDARDS #5).
+        - name: Clean the dnf cache
+          ansible.builtin.command: dnf clean all
+          changed_when: false
+          when: update_upgrade_clean_cache | bool
+
+        - name: Install dnf-utils (provides needs-restarting)
+          ansible.builtin.dnf:
+            name: dnf-utils
+            state: present
+
+    - name: Check whether the RHEL family requires a reboot
+      ansible.builtin.command: dnf needs-restarting -r
+      register: update_upgrade_dnf_needs_restarting
+      changed_when: false
+      failed_when: update_upgrade_dnf_needs_restarting.rc not in [0, 1]
+      when: ansible_os_family == 'RedHat'
+      tags: [verify]
+
+    # ------------------------------------------------------------------ SUSE
+    - name: Update and upgrade the SUSE family
+      when: ansible_os_family == 'Suse'
+      tags: [upgrade]
+      block:
+        - name: Refresh the zypper cache
+          community.general.zypper:
+            update_cache: true
+
+        - name: Upgrade all packages (zypper dist-upgrade)
+          community.general.zypper:
+            name: '*'
+            state: dist-upgrade
+
+        # zypper has no idempotent module state for cache cleanup either.
+        - name: Clean the zypper cache
+          ansible.builtin.command: zypper --non-interactive clean --all
+          changed_when: false
+          when: update_upgrade_clean_cache | bool
+
+    # `zypper ps -s` lists systemd services still holding deleted files after
+    # an update — a process/service-restart signal, not a dedicated single
+    # "reboot required" boolean the way dnf/Debian have. Non-empty output is
+    # treated as "restart recommended" (a heuristic; see README).
+    - name: Check whether SUSE has services needing restart
+      ansible.builtin.command: zypper ps -s
+      register: update_upgrade_zypper_ps
+      changed_when: false
+      failed_when: false
+      when: ansible_os_family == 'Suse'
+      tags: [verify]
+
+    # --------------------------------------------------------------- summary
+    - name: Determine whether a reboot is required
+      ansible.builtin.set_fact:
+        update_upgrade_reboot_required: >-
+          {{
+            (ansible_os_family == 'Debian' and update_upgrade_debian_reboot.stat.exists)
+            or (ansible_os_family == 'RedHat' and update_upgrade_dnf_needs_restarting.rc == 1)
+            or (ansible_os_family == 'Suse' and (update_upgrade_zypper_ps.stdout | default('') | trim | length > 0))
+          }}
+      tags: [verify]
+
+    - name: Report the reboot requirement
+      ansible.builtin.debug:
+        msg: >-
+          Reboot required: {{ update_upgrade_reboot_required }}.
+          {{ 'Reboot disabled (update_upgrade_reboot_if_required is false).'
+             if update_upgrade_reboot_required and not (update_upgrade_reboot_if_required | bool)
+             else '' }}
+      tags: [verify]
+
+    # ---------------------------------------------------------- controlled reboot
+    - name: Reboot the host (only if required and enabled)
+      ansible.builtin.reboot:
+        reboot_timeout: "{{ update_upgrade_reboot_timeout }}"
+        pre_reboot_delay: "{{ update_upgrade_reboot_pre_delay }}"
+        post_reboot_delay: "{{ update_upgrade_reboot_post_delay }}"
+        msg: "Reboot initiated by Ansible update-upgrade module"
+      when:
+        - update_upgrade_reboot_required | bool
+        - update_upgrade_reboot_if_required | bool
+      tags: [reboot]

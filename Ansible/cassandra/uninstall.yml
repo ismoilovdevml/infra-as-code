@@ -1,0 +1,61 @@
+---
+# Destructive. Removes the Cassandra packages and repository and, when
+# cassandra_purge_data is true, the data, commitlog and log directories.
+- name: Uninstall Apache Cassandra
+  hosts: cassandra_nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable Cassandra
+      ansible.builtin.systemd_service:
+        name: "{{ cassandra_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Cassandra packages (Debian family)
+      ansible.builtin.apt:
+        name: "{{ cassandra_packages }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Cassandra packages (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ cassandra_packages }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Cassandra repository (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/cassandra.sources
+        - "{{ cassandra_apt_keyring_path }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the Cassandra repository (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/cassandra.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the Cassandra data, commitlog and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ cassandra_data_dirs + [cassandra_log_dir, cassandra_config_path] }}"
+      when: cassandra_purge_data | bool
+      tags: [uninstall]

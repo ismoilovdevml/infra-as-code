@@ -1,68 +1,56 @@
 ---
-- name: Uninstall Kubesphere
-  hosts: all
-  become: yes
+# Cleans up any existing KubeSphere install (from a working ks-core Helm release, or
+# a legacy v3.x ks-installer install). Deleting a namespace cascades to every
+# namespaced resource inside it, so this does not need to delete Pods/PVCs/
+# StatefulSets one at a time the way the pre-existing version of this playbook did.
+- name: Uninstall KubeSphere
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
   tasks:
-    - name: Remove Kubesphere installer
-      command: kubectl delete -f https://github.com/kubesphere/ks-installer/releases/download/v3.3.2/kubesphere-installer.yaml
-      ignore_errors: true
+    - name: Remove the Ingress (expose_kubesphere.yml, if applied)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        template: templates/ingress.yaml.j2
+      tags: [uninstall]
 
-    - name: Delete Kubesphere-specific resources in kubesphere-controls-system namespace
-      command: kubectl delete all --all -n kubesphere-controls-system
-      ignore_errors: true
+    - name: Uninstall the KubeSphere Helm release, if present
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ kubesphere_release_name }}"
+        release_namespace: "{{ kubesphere_namespace }}"
+        state: absent
+        wait: true
+      tags: [uninstall]
 
-    - name: Delete remaining PVCs in kubesphere-controls-system namespace
-      command: kubectl delete pvc --all -n kubesphere-controls-system
-      ignore_errors: true
+    - name: Remove KubeSphere-related namespaces
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        kind: Namespace
+        name: "{{ item }}"
+        wait: true
+      loop:
+        - "{{ kubesphere_namespace }}"
+        - kubesphere-controls-system
+        - kubesphere-monitoring-system
+        - kubesphere-monitoring-federated
+      tags: [uninstall]
 
-    - name: Delete remaining StatefulSets in kubesphere-controls-system namespace
-      command: kubectl delete statefulsets --all -n kubesphere-controls-system
-      ignore_errors: true
-
-    - name: Delete Kubesphere controls namespace
-      command: kubectl delete namespace kubesphere-controls-system
-      ignore_errors: true
-
-    - name: Delete Kubesphere-specific resources in kubesphere-monitoring-system namespace
-      command: kubectl delete all --all -n kubesphere-monitoring-system
-      ignore_errors: true
-
-    - name: Delete remaining PVCs in kubesphere-monitoring-system namespace
-      command: kubectl delete pvc --all -n kubesphere-monitoring-system
-      ignore_errors: true
-
-    - name: Delete remaining StatefulSets in kubesphere-monitoring-system namespace
-      command: kubectl delete statefulsets --all -n kubesphere-monitoring-system
-      ignore_errors: true
-
-    - name: Delete Kubesphere monitoring system namespace
-      command: kubectl delete namespace kubesphere-monitoring-system
-      ignore_errors: true
-
-    - name: Delete Kubesphere-specific resources in kubesphere-monitoring-federated namespace
-      command: kubectl delete all --all -n kubesphere-monitoring-federated
-      ignore_errors: true
-
-    - name: Delete remaining PVCs in kubesphere-monitoring-federated namespace
-      command: kubectl delete pvc --all -n kubesphere-monitoring-federated
-      ignore_errors: true
-
-    - name: Delete Kubesphere federated monitoring namespace
-      command: kubectl delete namespace kubesphere-monitoring-federated
-      ignore_errors: true
-
-    - name: Remove ValidatingWebhookConfigurations for Kubesphere
-      command: kubectl delete validatingwebhookconfiguration network.kubesphere.io resourcesquotas.quota.kubesphere.io storageclass-accessor.storage.kubesphere.io users.iam.kubesphere.io
-      ignore_errors: true
-
-    - name: Delete remaining resources in kubesphere-system namespace
-      command: kubectl delete all --all -n kubesphere-system
-      ignore_errors: true
-
-    - name: Delete remaining PVCs in kubesphere-system namespace
-      command: kubectl delete pvc --all -n kubesphere-system
-      ignore_errors: true
-
-    - name: Delete Kubesphere system namespace
-      command: kubectl delete namespace kubesphere-system
-      ignore_errors: true
+    - name: Remove KubeSphere ValidatingWebhookConfigurations (legacy v3.x install)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        api_version: admissionregistration.k8s.io/v1
+        kind: ValidatingWebhookConfiguration
+        name: "{{ item }}"
+      loop:
+        - network.kubesphere.io
+        - resourcesquotas.quota.kubesphere.io
+        - storageclass-accessor.storage.kubesphere.io
+        - users.iam.kubesphere.io
+      tags: [uninstall]

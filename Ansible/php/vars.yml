@@ -1,0 +1,88 @@
+---
+# Fully-supported (active) branch as of 2026-07-30 per https://www.php.net/supported-versions.php.
+# 8.2/8.3 are security-fixes-only; 8.5 is the newest. Bump this and re-run.
+php_version: "8.4"
+
+php_fpm_enabled: true
+php_fpm_state: started
+
+# --- Debian/Ubuntu: deb.sury.org (packages.sury.org) ---------------------------------------
+# Source: https://packages.sury.org/php/README.txt (fetched directly, verified 2026-07-30).
+# Sury is mid-migration off the classic ppa:ondrej/php PPA onto packages.sury.org directly for
+# newer Ubuntu releases — this module always uses packages.sury.org, never the PPA.
+php_sury_keyring_deb_url: "https://packages.sury.org/debsuryorg-archive-keyring.deb"
+php_sury_keyring_path: /usr/share/keyrings/debsuryorg-archive-keyring.gpg
+php_sury_repo_uri: "https://packages.sury.org/php/"
+
+php_extensions_debian:
+  - cli
+  - fpm
+  - common
+  - mysql
+  - xml
+  - mbstring
+  - curl
+  - zip
+  - gd
+  - opcache
+  - intl
+  - bcmath
+
+# --- RHEL/Rocky/Alma/CentOS Stream/Oracle: Remi -------------------------------------------
+# Source: https://rpms.remirepo.net/ , https://blog.remirepo.net/post/2024/12/18/Install-PHP-8.4-on-Fedora-RHEL-CentOS-Alma-Rocky-or-other-clone
+# Fedora and Amazon Linux are NOT in this list — their own repos already ship a current PHP,
+# Remi's own docs say plain distro repos are enough there (see php_native_redhat_distributions).
+php_el_distributions:
+  - RedHat
+  - CentOS
+  - Rocky
+  - AlmaLinux
+  - OracleLinux
+
+php_epel_release_url: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
+php_remi_release_url_map:
+  "8": "https://rpms.remirepo.net/enterprise/remi-release-8.rpm"
+  "9": "https://rpms.remirepo.net/enterprise/remi-release-9.rpm"
+  "10": "https://rpms.remirepo.net/enterprise/remi-release-10.rpm"
+
+# RHEL 10 removed DNF modularity entirely (Red Hat: "does not intend to provide any
+# Application Streams that use modularity" on RHEL 10) — this is a real behavioural break
+# versus EL8/EL9, not an oversight. EL8/EL9 use `dnf module reset/enable`; EL10 installs the
+# version-prefixed side-by-side packages (php84-*) directly instead.
+# Source: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/considerations_in_adopting_rhel_10/application-streams
+php_el_uses_modules_max_major: 9
+
+php_extensions_redhat:
+  - cli
+  - fpm
+  - common
+  - mysqlnd
+  - xml
+  - mbstring
+  - gd
+  - opcache
+  - intl
+  - bcmath
+
+# Native distro PHP for Fedora/Amazon Linux — Remi is neither needed nor targeted at these.
+# Version pinning is NOT available here; whatever the distro's own repo ships is installed.
+php_native_redhat_distributions:
+  - Fedora
+  - Amazon
+
+# --- SUSE: distro default only -------------------------------------------------------------
+# No official SUSE/openSUSE vendor repo equivalent to Sury/Remi exists. openSUSE Leap/SLES
+# ship an unversioned `php8` meta-package in their own channels; exact version pinning is
+# only available (best-effort, community-maintained) via the OBS project
+# devel:languages:php:phpNN, which this module does not add automatically.
+# Source: https://software.opensuse.org/download.html?project=devel:languages:php:php83
+php_extensions_suse:
+  - fpm
+  - mysql
+  - xml
+  - mbstring
+  - gd
+  - opcache
+  - bcmath
+
+php_fpm_service_name_suse: php-fpm

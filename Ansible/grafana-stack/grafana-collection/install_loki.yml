@@ -2,26 +2,58 @@
 - name: Install and configure Loki
   hosts: loki_servers
   become: true
-  collections:
-    - grafana.grafana
 
-  vars:
-    loki_version: "latest"  # or a specific version
-    loki_http_listen_port: 3100
-    loki_http_listen_address: "0.0.0.0"
-    loki_storage_config:
-      filesystem:
-        directory: "/var/lib/loki"
-    loki_ruler:
-      alertmanager_url: http://localhost:9093
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook. The grafana.grafana.loki role only installs on Debian/Ubuntu and
+          RHEL/Rocky/Alma/CentOS Stream/Fedora/Amazon Linux. openSUSE only has community-built
+          Loki packages upstream; install and manage those manually.
+        quiet: true
+      tags: always
 
   tasks:
-    - name: Install Loki using the Grafana Loki role
-      include_role:
+    - name: Install and configure Loki via the grafana.grafana.loki role
+      ansible.builtin.include_role:
         name: grafana.grafana.loki
+      vars:
+        loki_version: "{{ loki_version }}"
+        loki_http_listen_port: "{{ loki_http_listen_port }}"
+        loki_http_listen_address: "{{ loki_http_listen_address }}"
+        loki_working_path: "{{ loki_working_path }}"
+        # Full dict required: Ansible does not deep-merge role default dicts, so only
+        # overriding loki_ruler.alertmanager_url would destroy the rest of the role's
+        # loki_ruler defaults (storage, rule_path, ring, enable_api, enable_alertmanager_v2).
+        loki_ruler:
+          storage:
+            type: local
+            local:
+              directory: "{{ loki_working_path }}/rules"
+          rule_path: "{{ loki_working_path }}/rules_tmp"
+          ring:
+            kvstore:
+              store: inmemory
+          enable_api: true
+          enable_alertmanager_v2: true
+          alertmanager_url: "{{ loki_alertmanager_url }}"
+      tags:
+        - install
+        - configure
 
-    - name: Start and enable Loki service
-      ansible.builtin.service:
-        name: loki
-        state: started
-        enabled: true
+  post_tasks:
+    - name: Verify Loki is ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ loki_http_listen_port }}/ready"
+        status_code: 200
+      register: loki_ready
+      until: loki_ready.status == 200
+      retries: 10
+      delay: 5
+      tags: verify

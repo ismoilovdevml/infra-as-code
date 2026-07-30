@@ -1,98 +1,239 @@
+---
 - name: Deploy Harbor Container Registry
-  hosts: all
-  become: yes
+  hosts: harbor_servers
+  become: true
+  gather_facts: true
   vars_files:
-    - vars.yml  # vars.yml faylidan o'zgaruvchilarni yuklash
-        
+    - vars.yml
+
   tasks:
-    - name: Set default certificate paths based on ssl_option
-      set_fact:
-        cert_path: "{{ certbot_cert_path if ssl_option == 'certbot' else self_signed_cert_path }}"
-        key_path: "{{ certbot_key_path if ssl_option == 'certbot' else self_signed_key_path }}"
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported.
+          This module needs Docker Engine + the Compose plugin, available on
+          Debian/Ubuntu, RHEL/Rocky/Alma and openSUSE/SLES.
+        quiet: true
+      tags: [always]
 
-    - name: Check if Docker is installed
-      shell: "command -v docker"
-      register: docker_check
+    # Harbor's own prepare script hard-fails the install on either of these hostnames.
+    # https://github.com/goharbor/harbor/blob/v2.15.2/make/photon/prepare/utils/configs.py
+    - name: Assert the hostname is not a forbidden placeholder
+      ansible.builtin.assert:
+        that:
+          - harbor_hostname not in ['127.0.0.1', 'reg.mydomain.com']
+          - harbor_hostname | length > 0
+        fail_msg: >-
+          harbor_hostname must be a real, reachable hostname — Harbor's own prepare
+          script refuses "127.0.0.1" and the template placeholder "reg.mydomain.com".
+        quiet: true
+      tags: [always]
+
+    - name: Assert the admin and database passwords are set
+      ansible.builtin.assert:
+        that:
+          - harbor_admin_password | length > 0
+          - harbor_db_password | length > 0
+        fail_msg: >-
+          harbor_admin_password (vault_harbor_admin_password) and harbor_db_password
+          (vault_harbor_db_password) must be set via ansible-vault before running this
+          playbook.
+        quiet: true
+      no_log: true
+      tags: [always]
+
+    - name: Check whether Docker is installed
+      ansible.builtin.command: docker version
+      register: harbor_docker_check
       changed_when: false
+      check_mode: false
       failed_when: false
+      tags: [always]
 
-    - name: Check if Docker Compose is installed
-      shell: "command -v docker-compose"
-      register: docker_compose_check
+    - name: Check whether the Docker Compose plugin is installed
+      ansible.builtin.command: docker compose version
+      register: harbor_compose_check
       changed_when: false
+      check_mode: false
       failed_when: false
+      tags: [always]
 
-    - name: Display message if Docker is not installed
-      debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
+    - name: Assert Docker Engine and the Compose plugin are present
+      ansible.builtin.assert:
+        that:
+          - harbor_docker_check.rc == 0
+          - harbor_compose_check.rc == 0
+        fail_msg: >-
+          Docker Engine (> 20.10) and the Compose plugin (> 2.3) are required first —
+          install.sh itself prefers the "docker compose" plugin. See the Ansible/docker
+          module in this repository.
+        quiet: true
+      tags: [always]
 
-    - name: Display message if Docker Compose is not installed
-      debug:
-        msg: "Docker Compose is not installed on this host."
-      when: docker_check.rc == 0 and docker_compose_check.rc != 0
-
-    - name: Skip host if either Docker or Docker Compose is missing
-      meta: end_host
-      when: docker_check.rc != 0 or docker_compose_check.rc != 0
-
-    - name: Update package lists (Debian-based)
-      apt:
-        update_cache: yes
-      when: ansible_os_family == "Debian"
-
-    - name: Install certbot for SSL (Debian-based)
-      apt:
+    # --------------------------------------------------------------------- TLS
+    - name: Configure certbot (Debian family)
+      ansible.builtin.apt:
         name: certbot
         state: present
-      when: ansible_os_family == "Debian" and ssl_option == "certbot"
+        update_cache: true
+        cache_valid_time: 3600
+      when:
+        - harbor_ssl_option == 'certbot'
+        - ansible_os_family == 'Debian'
+      tags: [configure]
 
-    - name: Update package lists (RedHat-based)
-      yum:
-        name: epel-release
-        state: present
-      when: ansible_os_family == "RedHat"
+    - name: Configure certbot (RedHat family)
+      when:
+        - harbor_ssl_option == 'certbot'
+        - ansible_os_family == 'RedHat'
+      tags: [configure]
+      block:
+        - name: Enable EPEL (required for certbot on RHEL/Rocky/Alma)
+          ansible.builtin.dnf:
+            name: epel-release
+            state: present
+          when: ansible_distribution != 'Fedora'
 
-    - name: Install certbot for SSL (RedHat-based)
-      yum:
+        - name: Install certbot
+          ansible.builtin.dnf:
+            name: certbot
+            state: present
+
+    - name: Configure certbot (SUSE)
+      community.general.zypper:
         name: certbot
         state: present
-      when: ansible_os_family == "RedHat" and ssl_option == "certbot"
+      when:
+        - harbor_ssl_option == 'certbot'
+        - ansible_os_family == 'Suse'
+      tags: [configure]
 
-    - name: Obtain SSL certificate using certbot (non-interactive)
-      shell: "certbot certonly --standalone -d {{ harbor_hostname }} --non-interactive --agree-tos -m admin@{{ harbor_hostname }}"
-      when: ssl_option == "certbot"
+    - name: Obtain a certificate with certbot
+      ansible.builtin.command:
+        cmd: >-
+          certbot certonly --standalone -d {{ harbor_hostname }} --non-interactive
+          --agree-tos -m {{ harbor_certbot_email }}
+        creates: "{{ harbor_certbot_cert_path }}"
+      when: harbor_ssl_option == 'certbot'
+      tags: [configure]
 
-    - name: Download Harbor offline installer
-      get_url:
+    - name: Generate a self-signed certificate
+      when: harbor_ssl_option == 'self_signed'
+      tags: [configure]
+      block:
+        - name: Create the self-signed TLS directory
+          ansible.builtin.file:
+            path: "{{ harbor_ssl_dir }}"
+            state: directory
+            mode: '0750'
+
+        - name: Generate the private key
+          community.crypto.openssl_privatekey:
+            path: "{{ harbor_self_signed_key_path }}"
+            type: RSA
+            size: 4096
+            mode: '0640'
+
+        - name: Generate the certificate signing request
+          community.crypto.openssl_csr:
+            path: "{{ harbor_ssl_dir }}/harbor.csr"
+            privatekey_path: "{{ harbor_self_signed_key_path }}"
+            common_name: "{{ harbor_hostname }}"
+            subject_alt_name: "DNS:{{ harbor_hostname }}"
+
+        - name: Generate the self-signed certificate
+          community.crypto.x509_certificate:
+            path: "{{ harbor_self_signed_cert_path }}"
+            csr_path: "{{ harbor_ssl_dir }}/harbor.csr"
+            privatekey_path: "{{ harbor_self_signed_key_path }}"
+            provider: selfsigned
+            selfsigned_not_after: "+3650d"
+            mode: '0644'
+
+    - name: Resolve the certificate and key paths for harbor.yml
+      ansible.builtin.set_fact:
+        harbor_cert_path: >-
+          {{ harbor_certbot_cert_path if harbor_ssl_option == 'certbot'
+             else harbor_self_signed_cert_path }}
+        harbor_key_path: >-
+          {{ harbor_certbot_key_path if harbor_ssl_option == 'certbot'
+             else harbor_self_signed_key_path }}
+      when: harbor_ssl_option != 'disabled'
+      tags: [configure]
+
+    # ---------------------------------------------------------------- download
+    - name: Download the Harbor installer
+      ansible.builtin.get_url:
         url: "{{ harbor_download_url }}"
-        dest: "/tmp/harbor-offline-installer-{{ harbor_version }}.tgz"
+        dest: "/tmp/harbor-{{ harbor_installer_type }}-installer-{{ harbor_version }}.tgz"
+        checksum: "md5:{{ harbor_checksum_url }}"
+        mode: '0644'
+      tags: [install]
 
-    - name: Extract Harbor installer
-      unarchive:
-        src: "/tmp/harbor-offline-installer-{{ harbor_version }}.tgz"
-        dest: "/opt/"
-        remote_src: yes
+    - name: Extract the Harbor installer
+      ansible.builtin.unarchive:
+        src: "/tmp/harbor-{{ harbor_installer_type }}-installer-{{ harbor_version }}.tgz"
+        dest: /opt/
+        remote_src: true
+        creates: "{{ harbor_install_dir }}/install.sh"
+      tags: [install]
 
-    - name: Copy Harbor configuration template
-      copy:
-        src: "/opt/harbor/harbor.yml.tmpl"
-        dest: "/opt/harbor/harbor.yml"
-        remote_src: yes
+    # ---------------------------------------------------------------- configure
+    - name: Write harbor.yml
+      ansible.builtin.template:
+        src: harbor.yml.j2
+        dest: "{{ harbor_install_dir }}/harbor.yml"
+        owner: root
+        group: root
+        mode: '0600'
+      register: harbor_yml
+      no_log: true
+      tags: [configure]
 
-    - name: Configure Harbor settings
-      lineinfile:
-        path: "/opt/harbor/harbor.yml"
-        regexp: "{{ item.regexp }}"
-        line: "{{ item.line }}"
-      with_items:
-        - { regexp: '^hostname:.*$', line: "hostname: {{ harbor_hostname }}" }
-        - { regexp: '^harbor_admin_password:.*$', line: "harbor_admin_password: {{ harbor_admin_password }}" }
-        - { regexp: '^  password:.*$', line: "  password: {{ harbor_db_password }}" }
-        - { regexp: '^  certificate:.*$', line: "  certificate: {{ cert_path }}" }
-        - { regexp: '^  private_key:.*$', line: "  private_key: {{ key_path }}" }
+    # ------------------------------------------------------------------ deploy
+    - name: Check whether Harbor has already been installed
+      ansible.builtin.stat:
+        path: "{{ harbor_install_dir }}/docker-compose.yml"
+      register: harbor_compose_file
+      tags: [install]
 
-    - name: Install Harbor
-      command: "/opt/harbor/install.sh"
-      args:
-        chdir: "/opt/harbor/"
+    # install.sh runs `prepare` (regenerates docker-compose.yml from harbor.yml, and
+    # validates it — see Gotchas in the README) followed by `docker compose up -d`.
+    # Only needed on first install or when harbor.yml actually changed.
+    - name: Run the Harbor installer
+      ansible.builtin.command:
+        cmd: "./install.sh{{ ' --with-trivy' if harbor_with_trivy else '' }}"
+        chdir: "{{ harbor_install_dir }}"
+      when: not harbor_compose_file.stat.exists or harbor_yml is changed
+      changed_when: true
+      tags: [install]
+
+    # Idempotent reconcile on runs where harbor.yml did not change: only recreates
+    # containers if their rendered config actually drifted from docker-compose.yml.
+    - name: Ensure the Harbor stack is running
+      community.docker.docker_compose_v2:
+        project_src: "{{ harbor_install_dir }}"
+        state: present
+      when:
+        - harbor_compose_file.stat.exists
+        - harbor_yml is not changed
+      tags: [install]
+
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the Harbor port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ harbor_https_port if harbor_ssl_option != 'disabled' else harbor_http_port }}"
+        timeout: 300
+      tags: [verify]
+
+    - name: Show the Harbor access URL
+      ansible.builtin.debug:
+        msg: >-
+          Harbor is listening on
+          {{ 'https' if harbor_ssl_option != 'disabled' else 'http' }}://{{ harbor_hostname }}.
+          Log in as admin with the password set via vault_harbor_admin_password.
+      tags: [verify]

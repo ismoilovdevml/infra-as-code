@@ -1,0 +1,12 @@
+{{ ansible_managed | comment }}
+# Minimal zabbix_server.conf. All other keys keep their packaged defaults.
+# https://www.zabbix.com/documentation/current/en/manual/appendix/config/zabbix_server
+
+ListenPort={{ zabbix_server_listen_port }}
+DBHost={{ zabbix_server_dbhost }}
+DBName={{ zabbix_server_dbname }}
+DBUser={{ zabbix_server_dbuser }}
+DBPassword={{ zabbix_server_dbpassword }}
+LogFile=/var/log/zabbix/zabbix_server.log
+PidFile=/run/zabbix/zabbix_server.pid
+SocketDir=/run/zabbix

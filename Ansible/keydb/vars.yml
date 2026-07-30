@@ -1,0 +1,62 @@
+---
+# KeyDB (Snapchat/KeyDB) IS EFFECTIVELY UNMAINTAINED. Verified 2026-07-30:
+#   - Last upstream push 2024-05-29; last release v6.3.4 (2023-10-30). Not archived.
+#   - Packages exist but are frozen at 6.3.4 and carry unpatched Redis-inherited CVEs.
+# Prefer Ansible/redis/ (Redis) or Valkey for anything new. This flag must be set
+# to true before install.yml will do anything.
+keydb_accept_unmaintained_software: false
+
+# "package" installs the upstream .deb files; "docker" runs the container image.
+keydb_install_method: package
+
+# --- package install ----------------------------------------------------------
+# download.keydb.dev is NOT an APT repository — there is no Packages or Release
+# index, only a directory listing of loose .deb files. They are therefore fetched
+# with get_url and installed with `apt: deb=`, and there is no repo signature to
+# verify (see README Notes). Set keydb_deb_checksum to pin them.
+keydb_version: "6.3.4"
+keydb_deb_base_url: "https://download.keydb.dev/pkg/open_source/deb"
+
+# Suites that actually carry 6.3.4 packages, verified against the live listing.
+# Debian 13 and Ubuntu 24.04+ have none; the debian9_stretch and ubuntu16.04_xenial
+# directories exist but are empty at this version, so they are omitted.
+#
+# The Debian revision suffix is +debNuM and the Ubuntu one is ~codenameN, so the
+# suffix is stored per suite rather than derived from the directory name.
+keydb_deb_suites:
+  Debian:
+    "10": {dir: debian10_buster, suffix: "1+deb10u1"}
+    "11": {dir: debian11_bullseye, suffix: "1+deb11u1"}
+    "12": {dir: debian12_bookworm, suffix: "1+deb12u1"}
+  Ubuntu:
+    "18": {dir: "ubuntu18.04_bionic", suffix: "1~bionic1"}
+    "20": {dir: "ubuntu20.04_focal", suffix: "1~focal1"}
+    "22": {dir: "ubuntu22.04_jammy", suffix: "1~jammy1"}
+
+keydb_deb_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+
+keydb_deb_packages:
+  - keydb-server
+  - keydb-tools
+
+keydb_service_name: keydb-server
+keydb_conf_path: /etc/keydb/keydb.conf
+
+# --- docker install -----------------------------------------------------------
+keydb_image: "eqalpha/keydb:x86_64_v6.3.4"
+keydb_container_name: keydb
+keydb_data_dir: /opt/keydb/data
+keydb_restart_policy: unless-stopped
+
+# --- common -------------------------------------------------------------------
+keydb_port: 6379
+# A non-loopback bind with no password is an open, unauthenticated database.
+keydb_bind_address: "127.0.0.1"
+keydb_admin_password: "{{ vault_keydb_admin_password | default('') }}"
+keydb_appendonly: true
+keydb_maxmemory_policy: noeviction
+
+# uninstall.yml: also delete the data directory.
+keydb_purge_data: false

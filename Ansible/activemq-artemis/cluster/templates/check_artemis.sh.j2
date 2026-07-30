@@ -1,0 +1,5 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+# keepalived vrrp_script target: exit 0 while the local Artemis acceptor is
+# reachable, non-zero otherwise, so keepalived fails the VIP over to a healthy peer.
+exec 3<>"/dev/tcp/127.0.0.1/{{ artemis_vip_check_port }}" 2>/dev/null && exec 3<&- || exit 1

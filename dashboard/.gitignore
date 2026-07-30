@@ -28,3 +28,6 @@ build/
 # Environment
 .env
 .env.local
+# Backend local venv and runtime data
+backend/.venv/
+backend/data/

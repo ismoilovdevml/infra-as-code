@@ -1,0 +1,69 @@
+---
+# Redis Open Source, installed from the official packages.redis.io repository.
+#
+# The official RPM install doc (https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/rpm/)
+# only documents Rocky Linux / AlmaLinux 8 and 9 baseurls. A direct HTTP check against
+# packages.redis.io/rpm/<path>/repodata/repomd.xml (see scratchpad facts/redis.md,
+# "Live verification addendum") additionally confirmed rockylinux10, rhel8 and rhel9
+# resolve with real repodata, while rhel10/centos8/centos9/amazonlinux2023/fedora all
+# 403. Do not add a path here without re-confirming it the same way — this repo has
+# genuinely stopped publishing for RHEL10 and Fedora/Amazon Linux in favor of Valkey.
+redis_rpm_repo_map:
+  RedHat:
+    '8': rhel8
+    '9': rhel9
+  Rocky:
+    '8': rockylinux8
+    '9': rockylinux9
+    '10': rockylinux10
+  AlmaLinux:
+    '8': rockylinux8
+    '9': rockylinux9
+    '10': rockylinux10
+
+redis_gpg_key_url: https://packages.redis.io/gpg
+redis_apt_repo_url: https://packages.redis.io/deb
+redis_apt_keyring_path: /etc/apt/keyrings/redis-archive-keyring.gpg
+
+# apt installs the `redis` meta-package, which pulls these components together.
+redis_debian_packages:
+  - redis
+  - redis-server
+  - redis-sentinel
+  - redis-tools
+
+# Exact version pin, e.g. "6:8.6.1-1rl1~noble1" (apt) — leave empty for repo latest.
+# RPM installs are not version-pinned here; packages.redis.io RPM repo tracks latest only.
+redis_version: ""
+
+# Service and package name differ by OS family — this is the one fact the previous
+# playbook got right, kept here as the single source of truth.
+redis_service_name_map:
+  Debian: redis-server
+  RedHat: redis
+
+redis_package_name_map:
+  Debian: redis
+  RedHat: redis
+
+redis_config_path: /etc/redis/redis.conf
+redis_data_dir: /var/lib/redis
+
+redis_port: 6379
+redis_bind_address: "127.0.0.1"
+redis_protected_mode: true
+
+# Empty by default; the play refuses to configure a password-less bind to a
+# non-loopback address. Provide via vault: `redis_admin_password: "{{ vault_redis_admin_password }}"`.
+redis_admin_password: "{{ vault_redis_admin_password | default('') }}"
+
+redis_maxmemory: "0"                # 0 = no limit
+redis_maxmemory_policy: noeviction
+redis_appendonly: true
+redis_supervised: systemd
+
+redis_service_enabled: true
+redis_service_state: started
+
+# uninstall.yml: also delete data dir and config.
+redis_purge_data: false

@@ -1,76 +1,163 @@
 ---
+# =============================================================================
+# STATUS: Kubernetes Dashboard is ARCHIVED upstream.
+#   - GitHub repo moved to kubernetes-retired/dashboard and archived 2026-01-21
+#     (https://kubernetes.io/blog/2026/06/01/dashboard-to-headlamp/).
+#   - Upstream recommends migrating to Headlamp (https://headlamp.dev/), now under
+#     Kubernetes SIG UI.
+#   - The chart repo URL upstream's own README still prints
+#     (https://kubernetes.github.io/dashboard/) is DEAD (404). The corrected, live
+#     URL is https://kubernetes-retired.github.io/dashboard/ — see README.md.
+#   This playbook is kept working, pinned to the final release (chart 7.14.0), and
+#   refuses to run until dashboard_accept_unmaintained_software=true is set.
+# =============================================================================
+#
+# Acts on the cluster via the Kubernetes API (kubernetes.core), not over SSH — see
+# inventory.ini. Requires a working kubeconfig and the helm binary on whichever host
+# runs this playbook.
 - name: Install Kubernetes Dashboard
-  hosts: all
-  become: yes
-  vars:
-    dashboard_namespace: "kubernetes-dashboard"  # Namespace for Kubernetes dashboard
-    helm_release_name: "kubernetes-dashboard"  # Helm release name
-    dashboard_version: "7.5.0"  # Update to the latest stable version
-    metrics_scraper_enabled: true  # Enable metrics scraper
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Add kubernetes-dashboard Helm repository
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert the unmaintained-software risk has been accepted
+          ansible.builtin.assert:
+            that:
+              - dashboard_accept_unmaintained_software | bool
+            fail_msg: >-
+              Kubernetes Dashboard is archived upstream (moved to
+              kubernetes-retired/dashboard, archived 2026-01-21). No further
+              releases, bugfixes or security fixes will ship. Upstream recommends
+              Headlamp (https://headlamp.dev/) instead. To deploy this frozen
+              release anyway, set dashboard_accept_unmaintained_software=true.
+            quiet: true
+
+        - name: Assert the kubeconfig file exists
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: dashboard_kubeconfig_stat
+
+        - name: Fail if the kubeconfig file is missing
+          ansible.builtin.assert:
+            that:
+              - dashboard_kubeconfig_stat.stat.exists
+            fail_msg: "kubeconfig not found at {{ kubeconfig_path }}. Set kubeconfig_path or KUBECONFIG."
+            quiet: true
+
+        - name: Check that the helm and kubectl binaries are available
+          block:
+            - name: Query the helm version
+              ansible.builtin.command: helm version --short
+              changed_when: false
+              check_mode: false
+
+            - name: Query the kubectl version
+              ansible.builtin.command: kubectl version --client
+              changed_when: false
+              check_mode: false
+          rescue:
+            - name: Fail with a clear message
+              ansible.builtin.fail:
+                msg: "helm or kubectl binary not found on the controller. Install them first (see ../helm/, ../kubectl/)."
+
+        - name: Verify the kubeconfig can reach the cluster
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            kind: Namespace
+          register: dashboard_cluster_check
+
+        - name: Fail if the cluster is unreachable
+          ansible.builtin.assert:
+            that:
+              - dashboard_cluster_check is not failed
+            fail_msg: "Could not reach the Kubernetes API using {{ kubeconfig_path }}."
+            quiet: true
+
+    # ------------------------------------------------------------------- install
+    - name: Add the kubernetes-dashboard Helm repository
+      kubernetes.core.helm_repository:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ dashboard_chart_repo_name }}"
+        repo_url: "{{ dashboard_chart_repo_url }}"
+      tags: [install]
+
+    - name: Install Kubernetes Dashboard
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ dashboard_release_name }}"
+        chart_ref: "{{ dashboard_chart_ref }}"
+        chart_version: "{{ dashboard_chart_version }}"
+        release_namespace: "{{ dashboard_namespace }}"
+        create_namespace: true
+        wait: "{{ dashboard_wait }}"
+        wait_timeout: "{{ dashboard_wait_timeout }}"
+        values:
+          metricsScraper:
+            enabled: "{{ dashboard_metrics_scraper_enabled }}"
+          serviceAccount:
+            create: true
+            name: "{{ dashboard_admin_service_account }}"
+      tags: [install]
+
+    # ------------------------------------------------------------------ admin RBAC
+    # The "sample user" pattern from upstream's own guide: binds the ServiceAccount
+    # to cluster-admin for a quick, fully-privileged login. Not a production-scoped
+    # RBAC recommendation — see README.
+    - name: Apply the admin-user ServiceAccount and ClusterRoleBinding
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        template: templates/admin-user-rbac.yaml.j2
+      tags: [configure]
+
+    # kubernetes.core has no dedicated "create token" module; this is a short-lived
+    # (default 1h) TokenRequest, not a persisted object the k8s module could manage.
+    - name: Generate an admin-user token
       ansible.builtin.command:
-        cmd: helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+        cmd: >-
+          kubectl --kubeconfig {{ kubeconfig_path }} -n {{ dashboard_namespace }}
+          create token {{ dashboard_admin_service_account }}
+          --duration {{ dashboard_admin_token_duration }}
+      changed_when: false
+      check_mode: false
+      register: dashboard_admin_token
+      tags: [configure]
 
-    - name: Update Helm repositories
-      ansible.builtin.command:
-        cmd: helm repo update
+    # This token grants cluster-admin. Anyone who can read Ansible's stdout/log for
+    # this run can use it until it expires (dashboard_admin_token_duration).
+    - name: Show the admin-user token
+      ansible.builtin.debug:
+        msg: "{{ dashboard_admin_token.stdout }}"
+      tags: [configure]
 
-    - name: Install or upgrade Kubernetes Dashboard with metrics
-      ansible.builtin.command:
-        cmd: helm upgrade --install {{ helm_release_name }} kubernetes-dashboard/kubernetes-dashboard --namespace {{ dashboard_namespace }} --create-namespace --version {{ dashboard_version }} --set metricsScraper.enabled={{ metrics_scraper_enabled }} --set serviceAccount.create=true --set serviceAccount.name=admin-user
-      register: helm_install_output
+    # -------------------------------------------------------------------- verify
+    - name: List Kubernetes Dashboard pods
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Pod
+        namespace: "{{ dashboard_namespace }}"
+      register: dashboard_pods
+      tags: [verify]
 
-    - name: Show Helm install output
-      debug:
-        var: helm_install_output.stdout
+    - name: Assert Kubernetes Dashboard pods are running
+      ansible.builtin.assert:
+        that:
+          - dashboard_pods.resources | length > 0
+          - dashboard_pods.resources | map(attribute='status.phase') | unique == ['Running']
+        fail_msg: >-
+          Kubernetes Dashboard pods in namespace {{ dashboard_namespace }} are not all
+          Running: {{ dashboard_pods.resources | map(attribute='status.phase') | list }}
+        quiet: true
+      tags: [verify]
 
-    # Step to create the ServiceAccount for admin-user
-    - name: Create ServiceAccount for admin-user
-      ansible.builtin.copy:
-        dest: /tmp/dashboard/service-account.yaml
-        content: |
-          apiVersion: v1
-          kind: ServiceAccount
-          metadata:
-            name: admin-user
-            namespace: {{ dashboard_namespace }}
-
-    - name: Apply ServiceAccount
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/dashboard/service-account.yaml
-
-    # ClusterRoleBinding to bind the ServiceAccount to cluster-admin
-    - name: Create ClusterRoleBinding for admin-user
-      ansible.builtin.copy:
-        dest: /tmp/clusterrolebinding.yaml
-        content: |
-          apiVersion: rbac.authorization.k8s.io/v1
-          kind: ClusterRoleBinding
-          metadata:
-            name: admin-user
-          roleRef:
-            apiGroup: rbac.authorization.k8s.io
-            kind: ClusterRole
-            name: cluster-admin
-          subjects:
-          - kind: ServiceAccount
-            name: admin-user
-            namespace: {{ dashboard_namespace }}
-
-    - name: Apply ClusterRoleBinding
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/clusterrolebinding.yaml
-
-    # Generate the token for admin-user and display it in the output
-    - name: Generate admin-user token
-      ansible.builtin.command:
-        cmd: kubectl -n {{ dashboard_namespace }} create token admin-user
-      register: admin_token
-
-    - name: Show admin-user token
-      debug:
-        var: admin_token.stdout
-
-        
+    - name: Show the Kubernetes Dashboard pods
+      ansible.builtin.debug:
+        msg: "{{ dashboard_pods.resources | map(attribute='metadata.name') | list }}"
+      tags: [verify]

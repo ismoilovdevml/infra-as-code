@@ -1,25 +1,33 @@
 ---
-- name: Uninstall MetalLB and clean up
-  hosts: all
-  become: yes
-  vars:
-    metallb_namespace: "metallb-system"
+- name: Uninstall MetalLB
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Uninstall MetalLB using Helm
-      ansible.builtin.command:
-        cmd: helm uninstall metallb --namespace {{ metallb_namespace }}
-      register: helm_uninstall
+    - name: Remove the IPAddressPool and L2Advertisement
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        template: templates/ipaddresspool.yaml.j2
+      tags: [uninstall]
 
-    - name: Show Helm uninstall output
-      debug:
-        var: helm_uninstall.stdout
+    - name: Uninstall the MetalLB Helm release
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ metallb_release_name }}"
+        release_namespace: "{{ metallb_namespace }}"
+        state: absent
+        wait: true
+      tags: [uninstall]
 
-    - name: Delete MetalLB namespace
-      ansible.builtin.command:
-        cmd: kubectl delete namespace {{ metallb_namespace }}
-      register: delete_namespace
-
-    - name: Show namespace deletion output
-      debug:
-        var: delete_namespace.stdout
+    - name: Remove the MetalLB namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        kind: Namespace
+        name: "{{ metallb_namespace }}"
+        wait: true
+      tags: [uninstall]

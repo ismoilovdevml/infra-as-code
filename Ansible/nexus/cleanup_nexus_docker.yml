@@ -1,42 +1,38 @@
 ---
-- hosts: nexus_servers
-  become: yes
+# Destructive. Stops and removes the Nexus container. When nexus_purge_data is true,
+# also removes the data directory (all repositories, blobs and configuration).
+- name: Uninstall Nexus Repository (Docker)
+  hosts: nexus_servers
+  become: true
+  gather_facts: true
   vars_files:
-  - vars.yml
-  tasks:
-    - name: Stop Nexus container if exists
-      docker_container:
-        name: "{{ nexus_container_name }}"
-        state: stopped
-      ignore_errors: yes
-      failed_when: false
+    - vars.yml
 
-    - name: Remove Nexus container if exists
-      docker_container:
+  tasks:
+    - name: Stop and remove the Nexus container
+      community.docker.docker_container:
         name: "{{ nexus_container_name }}"
         state: absent
-      ignore_errors: yes
-      failed_when: false
+        stop_timeout: 30
+      tags: [uninstall]
 
-    - name: Remove Nexus Docker image if exists
-      docker_image:
+    - name: Remove the Nexus Docker image
+      community.docker.docker_image:
         name: "{{ nexus_image }}"
         state: absent
-      ignore_errors: yes
       failed_when: false
+      tags: [uninstall]
 
-    - name: Remove Nexus data directory if exists
-      file:
+    - name: Remove the Nexus data directory
+      ansible.builtin.file:
         path: "{{ nexus_data_dir }}"
         state: absent
-        force: yes
-      ignore_errors: yes
-      failed_when: false
+      when: nexus_purge_data | bool
+      tags: [uninstall]
 
-    - name: Remove Nexus parent directory if exists
-      file:
-        path: "/mnt/nexus"
+    - name: Remove the Nexus parent directory
+      ansible.builtin.file:
+        path: "{{ nexus_parent_dir }}"
         state: absent
-        force: yes
-      ignore_errors: yes
-      failed_when: false
+      when: nexus_purge_data | bool
+      tags: [uninstall]

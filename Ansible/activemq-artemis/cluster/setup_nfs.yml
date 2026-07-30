@@ -1,85 +1,111 @@
 ---
-- hosts: nfs_server
-  become: yes
+- name: Configure the NFS server
+  hosts: nfs_server
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
+  handlers:
+    - name: Restart nfs
+      ansible.builtin.systemd_service:
+        name: "{{ nfs_service_name[ansible_os_family] }}"
+        state: restarted
+
   tasks:
-    - name: Install NFS packages (RedHat)
-      yum:
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in nfs_service_name
+        fail_msg: >-
+          No NFS server service mapping for {{ ansible_distribution }} ({{ ansible_os_family }}).
+        quiet: true
+      tags: [always]
+
+    - name: Install the NFS server package (RedHat family)
+      ansible.builtin.dnf:
         name: nfs-utils
         state: present
-      when: ansible_os_family == "RedHat"
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Install NFS packages (Debian)
-      apt:
+    - name: Install the NFS server packages (Debian family)
+      ansible.builtin.apt:
         name:
           - nfs-kernel-server
           - nfs-common
         state: present
-        update_cache: yes
-      when: ansible_os_family == "Debian"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Create NFS export directory
-      file:
+    - name: Create the NFS export directory
+      ansible.builtin.file:
         path: "{{ nfs_export_path }}"
         state: directory
         owner: root
         group: root
         mode: '0755'
+      tags: [configure]
 
-    - name: Configure NFS exports
-      copy:
+    - name: Configure the NFS export
+      ansible.builtin.copy:
         content: "{{ nfs_export_path }} {{ nfs_allowed_hosts }}(rw,sync,no_root_squash,no_subtree_check)\n"
         dest: /etc/exports
         owner: root
         group: root
         mode: '0644'
+      notify: Restart nfs
+      tags: [configure]
 
-    - name: Start and enable NFS service
-      systemd:
+    - name: Start and enable the NFS service
+      ansible.builtin.systemd_service:
         name: "{{ nfs_service_name[ansible_os_family] }}"
-        enabled: yes
+        enabled: true
         state: started
+      tags: [service]
 
-    - name: Export NFS directories
-      command: exportfs -ra
-      notify: restart nfs
+    - name: Export the NFS directories
+      ansible.builtin.command: exportfs -ra
+      changed_when: false
+      tags: [configure]
 
-  handlers:
-    - name: restart nfs
-      systemd:
-        name: "{{ nfs_service_name[ansible_os_family] }}"
-        state: restarted
-
-- hosts: master,nodes
-  become: yes
+- name: Mount the shared NFS storage on the broker hosts
+  hosts: master,nodes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Install NFS client packages on Debian/Ubuntu
-      apt:
+    - name: Install the NFS client packages (Debian family)
+      ansible.builtin.apt:
         name: nfs-common
         state: present
-        update_cache: yes
-      when: ansible_os_family == "Debian"
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      tags: [install]
 
-    - name: Install NFS client packages on RedHat/CentOS
-      yum:
+    - name: Install the NFS client packages (RedHat family)
+      ansible.builtin.dnf:
         name: nfs-utils
         state: present
-      when: ansible_os_family == "RedHat"
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
 
-    - name: Ensure mount directory exists on master and nodes
-      file:
+    - name: Ensure the mount directory exists
+      ansible.builtin.file:
         path: "{{ nfs_mount_paths[inventory_hostname] }}"
         state: directory
         mode: '0755'
+      tags: [configure]
 
-    - name: Mount NFS directory
-      mount:
+    - name: Mount the shared NFS directory
+      ansible.posix.mount:
         path: "{{ nfs_mount_paths[inventory_hostname] }}"
         src: "{{ nfs_server_ip }}:{{ nfs_export_path }}"
         fstype: nfs
         state: mounted
+      tags: [configure]

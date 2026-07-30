@@ -1,0 +1,90 @@
+---
+- name: Uninstall PHP
+  hosts: php_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Resolve the compact PHP version
+      ansible.builtin.set_fact:
+        php_compact_version: "{{ php_version | replace('.', '') }}"
+      tags: [always]
+
+    - name: Resolve the RedHat install path
+      ansible.builtin.set_fact:
+        php_is_el: "{{ ansible_distribution in php_el_distributions }}"
+        php_is_native_redhat: "{{ ansible_distribution in php_native_redhat_distributions }}"
+      when: ansible_os_family == 'RedHat'
+      tags: [always]
+
+    - name: Resolve whether this EL major still uses DNF module streams
+      ansible.builtin.set_fact:
+        php_use_modules: "{{ ansible_distribution_major_version | int <= php_el_uses_modules_max_major }}"
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_el | default(false)
+      tags: [always]
+
+    - name: Remove PHP (Debian family)
+      ansible.builtin.apt:
+        name: "{{ php_extensions_debian | map('regex_replace', '^(.*)$', 'php' ~ php_version ~ '-\\1') | list }}"
+        state: absent
+        purge: true
+        autoremove: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the Sury repository
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/php.sources
+        - "{{ php_sury_keyring_path }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove PHP (EL, module-stream method)
+      ansible.builtin.dnf:
+        name: "{{ php_extensions_redhat | map('regex_replace', '^(.*)$', 'php-\\1') | list }}"
+        state: absent
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_el | default(false)
+        - php_use_modules | default(false)
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove PHP (EL10+, side-by-side packages)
+      ansible.builtin.dnf:
+        name: >-
+          {{ php_extensions_redhat | map('regex_replace', '^(.*)$', 'php' ~ php_compact_version ~ '-\1') | list }}
+        state: absent
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_el | default(false)
+        - not (php_use_modules | default(false))
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove PHP (Fedora / Amazon Linux)
+      ansible.builtin.dnf:
+        name: "{{ php_extensions_redhat | map('regex_replace', '^(.*)$', 'php-\\1') | list }}"
+        state: absent
+      when:
+        - ansible_os_family == 'RedHat'
+        - php_is_native_redhat | default(false)
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove PHP (SUSE family)
+      community.general.zypper:
+        name: >-
+          {{ ['php8'] + (php_extensions_suse | map('regex_replace', '^(.*)$', 'php8-\1') | list) }}
+        state: absent
+      when: ansible_os_family == 'Suse'
+      failed_when: false
+      tags: [uninstall]

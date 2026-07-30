@@ -1,0 +1,10 @@
+{{ ansible_managed | comment }}
+# Since Jenkins 2.335 / 2.332.1 the packages are systemd-managed. This drop-in
+# replaces the legacy /etc/default/jenkins (Debian) / /etc/sysconfig/jenkins
+# (RHEL) environment files, which current packages no longer read.
+[Service]
+Environment="JENKINS_HOME={{ jenkins_home }}"
+Environment="JENKINS_PORT={{ jenkins_http_port }}"
+{% if jenkins_java_opts | length > 0 %}
+Environment="JAVA_OPTS={{ jenkins_java_opts }}"
+{% endif %}

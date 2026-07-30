@@ -1,0 +1,117 @@
+---
+- name: Obtain a Let's Encrypt certificate with Certbot
+  hosts: certbot_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Reload webserver
+      ansible.builtin.systemd_service:
+        name: >-
+          {{ 'nginx' if certbot_webserver == 'nginx'
+             else ('apache2' if ansible_os_family == 'Debian' else 'httpd') }}
+        state: reloaded
+      when: certbot_webserver in ['nginx', 'apache']
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        # Domains and email are NEVER hardcoded — a real domain was committed to this
+        # module previously; this assert makes that impossible to repeat by accident.
+        - name: Assert domains and email are set
+          ansible.builtin.assert:
+            that:
+              - certbot_domains | length > 0
+              - certbot_email | length > 0
+              - certbot_email is search('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+            fail_msg: >-
+              certbot_domains (non-empty list) and certbot_email (a real address) must
+              be set, e.g. -e certbot_domains=[example.com] -e certbot_email=ops@example.com.
+              Refusing to request a certificate with no target.
+            quiet: true
+
+        - name: Assert a supported challenge method
+          ansible.builtin.assert:
+            that:
+              - certbot_challenge_method in ['webserver', 'webroot']
+            fail_msg: "certbot_challenge_method must be 'webserver' or 'webroot'."
+            quiet: true
+
+        - name: Assert the webserver plugin is selected when using webserver mode
+          ansible.builtin.assert:
+            that:
+              - certbot_webserver in ['nginx', 'apache']
+            fail_msg: >-
+              certbot_challenge_method=webserver requires certbot_webserver to be
+              'nginx' or 'apache' (it is currently '{{ certbot_webserver }}').
+            quiet: true
+          when: certbot_challenge_method == 'webserver'
+
+        - name: Resolve the certbot command's fixed arguments
+          ansible.builtin.set_fact:
+            certbot_domain_args: "{{ certbot_domains | map('regex_replace', '^(.*)$', '-d \\1') | join(' ') }}"
+            certbot_extra_args: >-
+              {{ ((['--staging'] if certbot_staging | bool else [])
+                  + (['--dry-run'] if certbot_dry_run | bool else [])) | join(' ') }}
+
+    # ----------------------------------------------------------------- idempotency
+    # Skip issuance entirely when a live certificate for the primary domain already
+    # exists — re-running this play should not repeatedly hit Let's Encrypt.
+    - name: Check for an existing certificate
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/live/{{ certbot_domains | first }}/fullchain.pem"
+      register: certbot_existing_cert
+      tags: [always]
+
+    # ------------------------------------------------------------- issue: webserver
+    - name: Obtain the certificate via the webserver plugin
+      ansible.builtin.command:
+        cmd: >-
+          certbot --{{ certbot_webserver }} {{ certbot_domain_args }}
+          --email {{ certbot_email }}
+          {{ '--agree-tos' if certbot_agree_tos | bool else '' }}
+          {{ '--non-interactive' if certbot_non_interactive | bool else '' }}
+          {{ certbot_extra_args }}
+      register: certbot_webserver_result
+      changed_when: "'Congratulations' in certbot_webserver_result.stdout or certbot_dry_run | bool"
+      when:
+        - certbot_challenge_method == 'webserver'
+        - not certbot_existing_cert.stat.exists or certbot_dry_run | bool
+      tags: [configure]
+
+    # --------------------------------------------------------------- issue: webroot
+    - name: Obtain the certificate via webroot
+      ansible.builtin.command:
+        cmd: >-
+          certbot certonly --webroot -w {{ certbot_webroot_path }}
+          {{ certbot_domain_args }}
+          --email {{ certbot_email }}
+          {{ '--agree-tos' if certbot_agree_tos | bool else '' }}
+          {{ '--non-interactive' if certbot_non_interactive | bool else '' }}
+          {{ certbot_extra_args }}
+      register: certbot_webroot_result
+      changed_when: "'Congratulations' in certbot_webroot_result.stdout or certbot_dry_run | bool"
+      notify: Reload webserver
+      when:
+        - certbot_challenge_method == 'webroot'
+        - not certbot_existing_cert.stat.exists or certbot_dry_run | bool
+      tags: [configure]
+
+    # ------------------------------------------------------------------- verify
+    - name: Show existing certificates
+      ansible.builtin.command: certbot certificates
+      register: certbot_certificates
+      changed_when: false
+      check_mode: false
+      when: not certbot_dry_run | bool
+      tags: [verify]
+
+    - name: Display certificate status
+      ansible.builtin.debug:
+        msg: "{{ certbot_certificates.stdout_lines }}"
+      when: not certbot_dry_run | bool
+      tags: [verify]

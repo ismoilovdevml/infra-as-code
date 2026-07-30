@@ -1,52 +1,63 @@
 ---
-- name: Boostratp Servers
+- name: Bootstrap Artemis cluster hosts
   hosts: master,nodes
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
 
   tasks:
-    - name: Ensure required packages are installed
-      package:
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in java_packages
+        fail_msg: >-
+          No Java 17 package mapping for {{ ansible_distribution }} ({{ ansible_os_family }}).
+          Supported families: {{ java_packages.keys() | list | join(', ') }}.
+        quiet: true
+      tags: [always]
+
+    - name: Install required packages
+      ansible.builtin.package:
         name:
           - curl
           - wget
-          - net-tools
           - git
           - "{{ java_packages[ansible_os_family] }}"
         state: present
+      tags: [install]
 
-    - name: Locate Java 17 executable on Debian-based systems
-      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
-      register: debian_java_path
-      when: ansible_os_family == "Debian"
+    # Package paths differ per distro/arch, so the installed java binary is located
+    # rather than hardcoded; this is a read-only lookup, not a state change.
+    - name: Locate the Java 17 executable
+      ansible.builtin.shell:
+        cmd: "set -o pipefail; find /usr/lib/jvm -maxdepth 1 -name '*17*' -type d | head -n1"
+        executable: /bin/bash
+      register: artemis_java_home
+      changed_when: false
+      check_mode: false
+      tags: [install]
 
-    - name: Locate Java 17 executable on RedHat-based systems
-      ansible.builtin.shell: "find /usr/lib/jvm -name 'java' | grep 'java-17'"
-      register: redhat_java_path
-      when: ansible_os_family == "RedHat"
-
-    - name: Set Java 17 as the default alternative on Debian-based systems
+    - name: Set Java 17 as the default alternative
       community.general.alternatives:
         name: java
-        path: "{{ debian_java_path.stdout | trim }}"
+        path: "{{ artemis_java_home.stdout | trim }}/bin/java"
+        link: /usr/bin/java
         priority: 100
-      when: ansible_os_family == "Debian"
+      when: artemis_java_home.stdout | trim | length > 0
+      tags: [install]
 
-    - name: Set Java 17 as the default alternative on RedHat-based systems
-      community.general.alternatives:
-        name: java
-        path: "{{ redhat_java_path.stdout | trim }}"
-        link: "/usr/bin/java"
-        priority: 100
-      when: ansible_os_family == "RedHat"
-
-    - name: Verify Java 17 installation
+    - name: Verify the Java version
       ansible.builtin.command: java -version
-      register: java_version
-      ignore_errors: true
+      register: artemis_java_version
+      changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Display Java version
-      ansible.builtin.debug:
-        msg: "Java installed successfully. Version: {{ java_version.stderr_lines | default([]) | union(java_version.stdout_lines | default([])) }}"
-      when: java_version is defined
+    - name: Assert Java 17 or newer
+      ansible.builtin.assert:
+        that:
+          - (artemis_java_version.stderr | regex_search('version "([0-9]+)', '\1') | first | int) >= 17
+        fail_msg: "Artemis {{ artemis_version }} requires Java 17+; found: {{ artemis_java_version.stderr_lines | first }}"
+        quiet: true
+      tags: [install]

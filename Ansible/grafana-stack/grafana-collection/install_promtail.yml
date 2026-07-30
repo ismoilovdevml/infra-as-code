@@ -1,24 +1,58 @@
 ---
-- name: Install Promtail
+# Promtail is END OF LIFE upstream since 2026-03-02 (no security fixes, no future releases).
+# Loki >= 3.7.0 no longer publishes promtail release assets, so the role's default
+# promtail_version: "latest" resolves against the Loki repo and the download 404s.
+# This playbook pins the last version Loki ever shipped (3.6.11, see vars.yml) so the install
+# keeps working, but plan a migration to Grafana Alloy — see README.md.
+- name: Install and configure Promtail (binary, EOL - see README)
   hosts: promtail_servers
   become: true
-  collections:
-    - grafana.grafana
 
-  vars:
-    promtail_version: "latest"  # or specific version
-    promtail_http_listen_port: 9080
-    promtail_http_listen_address: "0.0.0.0"
-    
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook. The grafana.grafana.promtail role only installs on Debian/Ubuntu and
+          RHEL/Rocky/Alma/CentOS Stream/Fedora/Amazon Linux.
+        quiet: true
+      tags: always
+
+    - name: Warn that Promtail is end of life
+      ansible.builtin.debug:
+        msg: >-
+          Promtail has been end of life since 2026-03-02. No security fixes are published.
+          Plan a migration to Grafana Alloy: https://grafana.com/docs/alloy/latest/tasks/migrate/from-promtail/
+      tags: always
+
   tasks:
-    - name: Ensure Promtail is installed
-      ansible.builtin.package:
-        name: promtail
-        state: present
-      become: true
+    - name: Install and configure Promtail via the grafana.grafana.promtail role
+      ansible.builtin.include_role:
+        name: grafana.grafana.promtail
+      vars:
+        promtail_version: "{{ promtail_version }}"
+        promtail_http_listen_port: "{{ promtail_http_listen_port }}"
+        promtail_http_listen_address: "{{ promtail_http_listen_address }}"
+        promtail_positions_path: "{{ promtail_positions_path }}"
+        promtail_runtime_mode: "{{ promtail_runtime_mode }}"
+        promtail_clients:
+          - url: "{{ promtail_loki_push_url }}"
+      tags:
+        - install
+        - configure
 
-    - name: Start and enable Promtail service
-      ansible.builtin.service:
-        name: promtail
-        state: started
-        enabled: true
+  post_tasks:
+    - name: Verify Promtail is ready
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ promtail_http_listen_port }}/ready"
+        status_code: 200
+      register: promtail_ready
+      until: promtail_ready.status == 200
+      retries: 10
+      delay: 5
+      tags: verify

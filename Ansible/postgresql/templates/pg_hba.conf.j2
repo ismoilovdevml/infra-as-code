@@ -1,0 +1,23 @@
+{{ ansible_managed | comment }}
+# PostgreSQL Client Authentication Configuration File
+# Managed by Ansible - manual edits will be overwritten.
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# "local" is for Unix domain socket connections only
+local   all             all                                     peer
+
+# IPv4 loopback connections
+host    all             all             127.0.0.1/32            {{ postgresql_hba_auth_method }}
+# IPv6 loopback connections
+host    all             all             ::1/128                 {{ postgresql_hba_auth_method }}
+
+# Replication connections from localhost, by a user with the replication privilege.
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            {{ postgresql_hba_auth_method }}
+host    replication     all             ::1/128                 {{ postgresql_hba_auth_method }}
+
+# Application networks (see postgresql_hba_networks in vars.yml)
+{% for network in postgresql_hba_networks %}
+host    all             all             {{ network }}           {{ postgresql_hba_auth_method }}
+{% endfor %}

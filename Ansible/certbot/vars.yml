@@ -1,0 +1,66 @@
+---
+# EFF's own docs (eff-certbot.readthedocs.io/en/stable/install.html) head the snap
+# method "Recommended" ("the latest version of Certbot with features like automated
+# certificate renewal preconfigured"). This module still defaults to the native OS
+# package — consistent with every other module in this repo, and avoiding a hard
+# dependency on snapd — but offers "snap" as an explicit, fully-supported alternative.
+# package | snap
+certbot_install_method: package
+
+# EPEL is required for certbot on RHEL/CentOS/Rocky/AlmaLinux (not Fedora, which
+# carries certbot in its own repos). Amazon Linux 2023 has no confirmed EPEL support
+# for certbot — install.yml fails fast on Amazon rather than guessing.
+certbot_epel_distributions:
+  - RedHat
+  - CentOS
+  - Rocky
+  - AlmaLinux
+
+# nginx | apache | none (none = webroot-only, no plugin installed)
+certbot_webserver: nginx
+
+# Plugin package names. SUSE naming is less consistently documented upstream than
+# Debian/RHEL; python3-certbot-nginx is confirmed reachable via zypper per the
+# openSUSE wiki (en.opensuse.org/Certbot) and used here for all three plugins.
+certbot_plugin_package_map:
+  Debian:
+    nginx: python3-certbot-nginx
+    apache: python3-certbot-apache
+  RedHat:
+    nginx: python3-certbot-nginx
+    apache: python3-certbot-apache
+  Suse:
+    nginx: python3-certbot-nginx
+    apache: python3-certbot-apache
+
+# Renewal timer unit shipped by the distro package. Name varies by distro/version, so
+# install.yml enables whichever of these actually exists rather than hardcoding one.
+certbot_renew_timer_candidates:
+  - certbot.timer
+  - certbot-renew.timer
+
+# --- configure.yml (certificate issuance) ------------------------------------------
+# webserver | webroot. "webserver" drives --nginx/--apache (auto-detects and reloads
+# the vhost); "webroot" only needs a writable path under the site's docroot.
+certbot_challenge_method: webserver
+certbot_webroot_path: /var/www/html
+
+# REQUIRED, no default — a real domain must never be committed to this repo again.
+certbot_domains: []
+certbot_email: ""
+
+certbot_agree_tos: true
+certbot_non_interactive: true
+
+# Let's Encrypt production rate limits are strict and easy to hit while testing.
+# certbot_staging uses the staging ACME directory (untrusted certs, high rate limits);
+# certbot_dry_run additionally passes --dry-run (no certificate is saved at all).
+# https://eff-certbot.readthedocs.io/en/stable/using.html
+certbot_staging: false
+certbot_dry_run: false
+
+certbot_acme_directory_production: "https://acme-v02.api.letsencrypt.org/directory"
+certbot_acme_directory_staging: "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# uninstall.yml: also delete every issued certificate under /etc/letsencrypt.
+certbot_purge_certs: false

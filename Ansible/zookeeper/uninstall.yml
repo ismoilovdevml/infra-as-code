@@ -1,0 +1,51 @@
+---
+- name: Uninstall Apache ZooKeeper
+  hosts: zookeeper_nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable zookeeper
+      ansible.builtin.systemd_service:
+        name: zookeeper
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/zookeeper.service
+        state: absent
+      tags: [uninstall]
+
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      tags: [uninstall]
+
+    - name: Remove the ZooKeeper installation
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ zookeeper_dir }}"
+        - "{{ zookeeper_versioned_dir }}"
+        - "{{ zookeeper_log_dir }}"
+      tags: [uninstall]
+
+    - name: Remove the ZooKeeper data directory
+      ansible.builtin.file:
+        path: "{{ zookeeper_data_dir }}"
+        state: absent
+      when: zookeeper_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the zookeeper user
+      ansible.builtin.user:
+        name: "{{ zookeeper_user }}"
+        state: absent
+        remove: false
+      tags: [uninstall]

@@ -1,74 +1,69 @@
 ---
-- name: Uninstall Rancher and clean up resources
-  hosts: all
-  become: yes
-  vars:
-    rancher_namespace: "cattle-system"
-    fleet_namespace_local: "cattle-fleet-local-system"
-    fleet_namespace: "cattle-fleet-system"
-    capi_namespace: "cattle-provisioning-capi-system"
+# NOTE: the pre-existing version of this playbook ran `kubectl delete crd --all
+# --namespace <ns>` four times. CustomResourceDefinitions are cluster-scoped —
+# `--namespace` has no effect on `--all` — so that command deleted every CRD in the
+# entire cluster (cert-manager's, MetalLB's, everything), not just Rancher's. This
+# version only deletes CRDs whose group is *.cattle.io.
+- name: Uninstall Rancher
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Uninstall Rancher using Helm
-      ansible.builtin.command:
-        cmd: helm uninstall rancher --namespace {{ rancher_namespace }}
-      ignore_errors: yes
-      register: helm_uninstall_output
+    - name: Remove the Ingress (expose_rancher_ui.yml, if applied)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        template: templates/ingress.yaml.j2
+      tags: [uninstall]
 
-    - name: Show Helm uninstall output
-      debug:
-        var: helm_uninstall_output.stdout
+    - name: Uninstall the Rancher Helm release
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ rancher_release_name }}"
+        release_namespace: "{{ rancher_namespace }}"
+        state: absent
+        wait: true
+      tags: [uninstall]
 
-    - name: Delete Rancher-related namespaces
-      ansible.builtin.command:
-        cmd: kubectl delete namespace {{ rancher_namespace }} {{ fleet_namespace_local }} {{ fleet_namespace }} {{ capi_namespace }}
-      ignore_errors: yes
-      register: delete_namespace_output
+    - name: Remove the Rancher-related namespaces
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        kind: Namespace
+        name: "{{ item }}"
+        wait: true
+      loop:
+        - "{{ rancher_namespace }}"
+        - "{{ rancher_fleet_namespace_local }}"
+        - "{{ rancher_fleet_namespace }}"
+        - "{{ rancher_capi_namespace }}"
+      tags: [uninstall]
 
-    - name: Show namespace deletion output
-      debug:
-        var: delete_namespace_output.stdout
+    - name: List all CustomResourceDefinitions
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+      register: rancher_all_crds
+      tags: [uninstall]
 
-    - name: Show CRD cleanup output for cert-manager
-      debug:
-        var: delete_crd_output_cert_manager.stdout
+    - name: Identify Rancher-owned CRDs (*.cattle.io)
+      ansible.builtin.set_fact:
+        rancher_crd_names: >-
+          {{ rancher_all_crds.resources
+             | selectattr('metadata.name', 'match', '.*\.cattle\.io$')
+             | map(attribute='metadata.name') | list }}
+      tags: [uninstall]
 
-    - name: Delete remaining resources in cattle-system
-      ansible.builtin.command:
-        cmd: kubectl delete crd --all --namespace {{ rancher_namespace }}
-      ignore_errors: yes
-      register: delete_crd_output_rancher
-
-    - name: Show CRD cleanup output for cattle-system
-      debug:
-        var: delete_crd_output_rancher.stdout
-
-    - name: Delete remaining resources in cattle-fleet-local-system
-      ansible.builtin.command:
-        cmd: kubectl delete crd --all --namespace {{ fleet_namespace_local }}
-      ignore_errors: yes
-      register: delete_crd_output_fleet_local
-
-    - name: Show CRD cleanup output for cattle-fleet-local-system
-      debug:
-        var: delete_crd_output_fleet_local.stdout
-
-    - name: Delete remaining resources in cattle-fleet-system
-      ansible.builtin.command:
-        cmd: kubectl delete crd --all --namespace {{ fleet_namespace }}
-      ignore_errors: yes
-      register: delete_crd_output_fleet
-
-    - name: Show CRD cleanup output for cattle-fleet-system
-      debug:
-        var: delete_crd_output_fleet.stdout
-
-    - name: Delete remaining resources in cattle-provisioning-capi-system
-      ansible.builtin.command:
-        cmd: kubectl delete crd --all --namespace {{ capi_namespace }}
-      ignore_errors: yes
-      register: delete_crd_output_capi
-
-    - name: Show CRD cleanup output for cattle-provisioning-capi-system
-      debug:
-        var: delete_crd_output_capi.stdout
+    - name: Delete Rancher-owned CRDs
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: absent
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: "{{ item }}"
+      loop: "{{ rancher_crd_names }}"
+      tags: [uninstall]

@@ -1,79 +1,91 @@
-# Linux Server Security Playbook 🔐
+# Security
 
-This Ansible playbook is designed to enhance the security of your Linux servers, whether they're running **Debian/Ubuntu** or **RedHat/CentOS**. It applies essential security practices such as SSH hardening, automatic updates, and intrusion prevention (fail2ban) on both platforms.
+Host security baseline: SSH hardening (validated drop-in), fail2ban, automatic
+security updates, auditd, sysctl hardening.
 
-## Features ✨
+## Supported platforms
 
-- 🔐 **SSH Hardening**: Configures SSH to disable password authentication, limit root access, and restrict login to specific users or groups.
-- 🔄 **Automatic Updates**: Enables automatic updates for both Debian/Ubuntu (via `unattended-upgrades`) and RedHat/CentOS (via `yum-cron`).
-- 🚨 **Fail2ban Installation**: Protects against brute-force attacks by installing and configuring `fail2ban`.
-- 🔑 **Sudoers Configuration**: Grants sudo permissions to specified users with or without password prompts.
-- ⚙️ **Cross-Platform Support**: Works on both Debian/Ubuntu and RedHat/CentOS systems.
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Debian 11+, Ubuntu 20.04+ | `unattended-upgrades` for auto updates |
+| RedHat | RHEL/Rocky/Alma 8+, Fedora 40+, CentOS Stream 9+ | `dnf-automatic`; fail2ban needs EPEL (not Fedora/Amazon Linux) |
+| Suse | openSUSE Leap 15.x, SLES 15 | self-authored `zypper-patch.timer` for auto updates |
 
-## Requirements 📋
+## Requirements
 
-- **Ansible** must be installed on the control node.
-- On **RedHat/CentOS** systems, the **EPEL repository** must be available for `fail2ban` installation (automatically handled by the playbook).
+- Ansible core >= 2.15
+- Collections: `ansible.posix` (`ansible-galaxy collection install -r requirements.yml`)
+- `sudo` on the target
 
-## Role Variables 🛠️
-
-You can configure the behavior of the playbook using the following variables in your `vars.yml` file:
-
-| Variable                            | Description                                                                 | Default Value         |
-|--------------------------------------|-----------------------------------------------------------------------------|-----------------------|
-| `security_ssh_port`                  | The port for SSH access                                                     | `22`                  |
-| `security_ssh_password_authentication` | Enable/disable SSH password authentication (`yes` or `no`)                  | `"no"`                |
-| `security_ssh_permit_root_login`     | Permit root login (`yes` or `no`)                                           | `"no"`                |
-| `security_ssh_allowed_users`         | List of allowed SSH users                                                   | `[]` (empty by default) |
-| `security_ssh_allowed_groups`        | List of allowed SSH groups                                                  | `[]` (empty by default) |
-| `security_autoupdate_enabled`        | Enable/disable automatic updates (`true` or `false`)                        | `true`                |
-| `security_autoupdate_reboot`         | Reboot automatically after updates if needed (`true` or `false`)            | `true`                |
-| `security_fail2ban_enabled`          | Enable/disable fail2ban installation and configuration (`true` or `false`)  | `true`                |
-| `security_sudoers_passworded`        | List of users who require a password for sudo access                        | `[]` (empty by default) |
-
-### Example `vars.yml` Configuration ⚙️
-
-```yaml
----
-# SSH security configurations
-security_ssh_port: 22
-security_ssh_password_authentication: "no"
-security_ssh_permit_root_login: "no"
-security_ssh_allowed_users:
-  - johndoe
-  - adminuser
-security_ssh_allowed_groups:
-  - admin
-  - devops
-
-# Sudoers configuration
-security_sudoers_passworded:
-  - johndoe
-  - deployacct
-
-# Automatic updates configuration
-security_autoupdate_enabled: true
-security_autoupdate_reboot: true
-security_autoupdate_mail_to: "admin@example.com"
-security_autoupdate_mail_on_error: true
-
-# Fail2ban configuration
-security_fail2ban_enabled: true
-```
-
-## Usage 🚀
-
-Clone this repository and navigate to the playbook directory.
-Customize the vars.yml file to fit your security requirements.
-Run the playbook with the following command:
+## Usage
 
 ```bash
-ansible-playbook -i inventory main.yml
+ansible-playbook main.yml                 # apply the baseline
+ansible-playbook main.yml --check --diff  # dry-run
+ansible-playbook main.yml --tags verify   # just show the effective sshd config
 ```
-Make sure to replace inventory with your actual inventory file path.
 
-## How It Works ⚙️
+## Variables
 
-* The playbook uses **geerlingguy.security** role to handle most of the security configurations.
-* It installs necessary packages, configures SSH, and ensures fail2ban is running.
-* The playbook supports both **Debian/Ubuntu** and **RedHat/CentOS** by using conditional tasks.
+| Variable | Default | Description |
+|---|---|---|
+| `security_ssh_port` | `22` | sshd `Port` |
+| `security_ssh_permit_root_login` | `prohibit-password` | `yes`/`no`/`prohibit-password`/`forced-commands-only` |
+| `security_ssh_password_authentication` | `false` | Refused unless the connecting user already has an `authorized_keys` |
+| `security_ssh_kbd_interactive_authentication` | `false` | Current directive; replaces the deprecated `ChallengeResponseAuthentication` |
+| `security_ssh_allowed_users` / `_groups` | `[]` | `AllowUsers`/`AllowGroups`; must include the connecting user if set |
+| `security_sudoers_nopasswd` | `[]` | Users granted passwordless sudo via `/etc/sudoers.d/90-nopasswd` |
+| `security_fail2ban_enabled` | `true` | Install and enable fail2ban, jail on the SSH port |
+| `security_autoupdate_enabled` | `true` | Enable the OS's automatic-update mechanism |
+| `security_autoupdate_reboot` | `false` | Debian only: reboot automatically after a patch that needs it |
+| `security_auditd_enabled` | `true` | Install and enable auditd |
+| `security_sysctl_hardening_enabled` | `true` | Apply `security_sysctl_settings` via `/etc/sysctl.d/99-security-hardening.conf` |
+
+## Verify
+
+```bash
+sshd -T | grep -Ei '^(port|permitrootlogin|passwordauthentication) '
+systemctl status fail2ban auditd
+systemctl list-timers | grep -E 'dnf-automatic|zypper-patch|apt-daily'
+sysctl net.ipv4.tcp_syncookies kernel.yama.ptrace_scope
+```
+
+## Notes
+
+- **Lockout risk.** This is the highest-risk module in the repo: it changes how
+  you log in. Three preflight `assert` tasks refuse to run rather than lock out
+  the current connection: (1) `security_ssh_permit_root_login: 'no'` is
+  rejected while `ansible_user` is `root`; (2) a non-empty
+  `security_ssh_allowed_users` must include the connecting user; (3)
+  `security_ssh_password_authentication: false` is rejected unless the
+  connecting user already has a non-empty `~/.ssh/authorized_keys` on the
+  target. These guards cover the common mistakes, not every possible one — a
+  firewall rule, a broken PAM stack, or a typo'd username in `AllowUsers` can
+  still cut you off.
+- **Recovery if locked out anyway.** SSH is gone, so recovery needs out-of-band
+  access: cloud provider serial/web console, IPMI/iDRAC/iLO, or physical
+  console. From there, either fix and re-run this playbook, or manually remove
+  `/etc/ssh/sshd_config.d/10-hardening.conf` and restart `sshd`/`ssh` to fall
+  back to the distro default.
+- The sshd drop-in and the `Include` line in `/etc/ssh/sshd_config` are both
+  written with `validate: sshd -t -f %s` — a syntactically bad config is never
+  committed to disk, only rejected before the write.
+- RHEL 8 does not ship `/etc/ssh/sshd_config.d/` or its `Include` line by
+  default (confirmed against Red Hat's own guidance); this play creates both
+  explicitly instead of assuming they exist, so the same drop-in approach works
+  identically on RHEL 8 through 10 and on Debian/Ubuntu/SUSE.
+- `ChallengeResponseAuthentication` is a deprecated alias for
+  `KbdInteractiveAuthentication` in current OpenSSH; this module only ever
+  writes the current directive.
+- fail2ban on RHEL/Rocky/Alma/CentOS Stream requires EPEL, installed
+  automatically here (skipped on Fedora and Amazon Linux, where it is either
+  unnecessary or not applicable — install fail2ban manually there if needed).
+- SUSE's automatic-update story is deliberately not YaST's Online Update
+  Configuration: that mechanism's `/etc/sysconfig/automatic_online_update` is
+  GUI-oriented and its exact keys could not be confirmed against a primary
+  source. Instead this module ships a small, auditable
+  `zypper-patch.timer`/`.service` pair that runs `zypper --non-interactive
+  patch` on a schedule.
+- `security_autoupdate_reboot` only affects Debian/Ubuntu's
+  `unattended-upgrades`. Scheduling or performing a reboot after a `dnf` or
+  `zypper` update is out of scope here — see the `update-upgrade` module.

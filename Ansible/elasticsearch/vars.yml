@@ -1,24 +1,54 @@
 ---
-elastic_version: "8"  # 7 or 8
-elastic_gpg_key: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
-elastic_repo_url_apt: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/apt"
-elastic_repo_url_yum: "https://artifacts.elastic.co/packages/{{ elastic_version }}.x/yum"
+# Elastic release line. Elastic currently publishes 8.x and 9.x; 9.x is the
+# current GA line (9.4.x is latest, 8.19.x is the last 8.x release). This
+# drives the packages/<major>.x/apt|yum repo URLs - do not hardcode a major
+# version anywhere else.
+elastic_major_version: "9"
 
-# elasticsearch.yml
+# Exact package version to pin on Debian/Ubuntu (apt supports "pkg=version").
+# Leave empty ("") to install whatever is newest in the enabled major-version
+# repo. RHEL/SUSE always install the latest package available in that repo
+# because the exact RPM NEVRA suffix is not guaranteed/verified upstream.
+elastic_version: "9.4.4"
+
+elastic_gpg_key_url: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+elastic_gpg_key_fingerprint: "46095ACC8548582C1A2699A9D27D666CD88E42B4"
+elastic_apt_keyring: /etc/apt/keyrings/elasticsearch.asc
+
+elastic_repo_url_apt: "https://artifacts.elastic.co/packages/{{ elastic_major_version }}.x/apt"
+elastic_repo_url_yum: "https://artifacts.elastic.co/packages/{{ elastic_major_version }}.x/yum"
+
+# Required kernel tunable - Elasticsearch fails bootstrap checks without it
+# once network.host leaves the loopback address (see network_host below).
+# https://www.elastic.co/docs/deploy-manage/deploy/self-managed/vm-max-map-count
+vm_max_map_count: 1048576
+
+# ----------------------------- elasticsearch.yml -----------------------------
 
 cluster_name: my-application
-node_name: node-1
+node_name: "{{ inventory_hostname }}"
 node_attr_rack: r1
 path_data: /var/lib/elasticsearch
 path_logs: /var/log/elasticsearch
-network_host: 0.0.0.0
+
+# WARNING: any value other than a loopback address switches the node into
+# "production mode" and enables Elasticsearch's bootstrap checks (vm.max_map_count,
+# file descriptor limits, discovery settings, ...). The default below is safe for
+# a first run; set to 0.0.0.0 (or a specific interface) for real deployments and
+# make sure vm_max_map_count above has actually been applied on every node.
+network_host: 127.0.0.1
+http_host: "{{ network_host }}"
 http_port: 9200
-discovery_seed_hosts:
-  - host1
-  - host2
+
+discovery_seed_hosts: []
+
+# Only used for the very first bootstrap of a brand-new cluster. Set to false
+# and re-run configure.yml once the cluster has formed - leaving this set on a
+# running cluster risks a split cluster on restart.
+cluster_bootstrap: true
 cluster_initial_master_nodes:
-  - node-1
-  - node-2
+  - "{{ node_name }}"
+
 xpack_security_enabled: true
 xpack_security_enrollment_enabled: true
 xpack_security_http_ssl_enabled: true
@@ -27,4 +57,3 @@ xpack_security_transport_ssl_enabled: true
 xpack_security_transport_ssl_verification_mode: certificate
 xpack_security_transport_ssl_keystore_path: certs/transport.p12
 xpack_security_transport_ssl_truststore_path: certs/transport.p12
-http_host: 0.0.0.0

@@ -1,0 +1,85 @@
+---
+# Shared by install_portainer_ce.yml and install_portainer_ee.yml.
+# Expects `portainer_image` to be set by the caller.
+
+- name: Assert an admin password was supplied
+  ansible.builtin.assert:
+    that:
+      - portainer_admin_password | length >= 12
+    fail_msg: >-
+      portainer_admin_password is empty or shorter than 12 characters. Portainer refuses
+      to initialise an admin account without it unless you hand out the one-time setup
+      token printed in the container log. Set vault_portainer_admin_password in an
+      Ansible Vault file.
+    quiet: true
+  tags: [always]
+
+- name: Assert the Docker socket is present
+  ansible.builtin.stat:
+    path: "{{ portainer_docker_socket }}"
+  register: portainer_socket
+  failed_when: not portainer_socket.stat.exists
+  tags: [always]
+
+- name: Create the admin password directory
+  ansible.builtin.file:
+    path: "{{ portainer_admin_password_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  tags: [install]
+
+# Read by the container at first start only. Kept 0600 root-owned; the container
+# reads it as root through the bind mount.
+- name: Write the admin password file
+  ansible.builtin.copy:
+    content: "{{ portainer_admin_password }}"
+    dest: "{{ portainer_admin_password_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  tags: [install]
+
+- name: Create the Portainer data volume
+  community.docker.docker_volume:
+    name: "{{ portainer_volume }}"
+    state: present
+  tags: [install]
+
+- name: Run the Portainer server
+  community.docker.docker_container:
+    name: "{{ portainer_container_name }}"
+    image: "{{ portainer_image }}:{{ portainer_tag }}"
+    state: started
+    restart_policy: "{{ portainer_restart_policy }}"
+    pull: true
+    privileged: "{{ portainer_selinux_privileged }}"
+    published_ports: >-
+      {{ ([portainer_bind_address ~ ':' ~ portainer_edge_tunnel_port ~ ':' ~ portainer_edge_tunnel_port]
+          if portainer_publish_edge_tunnel else [])
+         + [portainer_bind_address ~ ':' ~ portainer_https_port ~ ':9443'] }}
+    volumes:
+      - "{{ portainer_docker_socket }}:/var/run/docker.sock"
+      - "{{ portainer_volume }}:/data"
+      - "{{ portainer_admin_password_file }}:/run/secrets/portainer_admin:ro"
+    command: ["--admin-password-file", "/run/secrets/portainer_admin"]
+  tags: [install]
+
+- name: Wait for the Portainer UI to answer
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ portainer_https_port }}/api/status"
+    validate_certs: false
+    status_code: [200]
+  register: portainer_status
+  retries: 30
+  delay: 2
+  until: portainer_status is succeeded
+  changed_when: false
+  tags: [verify]
+
+- name: Show the Portainer version
+  ansible.builtin.debug:
+    msg: "Portainer {{ portainer_status.json.Version | default('unknown') }} on https://{{ inventory_hostname }}:{{ portainer_https_port }}"
+  tags: [verify]

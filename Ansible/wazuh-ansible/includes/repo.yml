@@ -1,0 +1,73 @@
+---
+# Shared by the manager and agent plays.
+
+- name: Assert the platform is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family in ['Debian', 'RedHat']
+    fail_msg: >-
+      Wazuh publishes apt and yum repositories only. {{ ansible_distribution }}
+      ({{ ansible_os_family }}) is not covered — see the upstream install guide for
+      the tarball path.
+    quiet: true
+
+- name: Configure the Wazuh repository (Debian family)
+  when: ansible_os_family == 'Debian'
+  block:
+    - name: Install the repository prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - gnupg
+          - python3-debian
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create the APT keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Fetch the Wazuh GPG key
+      ansible.builtin.get_url:
+        url: "{{ wazuh_gpg_key_url }}"
+        dest: /etc/apt/keyrings/wazuh.asc
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Add the Wazuh repository
+      ansible.builtin.deb822_repository:
+        name: wazuh
+        types: [deb]
+        uris: "{{ wazuh_apt_url }}"
+        suites: [stable]
+        components: [main]
+        signed_by: /etc/apt/keyrings/wazuh.asc
+        enabled: true
+        state: present
+      notify: Refresh the APT cache
+
+    - name: Refresh the APT cache before installing
+      ansible.builtin.meta: flush_handlers
+
+- name: Configure the Wazuh repository (RedHat family)
+  when: ansible_os_family == 'RedHat'
+  block:
+    - name: Import the Wazuh GPG key
+      ansible.builtin.rpm_key:
+        key: "{{ wazuh_gpg_key_url }}"
+        state: present
+
+    - name: Add the Wazuh repository
+      ansible.builtin.yum_repository:
+        name: wazuh
+        file: wazuh
+        description: Wazuh repository
+        baseurl: "{{ wazuh_yum_url }}"
+        gpgkey: "{{ wazuh_gpg_key_url }}"
+        gpgcheck: true
+        enabled: true
+        protect: true

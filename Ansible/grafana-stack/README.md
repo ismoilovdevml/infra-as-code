@@ -1,30 +1,24 @@
-# ⚙️ Grafana Stack Setup Playbook
+# Grafana stack
 
-This Ansible playbook installs and configures the **Grafana stack**, including **Prometheus** and **Grafana**, using the official collections with custom modifications. It allows you to manage and deploy Prometheus, Grafana, and various Prometheus exporters in a flexible way.
+Two independent collections. Each has its own README, inventory and variables.
 
-## 📦 Collections Used
+| Collection | Contents |
+| --- | --- |
+| [grafana-collection/](grafana-collection/) | Grafana, Loki, Promtail (binary and Docker) |
+| [prometheus-collection/](prometheus-collection/) | Prometheus, Alertmanager, node_exporter and other exporters |
 
-This playbook is based on the following Ansible collections:
-
-- [Grafana Ansible Collection](https://github.com/grafana/grafana-ansible-collection/tree/main)
-- [Prometheus Ansible Collection](https://github.com/prometheus-community/ansible)
-
-## ✨ Modifications
-
-The playbook has been modified from the official repositories to provide more flexibility, including:
-- **Selective Exporter Installation**: Ability to define which Prometheus exporters to install through variable flags (`ture` or `false`).
-- **Preconfigured Alert Manager**: Integrated configuration for **AlertManager** to send notifications to Discord via webhooks.
-
-## 📋 Prerequisites
-
-Before running this playbook, ensure that the following requirements are met:
-
-- **Ansible 2.9+** is installed on the control node.
-- **SSH access** to all target servers is set up.
-
-You can install the necessary collections using:
+## Usage
 
 ```bash
-ansible-galaxy collection install prometheus.prometheus
-ansible-galaxy collection install grafana.grafana
+cd grafana-collection    && ansible-playbook install_grafana.yml
+cd prometheus-collection && ansible-playbook install_prometheus.yml
 ```
+
+## Notes
+
+- **Promtail is end-of-life.** Grafana replaced it with Alloy. The Promtail playbooks
+  still work and are pinned to the last release that publishes assets, but new
+  deployments should target Alloy — see
+  [grafana-collection/README.md](grafana-collection/README.md).
+- The pinned Prometheus version is not auto-verified. Check it against
+  `github.com/prometheus/prometheus/releases` before rolling out.

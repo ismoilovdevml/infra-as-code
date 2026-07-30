@@ -1,0 +1,29 @@
+{
+{% if semaphore_db_dialect == 'bolt' %}
+  "bolt": {
+    "host": "{{ semaphore_data_dir }}/database.boltdb"
+  },
+{% elif semaphore_db_dialect == 'mysql' %}
+  "mysql": {
+    "host": "{{ semaphore_db_host }}:{{ semaphore_db_port }}",
+    "user": "{{ semaphore_db_user }}",
+    "pass": "{{ semaphore_db_password }}",
+    "name": "{{ semaphore_db_name }}"
+  },
+{% else %}
+  "postgres": {
+    "host": "{{ semaphore_db_host }}:{{ semaphore_db_port }}",
+    "user": "{{ semaphore_db_user }}",
+    "pass": "{{ semaphore_db_password }}",
+    "name": "{{ semaphore_db_name }}",
+    "options": {"sslmode": "disable"}
+  },
+{% endif %}
+  "dialect": "{{ semaphore_db_dialect }}",
+  "port": "{{ semaphore_bind_address }}:{{ semaphore_port }}",
+  "tmp_path": "{{ semaphore_tmp_dir }}",
+  "access_key_encryption": "{{ semaphore_access_key_encryption }}",
+  "email_alert": false,
+  "telegram_alert": false,
+  "ldap_enable": false
+}

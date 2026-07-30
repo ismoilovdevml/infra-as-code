@@ -1,95 +1,223 @@
 ---
 - name: Install and configure MinIO
   hosts: minio_servers
-  become: yes
+  become: true
+  gather_facts: true
   vars_files:
     - vars.yml
-  tasks:
 
-    - name: Install wget on multiple OS
-      package:
-        name: wget
-        state: present
-        update_cache: yes
-
-    - name: Download MinIO binary
-      get_url:
-        url: https://dl.min.io/server/minio/release/linux-amd64/minio
-        dest: /usr/local/bin/minio
-        mode: '0755'
-
-    - name: Create MinIO user and group
-      group:
-        name: minio-user
-        state: present
-
-    - name: Add MinIO user
-      user:
-        name: minio-user
-        group: minio-user
-        system: yes
-        shell: /sbin/nologin
-
-    - name: Create MinIO working directory
-      file:
-        path: "{{ minio_directory }}"
-        state: directory
-        mode: '0755'
-
-    - name: Change ownership of MinIO directory
-      file:
-        path: "{{ minio_directory }}"
-        owner: minio-user
-        group: minio-user
-        state: directory
-        recurse: yes
-
-    - name: Create MinIO environment file with variables from main.yml
-      copy:
-        content: |
-          MINIO_ROOT_USER={{ minio_admin_user }}
-          MINIO_ROOT_PASSWORD={{ minio_admin_user_password }}
-          MINIO_VOLUMES="{{ minio_directory }}"
-          MINIO_OPTS="--console-address :9001"
-        dest: /etc/default/minio
-        mode: '0644'
-
-    - name: Create systemd service for MinIO
-      copy:
-        content: |
-          [Unit]
-          Description=MinIO
-          Documentation=https://min.io/docs/minio/linux/index.html
-          Wants=network-online.target
-          After=network-online.target
-          AssertFileIsExecutable=/usr/local/bin/minio
-
-          [Service]
-          WorkingDirectory=/usr/local
-          User=minio-user
-          Group=minio-user
-          ProtectProc=invisible
-
-          EnvironmentFile=-/etc/default/minio
-          ExecStartPre=/bin/bash -c "if [ -z \"${MINIO_VOLUMES}\" ]; then echo \"Variable MINIO_VOLUMES not set in /etc/default/minio\"; exit 1; fi"
-          ExecStart=/usr/local/bin/minio server $MINIO_OPTS $MINIO_VOLUMES
-          Restart=always
-          LimitNOFILE=65536
-          TasksMax=infinity
-          TimeoutStopSec=infinity
-          SendSIGKILL=no
-
-          [Install]
-          WantedBy=multi-user.target
-        dest: /usr/lib/systemd/system/minio.service
-        mode: '0644'
-
-    - name: Reload systemd daemon
-      systemd:
-        daemon_reload: yes
-
-    - name: Start and enable MinIO service
-      systemd:
+  handlers:
+    - name: Restart minio
+      ansible.builtin.systemd_service:
         name: minio
-        enabled: yes
-        state: started
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Fail fast on unsupported platform
+          ansible.builtin.fail:
+            msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+              supported. Supported: Debian/Ubuntu (.deb), RHEL/Rocky/Alma/Fedora/Amazon
+              (.rpm), openSUSE/SLES and Arch (raw binary — MinIO publishes no zypper or
+              pacman package).
+          when: ansible_os_family not in ['Debian', 'RedHat', 'Suse', 'Archlinux']
+
+        - name: Assert an architecture mapping exists for the package methods
+          ansible.builtin.assert:
+            that:
+              - ansible_architecture in minio_arch_map
+            fail_msg: >-
+              No MinIO release asset mapping for architecture {{ ansible_architecture }}.
+              Known: {{ minio_arch_map.keys() | list | join(', ') }}.
+            quiet: true
+
+        # SECURITY: this only checks that the values are non-empty and not the
+        # well-known "minioadmin" default. It does not print the values themselves.
+        - name: Assert root credentials are set and not the well-known default
+          ansible.builtin.assert:
+            that:
+              - minio_root_user | length > 0
+              - minio_root_password | length > 0
+              - minio_root_user | lower != 'minioadmin'
+              - minio_root_password | lower != 'minioadmin'
+            fail_msg: >-
+              minio_root_user/minio_root_password must be set via a vault-encrypted
+              variable file (vault_minio_root_user / vault_minio_root_password) and
+              must not be the well-known "minioadmin" default. Refusing to install.
+            quiet: true
+
+        # dl.min.io has no apt/yum repository; only direct .deb/.rpm/binary downloads
+        # were ever published. minio_version is frozen upstream (see vars.yml), so
+        # these archive URLs will not move on their own — computed once here to keep
+        # the per-OS tasks below under the repo's line-length limit.
+        - name: Resolve the download URLs for this architecture
+          ansible.builtin.set_fact:
+            minio_version_digits: "{{ minio_version | regex_replace('[^0-9]', '') }}"
+            minio_asset_arch: "{{ minio_arch_map[ansible_architecture] }}"
+            minio_server_base: "{{ minio_download_base }}/server/minio/release/linux-{{ minio_arch_map[ansible_architecture] }}/archive"
+            minio_client_base: "{{ minio_download_base }}/client/mc/release/linux-{{ minio_arch_map[ansible_architecture] }}/archive"
+
+        - name: Resolve the release asset names and URLs
+          ansible.builtin.set_fact:
+            minio_deb_url: "{{ minio_server_base }}/minio_{{ minio_version_digits }}.0.0_{{ minio_asset_arch }}.deb"
+            minio_rpm_url: "{{ minio_server_base }}/minio-{{ minio_version_digits }}.0.0-1.{{ ansible_architecture }}.rpm"
+            minio_binary_url: "{{ minio_server_base }}/minio.{{ minio_version }}"
+            minio_mc_url: "{{ minio_client_base }}/mc.{{ minio_mc_version }}"
+
+    # ------------------------------------------------------------------ account
+    - name: Create the minio group
+      ansible.builtin.group:
+        name: "{{ minio_group }}"
+        system: true
+      tags: [install]
+
+    - name: Create the minio user
+      ansible.builtin.user:
+        name: "{{ minio_user }}"
+        group: "{{ minio_group }}"
+        system: true
+        shell: /sbin/nologin
+        create_home: false
+      tags: [install]
+
+    - name: Create the MinIO data directory
+      ansible.builtin.file:
+        path: "{{ minio_directory }}"
+        state: directory
+        owner: "{{ minio_user }}"
+        group: "{{ minio_group }}"
+        mode: '0750'
+      tags: [install]
+
+    - name: Create the MinIO config directory
+      ansible.builtin.file:
+        path: "{{ minio_config_dir }}"
+        state: directory
+        owner: "{{ minio_user }}"
+        group: "{{ minio_group }}"
+        mode: '0750'
+      tags: [install]
+
+    # --------------------------------------------------------------- repo: Debian
+    - name: Install MinIO from the .deb package
+      when: ansible_os_family == 'Debian'
+      tags: [install]
+      block:
+        - name: Download the MinIO .deb package
+          ansible.builtin.get_url:
+            url: "{{ minio_deb_url }}"
+            dest: "/tmp/minio_{{ minio_version }}_{{ minio_asset_arch }}.deb"
+            mode: '0644'
+
+        - name: Install the downloaded .deb package
+          ansible.builtin.apt:
+            deb: "/tmp/minio_{{ minio_version }}_{{ minio_asset_arch }}.deb"
+            state: present
+          notify: Restart minio
+
+    # --------------------------------------------------------------- repo: RedHat
+    - name: Install MinIO from the .rpm package
+      when: ansible_os_family == 'RedHat'
+      tags: [install]
+      block:
+        - name: Download the MinIO .rpm package
+          ansible.builtin.get_url:
+            url: "{{ minio_rpm_url }}"
+            dest: "/tmp/minio_{{ minio_version }}_{{ ansible_architecture }}.rpm"
+            mode: '0644'
+
+        - name: Install the downloaded .rpm package
+          ansible.builtin.dnf:
+            name: "/tmp/minio_{{ minio_version }}_{{ ansible_architecture }}.rpm"
+            state: present
+            disable_gpg_check: true
+          notify: Restart minio
+
+    # ---------------------------------------------------------- binary: Suse/Arch
+    - name: Install MinIO from the raw binary (Suse/Arch — no package upstream)
+      when: ansible_os_family in ['Suse', 'Archlinux']
+      tags: [install]
+      block:
+        - name: Download the MinIO binary
+          ansible.builtin.get_url:
+            url: "{{ minio_binary_url }}"
+            dest: "{{ minio_install_dir }}/minio"
+            mode: '0755'
+          notify: Restart minio
+
+    # ------------------------------------------------------------------ mc client
+    - name: Install the mc client
+      ansible.builtin.get_url:
+        url: "{{ minio_mc_url }}"
+        dest: "{{ minio_install_dir }}/mc"
+        mode: '0755'
+      when: minio_install_mc | bool
+      tags: [install]
+
+    # ---------------------------------------------------------------- configure
+    - name: Write /etc/default/minio (bootstrap variables, no secrets)
+      ansible.builtin.template:
+        src: minio-default.env.j2
+        dest: "{{ minio_default_env_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart minio
+      tags: [configure]
+
+    # SECURITY: root credentials only. no_log hides both the rendered diff and the
+    # module result from the console/log.
+    - name: Write /etc/minio/config.env (root credentials)
+      ansible.builtin.template:
+        src: minio-config.env.j2
+        dest: "{{ minio_config_env_path }}"
+        owner: "{{ minio_user }}"
+        group: "{{ minio_group }}"
+        mode: '0600'
+      no_log: true
+      notify: Restart minio
+      tags: [configure]
+
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: minio.service.j2
+        dest: /etc/systemd/system/minio.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart minio
+      tags: [configure]
+
+    # ------------------------------------------------------------------ service
+    - name: Enable and start minio
+      ansible.builtin.systemd_service:
+        name: minio
+        enabled: "{{ minio_service_enabled }}"
+        state: "{{ minio_service_state }}"
+        daemon_reload: true
+      tags: [service]
+
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the MinIO API port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ minio_api_port }}"
+        timeout: 60
+      tags: [verify]
+
+    - name: Collect the installed version
+      ansible.builtin.command: "{{ minio_install_dir }}/minio --version"
+      register: minio_installed_version
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the installed version
+      ansible.builtin.debug:
+        msg: "{{ minio_installed_version.stdout_lines }}"
+      tags: [verify]

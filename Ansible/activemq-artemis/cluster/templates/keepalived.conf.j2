@@ -1,0 +1,35 @@
+{{ ansible_managed | comment }}
+# keepalived/VRRP is a generic HA pattern (not an Artemis-specific upstream
+# recommendation) used here to give clients one address that follows whichever
+# broker currently holds the shared-store lock. Unicast peers are used instead of
+# multicast VRRP, which most cloud networks block.
+vrrp_script chk_artemis {
+    script "/usr/local/bin/check_artemis.sh"
+    interval 2
+    weight 20
+    fall 3
+    rise 2
+}
+
+vrrp_instance VI_1 {
+    interface {{ artemis_vip_interface }}
+    virtual_router_id {{ artemis_vip_router_id }}
+    priority {{ 150 if inventory_hostname in groups['master'] else 100 }}
+    state {{ 'MASTER' if inventory_hostname in groups['master'] else 'BACKUP' }}
+    advert_int 1
+
+    unicast_src_ip {{ ansible_host }}
+    unicast_peer {
+{% for peer in (groups['master'] + groups['nodes']) | difference([inventory_hostname]) %}
+        {{ hostvars[peer].ansible_host }}
+{% endfor %}
+    }
+
+    track_script {
+        chk_artemis
+    }
+
+    virtual_ipaddress {
+        {{ artemis_vip_address }}
+    }
+}

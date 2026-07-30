@@ -1,0 +1,51 @@
+---
+- name: Uninstall Apache Kafka
+  hosts: kafka_nodes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable kafka
+      ansible.builtin.systemd_service:
+        name: kafka
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the systemd unit
+      ansible.builtin.file:
+        path: /etc/systemd/system/kafka.service
+        state: absent
+      tags: [uninstall]
+
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      tags: [uninstall]
+
+    - name: Remove the Kafka installation
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ kafka_dir }}"
+        - "{{ kafka_versioned_dir }}"
+        - "{{ kafka_log_dir }}"
+      tags: [uninstall]
+
+    - name: Remove the Kafka data directory
+      ansible.builtin.file:
+        path: "{{ kafka_data_dir }}"
+        state: absent
+      when: kafka_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the kafka user
+      ansible.builtin.user:
+        name: "{{ kafka_user }}"
+        state: absent
+        remove: false
+      tags: [uninstall]

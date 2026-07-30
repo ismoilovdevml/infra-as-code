@@ -1,0 +1,94 @@
+---
+# Uninstalls each component of the stack. Select a component with --tags, e.g.:
+#   ansible-playbook uninstall.yml --tags grafana
+#   ansible-playbook uninstall.yml --tags loki
+#   ansible-playbook uninstall.yml --tags promtail          # binary install
+#   ansible-playbook uninstall.yml --tags promtail_docker   # Docker install
+
+- name: Uninstall Grafana
+  hosts: grafana_servers
+  become: true
+  tags: grafana
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: always
+
+    - name: Stop and disable Grafana service
+      ansible.builtin.systemd_service:
+        name: grafana-server
+        state: stopped
+        enabled: false
+      when: "'grafana-server.service' in ansible_facts.services"
+
+    - name: Remove Grafana package
+      ansible.builtin.package:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - grafana
+        - grafana-enterprise
+      failed_when: false
+
+    - name: Remove Grafana data, config and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/grafana
+        - /var/lib/grafana
+        - /var/log/grafana
+        - /usr/share/grafana
+
+- name: Uninstall Loki
+  hosts: loki_servers
+  become: true
+  tags: loki
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Uninstall Loki via the grafana.grafana.loki role
+      ansible.builtin.include_role:
+        name: grafana.grafana.loki
+      vars:
+        loki_uninstall: true
+        loki_http_listen_port: "{{ loki_http_listen_port }}"
+
+- name: Uninstall Promtail (binary install)
+  hosts: promtail_servers
+  become: true
+  tags: promtail
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Uninstall Promtail via the grafana.grafana.promtail role
+      ansible.builtin.include_role:
+        name: grafana.grafana.promtail
+      vars:
+        promtail_uninstall: true
+        promtail_http_listen_port: "{{ promtail_http_listen_port }}"
+        promtail_positions_path: "{{ promtail_positions_path }}"
+
+- name: Uninstall Promtail (Docker install)
+  hosts: promtail_servers
+  become: true
+  tags: promtail_docker
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Remove Promtail container
+      community.docker.docker_container:
+        name: promtail
+        state: absent
+
+    - name: Remove Promtail Docker image
+      community.docker.docker_image_remove:
+        name: "{{ promtail_docker_image }}"
+        tag: "{{ promtail_docker_tag }}"
+
+    - name: Remove Promtail configuration directory
+      ansible.builtin.file:
+        path: "{{ promtail_docker_config_dir }}"
+        state: absent

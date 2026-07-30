@@ -1,27 +1,39 @@
 ---
-- name: Update Promtail Configuration and Restart Docker Container
+# Re-renders the Promtail config on hosts running the Docker-based deployment
+# (install_promtail_docker.yml) and restarts the container if the file changed.
+# Promtail is END OF LIFE upstream since 2026-03-02 — see README.md.
+- name: Configure Promtail (Docker)
   hosts: promtail_servers
   become: true
 
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart promtail container
+      community.docker.docker_container:
+        name: promtail
+        state: started
+        restart: true
+
+  pre_tasks:
+    - name: Assert supported platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+        fail_msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }} is not supported by
+          this playbook.
+        quiet: true
+      tags: always
+
   tasks:
-    - name: Copy new Promtail config file
-      ansible.builtin.copy:
-        src: ./promtail_config/{{ promtail_config_file_name }}
-        dest: /etc/promtail/config.yml
+    - name: Template Promtail configuration file
+      ansible.builtin.template:
+        src: "{{ promtail_config_template }}"
+        dest: "{{ promtail_docker_config_dir }}/config.yml"
         owner: root
         group: root
         mode: '0644'
-
-    - name: Restart Promtail Docker container
-      ansible.builtin.docker_container:
-        name: promtail
-        image: grafana/promtail:latest
-        state: restarted
-        restart_policy: always
-        volumes:
-          - /etc/promtail/config.yml:/etc/promtail/config.yml
-          - /var/lib/docker/containers:/var/lib/docker/containers:ro
-          - /var/run/docker.sock:/var/run/docker.sock
-        command: "-config.file=/etc/promtail/config.yml"
-        ports:
-          - "9080:9080"
+      notify: Restart promtail container
+      tags: configure

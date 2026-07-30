@@ -1,0 +1,57 @@
+---
+- name: Configure Elasticsearch
+  hosts: elasticsearch
+  become: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart elasticsearch
+      ansible.builtin.systemd_service:
+        name: elasticsearch
+        state: restarted
+        daemon_reload: true
+
+  pre_tasks:
+    - name: Run preflight platform checks
+      ansible.builtin.import_tasks: tasks/preflight.yml
+      tags: [always]
+
+  tasks:
+    - name: Set vm.max_map_count for Elasticsearch
+      ansible.posix.sysctl:
+        name: vm.max_map_count
+        value: "{{ vm_max_map_count }}"
+        sysctl_set: true
+        state: present
+        reload: true
+      tags: [configure]
+
+    - name: Template elasticsearch.yml configuration
+      ansible.builtin.template:
+        src: templates/elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        owner: root
+        group: elasticsearch
+        mode: '0660'
+      notify: Restart elasticsearch
+      tags: [configure]
+
+    - name: Flush handlers to apply configuration immediately
+      ansible.builtin.meta: flush_handlers
+      tags: [configure]
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: [verify]
+
+    - name: Assert Elasticsearch service is active after configuration
+      ansible.builtin.assert:
+        that:
+          - "'elasticsearch.service' in ansible_facts.services"
+          - ansible_facts.services['elasticsearch.service'].state == 'running'
+        fail_msg: >-
+          Elasticsearch failed to (re)start after the configuration change:
+          {{ ansible_facts.services['elasticsearch.service'].state | default('not found') }}
+        quiet: true
+      tags: [verify]

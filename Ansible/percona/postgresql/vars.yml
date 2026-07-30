@@ -1,9 +1,47 @@
+---
+# Percona Distribution for PostgreSQL major version. Supported: 14, 15, 16, 17, 18.
 percona_pg_version: "17"
-os_family_deb:
-  - "debian"
-  - "ubuntu"
-os_family_rpm:
-  - "centos"
-  - "rocky"
-  - "oracle"
-  - "redhat"
+
+percona_pg_port: 5432
+
+percona_pg_listen_addresses: "*"
+
+# md5 is deprecated upstream since PG14; scram-sha-256 is the PG14+ default.
+percona_pg_hba_auth_method: "scram-sha-256"
+
+# Networks allowed to authenticate over TCP with percona_pg_hba_auth_method.
+# Replace with your real application subnet(s) before production use.
+percona_pg_hba_networks:
+  - 10.0.0.0/8
+
+percona_pg_admin_user: "postgres"
+
+# Vault-backed secret. Never commit a real value here.
+percona_pg_admin_password: "{{ vault_percona_pg_admin_password | default('') }}"
+
+# Per-OS-family layout, same convention as upstream PostgreSQL/postgresql-common.
+# SUSE is not supported by Percona for this product (no zypp/SLES tree upstream).
+percona_pg_paths:
+  Debian:
+    data_dir: "/var/lib/postgresql/{{ percona_pg_version }}/main"
+    conf: "/etc/postgresql/{{ percona_pg_version }}/main/postgresql.conf"
+    hba: "/etc/postgresql/{{ percona_pg_version }}/main/pg_hba.conf"
+    service: "postgresql@{{ percona_pg_version }}-main"
+  RedHat:
+    data_dir: "/var/lib/pgsql/{{ percona_pg_version }}/data"
+    conf: "/var/lib/pgsql/{{ percona_pg_version }}/data/postgresql.conf"
+    hba: "/var/lib/pgsql/{{ percona_pg_version }}/data/pg_hba.conf"
+    service: "postgresql-{{ percona_pg_version }}"
+
+percona_pg_conf_path: "{{ percona_pg_paths[ansible_os_family].conf }}"
+percona_pg_hba_path: "{{ percona_pg_paths[ansible_os_family].hba }}"
+percona_pg_data_dir: "{{ percona_pg_paths[ansible_os_family].data_dir }}"
+percona_pg_service_name: "{{ percona_pg_paths[ansible_os_family].service }}"
+
+# Target-host python driver package required by community.postgresql modules.
+percona_pg_python_package:
+  Debian: python3-psycopg2
+  RedHat: python3-psycopg2
+
+# uninstall.yml: also delete the data directory. Defaults to false (destructive).
+percona_pg_uninstall_purge_data: false

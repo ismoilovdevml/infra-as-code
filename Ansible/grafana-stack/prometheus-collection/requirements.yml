@@ -1,0 +1,7 @@
+---
+collections:
+  - name: prometheus.prometheus
+    version: ">=0.27.0"
+  # Transitive dependency of prometheus.prometheus.
+  - name: community.general
+    version: ">=9.0.0"

@@ -1,25 +1,198 @@
 ---
+# Helm v4 is the current stable major (GA 2025-11). Helm v3 is sunsetting: final
+# feature release 2026-09-09, security-only after that, EOL 2027-02-10. See README.md.
+# Upstream publishes no RPM/zypper repo, only a Debian APT repo (packages.buildkite.com,
+# baltocdn is retired) — the default method here is the checksum-verified get.helm.sh
+# tarball, which works identically on every OS family.
 - name: Install Helm
   hosts: all
-  become: yes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Refresh the APT cache
+      ansible.builtin.apt:
+        update_cache: true
 
   tasks:
-    - name: Download Helm install script
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-        dest: /tmp/get_helm.sh
-        mode: '0700'
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Assert supported platform
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family in ['Debian', 'RedHat', 'Suse']
+            fail_msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+              supported. Supported: Debian/Ubuntu, RHEL/Rocky/Alma/Fedora/Amazon,
+              openSUSE/SLES (tarball on all three; APT repo on Debian family only).
+            quiet: true
 
-    - name: Run Helm install script
-      ansible.builtin.command:
-        cmd: /tmp/get_helm.sh
-        creates: /usr/local/bin/helm
+        - name: Assert supported architecture
+          ansible.builtin.assert:
+            that:
+              - ansible_architecture in helm_arch_map
+            fail_msg: >-
+              {{ ansible_architecture }} has no helm_arch_map entry. Supported:
+              {{ helm_arch_map.keys() | list }}.
+            quiet: true
 
-    - name: Verify Helm installation
-      ansible.builtin.command:
-        cmd: helm version
-      register: helm_version
+        - name: Assert a supported major version was chosen
+          ansible.builtin.assert:
+            that:
+              - helm_major_version in [3, 4]
+            fail_msg: "helm_major_version must be 3 or 4, got '{{ helm_major_version }}'."
+            quiet: true
 
-    - name: Show Helm version
-      debug:
-        var: helm_version.stdout
+        - name: Assert a supported install method was chosen
+          ansible.builtin.assert:
+            that:
+              - helm_install_method in ['tarball', 'package']
+            fail_msg: "helm_install_method must be 'tarball' or 'package', got '{{ helm_install_method }}'."
+            quiet: true
+
+        - name: Assert the package method is only used where an upstream repo exists
+          ansible.builtin.assert:
+            that:
+              - ansible_os_family == 'Debian'
+            fail_msg: >-
+              helm_install_method=package is only valid on Debian family: upstream
+              publishes no Helm RPM/zypper repository for RHEL/Rocky/Alma/Fedora/
+              Amazon Linux/SUSE. Use helm_install_method=tarball (the default) there.
+            quiet: true
+          when: helm_install_method == 'package'
+
+    # -------------------------------------------------------------- version lookup
+    - name: Resolve the Helm version to install
+      when: helm_version | length == 0
+      tags: [always]
+      block:
+        - name: Query the Helm GitHub releases
+          ansible.builtin.uri:
+            url: "https://api.github.com/repos/helm/helm/releases?per_page=30"
+            return_content: true
+          register: helm_releases
+          check_mode: false
+
+        - name: Set the resolved Helm version
+          ansible.builtin.set_fact:
+            helm_resolved_version: >-
+              {{ helm_releases.json
+                 | selectattr('tag_name', 'match', '^v' ~ helm_major_version ~ '\.')
+                 | map(attribute='tag_name') | first }}
+
+    - name: Use the pinned Helm version
+      ansible.builtin.set_fact:
+        helm_resolved_version: "{{ helm_version }}"
+      when: helm_version | length > 0
+      tags: [always]
+
+    # -------------------------------------------------------------- package: Debian
+    - name: Install Helm from the Buildkite APT repository
+      when:
+        - ansible_os_family == 'Debian'
+        - helm_install_method == 'package'
+      tags: [install]
+      block:
+        - name: Install the repository prerequisites
+          ansible.builtin.apt:
+            name:
+              - curl
+              - gnupg
+              - apt-transport-https
+              - ca-certificates
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Fetch the Helm APT GPG key
+          ansible.builtin.get_url:
+            url: "https://packages.buildkite.com/helm-linux/helm-debian/gpgkey"
+            dest: "{{ helm_apt_keyring_path }}"
+            mode: '0644'
+
+        # Upstream's own install instructions recommend checking the key fingerprint
+        # to detect a compromised or rotated signing key before trusting the repo.
+        - name: Read the fetched key fingerprint
+          ansible.builtin.command:
+            cmd: "gpg --show-keys --with-colons {{ helm_apt_keyring_path }}"
+          register: helm_apt_key_check
+          changed_when: false
+          check_mode: false
+
+        - name: Assert the Helm APT key fingerprint matches upstream
+          ansible.builtin.assert:
+            that:
+              - helm_apt_key_fingerprint in helm_apt_key_check.stdout
+            fail_msg: >-
+              The GPG key fetched from packages.buildkite.com does not contain the
+              expected fingerprint {{ helm_apt_key_fingerprint }}. Refusing to trust it.
+            quiet: true
+
+        - name: Add the Helm APT repository
+          ansible.builtin.deb822_repository:
+            name: helm-stable-debian
+            types: [deb]
+            uris: "https://packages.buildkite.com/helm-linux/helm-debian/any/"
+            suites: [any]
+            components: [main]
+            signed_by: "{{ helm_apt_keyring_path }}"
+            enabled: true
+            state: present
+          notify: Refresh the APT cache
+
+        - name: Refresh the APT cache before installing
+          ansible.builtin.meta: flush_handlers
+
+        - name: Install the helm package
+          ansible.builtin.apt:
+            name: "helm"
+            state: present
+
+    # ------------------------------------------------------------------- tarball
+    - name: Install Helm from the get.helm.sh tarball
+      when: helm_install_method == 'tarball'
+      tags: [install]
+      vars:
+        helm_arch: "{{ helm_arch_map[ansible_architecture] }}"
+        helm_tarball: "helm-{{ helm_resolved_version }}-linux-{{ helm_arch }}.tar.gz"
+        helm_extract_dir: "/tmp/helm-{{ helm_resolved_version }}-{{ helm_arch }}"
+      block:
+        - name: Download and verify the Helm release tarball
+          ansible.builtin.get_url:
+            url: "https://get.helm.sh/{{ helm_tarball }}"
+            checksum: "sha256:https://get.helm.sh/{{ helm_tarball }}.sha256sum"
+            dest: "/tmp/{{ helm_tarball }}"
+            mode: '0644'
+
+        - name: Extract the Helm tarball
+          ansible.builtin.unarchive:
+            src: "/tmp/{{ helm_tarball }}"
+            dest: "{{ helm_extract_dir }}"
+            remote_src: true
+            creates: "{{ helm_extract_dir }}/linux-{{ helm_arch }}/helm"
+
+        - name: Install the helm binary
+          ansible.builtin.copy:
+            src: "{{ helm_extract_dir }}/linux-{{ helm_arch }}/helm"
+            dest: "{{ helm_bin_dir }}/helm"
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0755'
+
+    # -------------------------------------------------------------------- verify
+    - name: Check the installed Helm version
+      ansible.builtin.command: helm version --short
+      changed_when: false
+      check_mode: false
+      register: helm_installed_version
+      tags: [verify]
+
+    - name: Show the installed Helm version
+      ansible.builtin.debug:
+        var: helm_installed_version.stdout
+      tags: [verify]

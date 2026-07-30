@@ -1,81 +1,86 @@
-# 📋 NGINX Installation and Configuration Playbook
+# NGINX
 
-This Ansible playbook automates the installation of NGINX and the configuration of a reverse proxy and e.t.c. The playbook installs NGINX on multiple operating systems, configures directories, and sets up a reverse proxy and e.t.c with domain-based site configurations.
+Installs NGINX from the official nginx.org package repository, falling back to the
+distribution's own package where nginx.org publishes none, and renders `nginx.conf` plus a
+list of virtual hosts (`nginx_sites`) from templates.
 
-## 🛠️ Usage
+## Supported platforms
 
-## Install NGINX
+| OS family | Versions | Notes |
+|---|---|---|
+| Debian | Debian 11+, Ubuntu 22.04+ | official `nginx.org` APT repo (deb822) |
+| RedHat | RHEL/CentOS Stream/Rocky/AlmaLinux 8+, Amazon Linux 2023 | official `nginx.org` YUM repo |
+| RedHat | Fedora 40+ | distribution `nginx` package (no upstream repo) |
+| Suse | SLES 15+ | official `nginx.org` zypper repo |
+| Suse | openSUSE Leap / Tumbleweed | distribution `nginx` package (no upstream repo) |
 
-1. Install the required Ansible role for NGINX:
-   ```bash
-   ansible-galaxy role install nginxinc.nginx
-   ```
-2. Run the playbook to install NGINX:
-   ```bash
-   ansible-playbook -i inventory.ini install_nginx.yml
-   ```
-This playbook will:
+Anything else fails in preflight with an explicit message. Ubuntu 20.04 is dropped by
+nginx.org upstream and is refused unless `nginx_strict_platform_check=false`.
 
-* Install and configure NGINX on the target servers.
-* Set up `sites-available` and `sites-enabled` directories.
-* Create a default NGINX site configuration and enable it.
+## Requirements
 
-## Configure NGINX as a Reverse Proxy
+- Ansible core >= 2.15 (`deb822_repository`, `systemd_service`)
+- `ansible-galaxy collection install -r requirements.yml` (`community.general`, `ansible.posix`)
+- `sudo` on the target
 
-To configure NGINX as a reverse proxy for your domain, run the following playbook:
+## Usage
 
 ```bash
-ansible-playbook -i inventory nginx_config.yml
+ansible-playbook install_nginx.yml
+ansible-playbook install_nginx.yml --check --diff       # dry-run
+ansible-playbook install_nginx.yml --tags configure     # nginx.conf + sites only
+ansible-playbook uninstall_nginx.yml
+ansible-playbook uninstall_nginx.yml -e nginx_purge_data=true   # also wipe /etc/nginx, /var/www/html
 ```
-This will:
-
-* Create a reverse proxy configuration for the specified domain.
-* Apply the reverse proxy configuration by creating symbolic links in sites-enabled.
-* Reload NGINX to apply the new configuration.
 
 ## Variables
-* `domen`: The domain name for which you want to configure the reverse proxy. This can be set in the `nginx_config.yml` playbook. By default, it is set to `nginx.helm.uz`.
 
-## Playbook Breakdown
-`install_nginx.yml`
-* Installs and configures NGINX.
-* Creates sites-available and sites-enabled directories.
-* Adds a default site configuration.
-* Links the configuration into sites-enabled and reloads NGINX.
+| Variable | Default | Description |
+|---|---|---|
+| `nginx_release` | `stable` | `stable` or `mainline` |
+| `nginx_version` | `""` | Exact package pin. Empty = repo latest |
+| `nginx_sites` | one `default` static site on `:80` | List of virtual hosts, see below |
+| `nginx_manage_selinux` | `true` | Set `httpd_can_network_connect` on RHEL family |
+| `nginx_manage_firewall` | `true` | Open `nginx_firewall_ports` in firewalld / ufw |
+| `nginx_firewall_ports` | `[80, 443]` | Ports opened when the firewall is managed |
+| `nginx_strict_platform_check` | `true` | Refuse releases dropped upstream |
 
-`nginx_config.yml`
-* Configures NGINX as a reverse proxy for a specified domain.
-* Copies the reverse proxy configuration to sites-available.
-* Creates symbolic links in sites-enabled to enable the configuration.
-* Reloads NGINX to apply the new configuration.
+Each `nginx_sites` entry:
 
-## 💻 Supported Linux Operating Systems
-This playbook supports the following Linux distributions:
-* 🐧 **Debian:** 11,12
-* 🐧 **Ubuntu:** 20.04,22.04
-* 🐧 **RHEL:** 7,8
-* 🐧 **Rocky Linux:** 8,9
+```yaml
+nginx_sites:
+  - name: app.example.com          # -> sites-available/<name>.conf
+    enabled: true                  # symlinked into sites-enabled when true
+    listen: 80
+    default_server: false
+    server_name: "app.example.com"
+    type: proxy                    # static | proxy | raw
+    proxy_pass: "http://127.0.0.1:3000"   # type: proxy
+    # root: /var/www/app                  # type: static
+    # raw_config: |                       # type: raw, emitted verbatim in the server block
+    extra_config: []                # extra lines appended inside the server block
+```
 
-## ✅ Tested Operating Systems
-The playbook has been tested on the following OS versions:
-* ✅**Debian:** 11,12
-* ✅**Ubuntu:** 20.04,22.04
-* ✅**RHEL:** 7,8
-* ✅**Rocky Linux:** 8,9
+## Verify
 
-## ⚙️ Supported Ansible Versions
-* ✅ ansible-core 2.11.0
-* ✅  ansible-core 2.12.5
-* ❗️ ansible [core 2.17.3] (compatibility issues)
+```bash
+systemctl status nginx
+nginx -v
+nginx -t
+curl -I http://<host>/
+```
 
-## Playbook Explanation
+## Notes
 
-* **Role used:** [nginxinc.nginx](https://github.com/nginxinc/ansible-role-nginx)
-* This role simplifies the Go installation by downloading the appropriate Go tarball for your system's platform and architecture.
-
-> Note: Ensure you run the playbook with sufficient privileges, such as using become: yes or executing as root.
-
-## Resources
-
-* [Ansible Galaxy - nginxinc.nginx Role](https://galaxy.ansible.com/ui/standalone/roles/nginxinc/nginx/documentation/)
-* [GitHub - nginxinc/ansible-role-nginx](https://github.com/nginxinc/ansible-role-nginx)
+- `sites-available`/`sites-enabled` is a **Debian packaging convention that the nginx.org
+  package does not ship** (upstream only documents `conf.d`). This module owns `nginx.conf`
+  directly and always adds `include /etc/nginx/sites-enabled/*;`, on every OS family.
+- The packaged `/etc/nginx/conf.d/default.conf` is removed so it cannot collide with the
+  `default_server` defined through `nginx_sites`.
+- `site.conf.j2` renders a bare `server {}` block, which `nginx -t` cannot validate on its
+  own. The full merged configuration is validated with `nginx -t` after every site is
+  written and before nginx is reloaded, so a bad site can never be left active.
+- On RHEL-family hosts nginx runs under the confined `httpd_t` SELinux domain (shared with
+  Apache); `httpd_can_network_connect` is required to reverse-proxy to a remote backend.
+- Repository pinning (`/etc/apt/preferences.d/99nginx`, priority 900) is upstream's own
+  recommendation so `apt upgrade` cannot silently swap in the distribution's older build.

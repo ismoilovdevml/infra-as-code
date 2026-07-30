@@ -1,5 +1,93 @@
 ---
+# HashiCorp publishes ONE rpm path for the whole RHEL/CentOS/Rocky/AlmaLinux/CentOS
+# Stream family ("/RHEL/$releasever"). Fedora and Amazon Linux each have their own path.
+# ansible_os_family for Fedora is "RedHat" (not its own family), so the branch on
+# ansible_distribution below is required inside the RedHat-family block.
+vault_rpm_baseurl_map:
+  Fedora: "https://rpm.releases.hashicorp.com/fedora/$releasever/$basearch/stable"
+  Amazon: "https://rpm.releases.hashicorp.com/AmazonLinux/$releasever/$basearch/stable"
+vault_rpm_baseurl_default: "https://rpm.releases.hashicorp.com/RHEL/$releasever/$basearch/stable"
+
+vault_package_name: vault
+# Optional exact pin, e.g. "2.0.3-1". Empty means "latest from the repo".
+vault_version: ""
+
+# Refuse releases upstream no longer lists on hashicorp.com/en/official-packaging-guide.
+# Ubuntu 20.04 (focal) is a real example: it is not in the current support matrix.
+# Set to false to install anyway (unsupported, at your own risk).
+vault_strict_platform_check: true
+vault_minimum_major_version:
+  Ubuntu: 22
+  Debian: 11
+  RedHat: 8
+  CentOS: 8
+  Rocky: 8
+  AlmaLinux: 8
+  Fedora: 40
+  Amazon: 2023
+
 vault_config_path: /etc/vault.d
 vault_data_path: /opt/vault/data
+vault_log_path: /var/log/vault
+
 vault_listen_address: "0.0.0.0:8200"
-vault_api_addr: "http://127.0.0.1:8200"
+vault_listen_port: "{{ vault_listen_address.split(':') | last }}"
+vault_cluster_port: 8201
+vault_advertised_host: "{{ ansible_host | default(inventory_hostname) }}"
+
+# TLS is OFF by default so the play is runnable out of the box in a lab. This is NOT
+# acceptable in production: set vault_tls_disable to false and provide real
+# vault_tls_cert_file/vault_tls_key_file paths (already present on the host — this
+# repo does not issue certificates).
+vault_tls_disable: true
+vault_tls_cert_file: ""
+vault_tls_key_file: ""
+vault_api_scheme: "{{ 'http' if vault_tls_disable | bool else 'https' }}"
+
+vault_api_addr: "{{ vault_api_scheme }}://{{ vault_advertised_host }}:{{ vault_listen_port }}"
+vault_cluster_addr: "{{ vault_api_scheme }}://{{ vault_advertised_host }}:{{ vault_cluster_port }}"
+
+vault_ui: true
+vault_log_level: info
+
+# Integrated storage (raft) does not get along with mlock: mlock() and the
+# memory-mapped raft log fight each other. Upstream "strongly recommends" disabling
+# mlock when storage is raft. https://developer.hashicorp.com/vault/docs/configuration
+# The official .deb/.rpm package still ships a systemd unit granting CAP_IPC_LOCK, so
+# flipping this to false remains possible, but is not the supported combination.
+vault_disable_mlock: true
+
+# Unique per node; must be stable across restarts. Defaults to the inventory name.
+vault_node_id: "{{ inventory_hostname }}"
+
+# Every OTHER node in the group becomes a retry_join target so a fresh node finds the
+# raft leader on its own; only the bootstrap node calls `vault operator init`.
+vault_raft_join_addrs: >-
+  {{ groups['vault_nodes'] | difference([inventory_hostname])
+     | map('extract', hostvars, 'ansible_host')
+     | map('regex_replace', '^(.*)$', vault_api_scheme ~ '://\1:' ~ vault_listen_port)
+     | list }}
+
+# --- initialisation / unseal -------------------------------------------------------
+# OFF by default. When turned on, ONLY the first host of vault_nodes runs
+# `vault operator init`, and only when Vault reports itself uninitialised.
+#
+# SECURITY: the unseal keys and root token this produces are the keys to every secret
+# Vault will ever hold. They are captured with no_log, never printed with `debug`,
+# and written 0600 to vault_init_output_path for the operator to collect.
+#
+# Leaving that file on the Vault host defeats the purpose of Shamir sealing: anyone
+# who can read the sealed data on this host can also read the keys to unseal it.
+# Treat vault_init_output_path as a ONE-TIME handoff — copy it to a password manager
+# or secret store off-host immediately, then delete it from this host. For anything
+# beyond a lab, use auto-unseal (KMS/Transit) instead of Shamir shares kept in a file.
+vault_init_enabled: false
+vault_init_key_shares: 5
+vault_init_key_threshold: 3
+vault_init_output_path: "/root/vault-init.json"
+
+vault_service_enabled: true
+vault_service_state: started
+
+# uninstall_vault.yml: also delete config/data/log directories.
+vault_purge_data: false

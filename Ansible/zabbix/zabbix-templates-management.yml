@@ -1,9 +1,39 @@
-- name: Zabbix Templates Management
+---
+# Zabbix 7.0 deprecates the old auth-body-parameter API flow in favour of an
+# Authorization: Bearer header (hard error in 7.4). An API token
+# (ansible_zabbix_auth_key) is the fully Bearer-native path used here, instead
+# of ansible_user/ansible_httpapi_pass. https://support.zabbix.com/browse/ZBX-22952
+- name: Link Zabbix templates to hosts
   hosts: localhost
+  gather_facts: false
   vars_files:
     - vars.yml
+  vars:
+    ansible_network_os: community.zabbix.zabbix
+    ansible_connection: httpapi
+    ansible_host: "{{ zabbix_api_server }}"
+    ansible_httpapi_port: "{{ zabbix_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_api_use_ssl }}"
+    ansible_httpapi_validate_certs: "{{ zabbix_api_validate_certs }}"
+    ansible_zabbix_auth_key: "{{ zabbix_api_token }}"
+
   tasks:
-    - name: Link Zabbix template
+    - name: Assert the Zabbix API token is set
+      ansible.builtin.assert:
+        that:
+          - zabbix_api_token | length > 0
+        fail_msg: >-
+          zabbix_api_token is empty. Generate an API token in Zabbix
+          (Users -> API tokens) and set vault_zabbix_api_token via ansible-vault.
+        quiet: true
+      tags: [always]
+
+    - name: Link the Zabbix template to each host
       community.zabbix.zabbix_host:
-        host_name: "{{ inventory_hostname }}"
-        link_templates: "Linux by Zabbix agent"
+        host_name: "{{ item }}"
+        link_templates:
+          - "{{ zabbix_template_name }}"
+        state: present
+      loop: "{{ groups['zabbix_agents'] | default([]) }}"
+      no_log: true
+      tags: [configure]

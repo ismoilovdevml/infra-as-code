@@ -1,0 +1,69 @@
+---
+# Removes everything proxy.yml wrote. Every managed block carries the same marker,
+# which is what makes this possible at all — the previous lineinfile version left
+# no way back.
+- name: Remove the system-wide HTTP proxy
+  hosts: proxy_clients
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+  vars:
+    proxy_marker: "# {mark} ANSIBLE MANAGED BLOCK proxy"
+
+  handlers:
+    - name: Restart docker
+      ansible.builtin.systemd_service:
+        name: docker
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    - name: Remove the managed proxy blocks
+      ansible.builtin.blockinfile:
+        path: "{{ item }}"
+        marker: "{{ proxy_marker }}"
+        state: absent
+      loop:
+        - /etc/environment
+        - /etc/wgetrc
+        - /etc/pip.conf
+        - /etc/npmrc
+      failed_when: false
+      tags: [remove]
+
+    - name: Remove the package manager proxy settings
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/apt.conf.d/99proxy
+        - /etc/sysconfig/proxy
+      tags: [remove]
+
+    - name: Remove the DNF proxy line
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/dnf.conf
+        regexp: '^proxy='
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+      tags: [remove]
+
+    - name: Remove the git proxy settings
+      community.general.git_config:
+        name: "{{ item }}"
+        scope: system
+        state: absent
+      loop:
+        - http.proxy
+        - https.proxy
+      failed_when: false
+      tags: [remove]
+
+    - name: Remove the docker proxy drop-in
+      ansible.builtin.file:
+        path: /etc/systemd/system/docker.service.d/http-proxy.conf
+        state: absent
+      notify: Restart docker
+      tags: [remove]

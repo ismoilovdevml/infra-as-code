@@ -1,125 +1,129 @@
-- name: Install and configure SonarQube
-  hosts: all
+---
+- name: Install and configure SonarQube (Docker)
+  hosts: sonarqube_servers
   become: true
-
-  vars:
-    sonarqube_image: "sonarqube:community"
-    sonarqube_container_name: "sonarqube"
-    postgresql_image: "postgres:15"
-    postgresql_container_name: "postgresql"
-    sonarqube_port: "9000"
-    restart_policy: "always"
-    sonarqube_env:
-      SONAR_JDBC_URL: "jdbc:postgresql://postgresql:5432/sonar"
-      SONAR_JDBC_USERNAME: "sonar"
-      SONAR_JDBC_PASSWORD: "sonar"
-    postgresql_env:
-      POSTGRES_USER: "sonar"
-      POSTGRES_PASSWORD: "sonar"
-      POSTGRES_DB: "sonar"
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Check if Docker binary exists
-      shell: "command -v docker"
-      register: docker_check
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the database password is set
+      ansible.builtin.assert:
+        that:
+          - sonarqube_db_password | length > 0
+        fail_msg: >-
+          sonarqube_db_password (vault_sonarqube_db_password) is empty. Set it via
+          ansible-vault before running this playbook.
+        quiet: true
+      no_log: true
+      tags: [always]
+
+    - name: Check whether Docker is installed
+      ansible.builtin.command: docker version
+      register: sonarqube_docker_check
       changed_when: false
+      check_mode: false
       failed_when: false
+      tags: [always]
 
-    - name: Check if Docker Compose binary exists
-      shell: "command -v docker-compose"
-      register: docker_compose_check
+    - name: Check whether the Docker Compose plugin is installed
+      ansible.builtin.command: docker compose version
+      register: sonarqube_compose_check
       changed_when: false
+      check_mode: false
       failed_when: false
+      tags: [always]
 
-    - name: Display message if Docker is not installed
-      debug:
-        msg: "Docker is not installed on this host."
-      when: docker_check.rc != 0
+    - name: Assert Docker Engine and the Compose plugin are present
+      ansible.builtin.assert:
+        that:
+          - sonarqube_docker_check.rc == 0
+          - sonarqube_compose_check.rc == 0
+        fail_msg: >-
+          Docker Engine and the Compose plugin are required first — see the
+          Ansible/docker module in this repository (install_docker.yml).
+        quiet: true
+      tags: [always]
 
-    - name: Display message if Docker Compose is not installed
-      debug:
-        msg: "Docker Compose is not installed on this host."
-      when: docker_check.rc == 0 and docker_compose_check.rc != 0
+    # ------------------------------------------------------------- kernel tuning
+    # SonarQube embeds Elasticsearch, which requires these host kernel parameters.
+    # The container shares the host kernel, so they must be set here, not inside it.
+    # https://docs.sonarsource.com/sonarqube-server/2026.1/server-installation/pre-installation/linux
+    - name: Set vm.max_map_count for the embedded Elasticsearch
+      ansible.posix.sysctl:
+        name: vm.max_map_count
+        value: "{{ sonarqube_vm_max_map_count }}"
+        sysctl_file: /etc/sysctl.d/99-sonarqube.conf
+        sysctl_set: true
+        state: present
+        reload: true
+      tags: [configure]
 
-    - name: Skip host if either Docker or Docker Compose is missing
-      meta: end_host
-      when: docker_check.rc != 0 or docker_compose_check.rc != 0
+    - name: Set fs.file-max for the embedded Elasticsearch
+      ansible.posix.sysctl:
+        name: fs.file-max
+        value: "{{ sonarqube_fs_file_max }}"
+        sysctl_file: /etc/sysctl.d/99-sonarqube.conf
+        sysctl_set: true
+        state: present
+        reload: true
+      tags: [configure]
 
-    - name: Set system parameters for SonarQube
-      command: "{{ item }}"
-      with_items:
-        - sysctl -w vm.max_map_count=524288
-        - sysctl -w fs.file-max=131072
-        - ulimit -n 131072
-        - ulimit -u 8192
-
-    - name: Create directories for SonarQube persistence
-      file:
-        path: "{{ item }}"
+    # ---------------------------------------------------------------- compose file
+    - name: Create the SonarQube compose project directory
+      ansible.builtin.file:
+        path: "{{ sonarqube_compose_project_dir }}"
         state: directory
-        mode: '0777'
-      loop:
-        - /mnt/sonarqube
-        - /mnt/sonarqube/sonarqube_data
-        - /mnt/sonarqube/sonarqube_logs
-        - /mnt/sonarqube/sonarqube_extensions
-        - /mnt/sonarqube/sonarqube_temp
-        - /mnt/sonarqube/postgresql
-        - /mnt/sonarqube/postgresql_data
+        owner: root
+        group: root
+        mode: '0750'
+      tags: [configure]
 
-    - name: Create Docker network for SonarQube and PostgreSQL
-      ansible.builtin.docker_network:
-        name: sonarqube_network
+    - name: Write the docker-compose.yml
+      ansible.builtin.template:
+        src: docker-compose.yml.j2
+        dest: "{{ sonarqube_compose_file }}"
+        owner: root
+        group: root
+        mode: '0640'
+      no_log: true
+      tags: [configure]
 
-    - name: Pull SonarQube and PostgreSQL images
-      ansible.builtin.docker_image:
-        name: "{{ item }}"
-        source: pull
-      loop:
-        - "{{ sonarqube_image }}"
-        - "{{ postgresql_image }}"
+    # ------------------------------------------------------------------- deploy
+    # recreate defaults to "auto": containers are only recreated when their
+    # rendered configuration (image, env, ports, ...) actually differs, so a
+    # second run with no changes is a no-op.
+    - name: Start the SonarQube and PostgreSQL stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ sonarqube_compose_project_dir }}"
+        state: present
+        pull: missing
+      tags: [install]
 
-    - name: Run PostgreSQL container
-      ansible.builtin.docker_container:
-        name: "{{ postgresql_container_name }}"
-        image: "{{ postgresql_image }}"
-        env: "{{ postgresql_env }}"
-        volumes:
-          - "/mnt/sonarqube/postgresql:/var/lib/postgresql"
-          - "/mnt/sonarqube/postgresql_data:/var/lib/postgresql/data"
-        restart_policy: "{{ restart_policy }}"
-        healthcheck:
-          test: ["CMD-SHELL", "pg_isready"]
-          interval: 10s
-          timeout: 5s
-          retries: 5
-        networks:
-          - name: sonarqube_network
+    # ------------------------------------------------------------------- verify
+    - name: Wait for the SonarQube HTTP port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ sonarqube_port }}"
+        timeout: 300
+      tags: [verify]
 
-    - name: Run SonarQube container
-      ansible.builtin.docker_container:
-        name: "{{ sonarqube_container_name }}"
-        image: "{{ sonarqube_image }}"
-        ports:
-          - "{{ sonarqube_port }}:9000"
-        volumes:
-          - "/mnt/sonarqube/sonarqube_data:/opt/sonarqube/data"
-          - "/mnt/sonarqube/sonarqube_extensions:/opt/sonarqube/extensions"
-          - "/mnt/sonarqube/sonarqube_logs:/opt/sonarqube/logs"
-          - "/mnt/sonarqube/sonarqube_temp:/opt/sonarqube/temp"
-        restart_policy: "{{ restart_policy }}"
-        env: "{{ sonarqube_env }}"
-        networks:
-          - name: sonarqube_network
+    - name: Check the SonarQube system status
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ sonarqube_port }}/api/system/status"
+        status_code: 200
+      register: sonarqube_status
+      until: sonarqube_status.json.status in ['UP', 'STARTING', 'DB_MIGRATION_NEEDED', 'DB_MIGRATION_RUNNING']
+      retries: 30
+      delay: 10
+      changed_when: false
+      check_mode: false
+      tags: [verify]
 
-    - name: Display SonarQube and PostgreSQL containers info
-      shell: "docker ps --filter 'name={{ sonarqube_container_name }}' --filter 'name={{ postgresql_container_name }}'"
-      register: docker_containers_info
-
-    - name: Show SonarQube and PostgreSQL container info
-      debug:
-        msg: "{{ docker_containers_info.stdout }}"
-
-    - name: Display SonarQube access information
-      debug:
-        msg: "Visit SonarQube at http://{{ ansible_default_ipv4.address }}:{{ sonarqube_port }} with default credentials: user=admin, password=admin"
+    - name: Show the SonarQube status
+      ansible.builtin.debug:
+        msg: >-
+          SonarQube is {{ sonarqube_status.json.status }} on port {{ sonarqube_port }}.
+          Default first-run credentials: admin/admin (you will be forced to change them).
+      tags: [verify]

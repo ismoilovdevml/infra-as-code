@@ -1,93 +1,144 @@
 ---
-- name: Install KeyDB on Multiple OS
-  hosts: all
-  become: yes
-  vars:
-    keydb_repo_deb: "deb https://download.keydb.dev/open-source-dist {{ ansible_lsb.codename }} main"
-    keydb_gpg_deb: "https://download.keydb.dev/open-source-dist/keyring.gpg"
-    keydb_gpg_rpm: "https://download.keydb.dev/pkg/open_source/rpm/RPM-GPG-KEY-keydb"
-    keydb_rpm_url: "https://download.keydb.dev/pkg/open_source/rpm"
-    keydb_pidfile: "/var/run/keydb/keydb-server.pid"
+# download.keydb.dev serves loose .deb files under a plain directory listing — there
+# is no Packages/Release index, so it cannot be added as an APT repository. The
+# packages are fetched directly and installed with `apt: deb=`.
+- name: Install KeyDB
+  hosts: keydb_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart keydb
+      ansible.builtin.systemd_service:
+        name: "{{ keydb_service_name }}"
+        state: restarted
+
   tasks:
-    - name: Ensure dependencies are installed (Debian/Ubuntu)
-      apt:
-        name:
-          - wget
-          - gnupg
-        state: present
-      when: ansible_os_family == "Debian"
+    # ---------------------------------------------------------------- preflight
+    - name: Assert the unmaintained-software risk has been accepted
+      ansible.builtin.assert:
+        that:
+          - keydb_accept_unmaintained_software | bool
+        fail_msg: >-
+          KeyDB is unmaintained: last upstream push 2024-05-29, last release v6.3.4
+          (2023-10-30), and the published packages are frozen at that version with
+          unpatched Redis-inherited CVEs. Use ../redis/ or Valkey instead. To install
+          anyway, set keydb_accept_unmaintained_software=true.
+        quiet: true
+      tags: [always]
 
-    - name: Add KeyDB GPG key (Debian/Ubuntu)
-      apt_key:
-        url: "{{ keydb_gpg_deb }}"
-        state: present
-      when: ansible_os_family == "Debian"
+    - name: Assert a password is set when binding beyond loopback
+      ansible.builtin.assert:
+        that:
+          - keydb_admin_password | length >= 12
+        fail_msg: >-
+          keydb_bind_address is {{ keydb_bind_address }}, which is reachable from the
+          network, but no keydb_admin_password is set. That is an open, unauthenticated
+          database. Set vault_keydb_admin_password.
+        quiet: true
+      when: keydb_bind_address not in ['127.0.0.1', '::1', 'localhost']
+      tags: [always]
 
-    - name: Add KeyDB APT repository (Debian/Ubuntu)
-      apt_repository:
-        repo: "{{ keydb_repo_deb }}"
-        state: present
-      when: ansible_os_family == "Debian"
+    # ----------------------------------------------------------- package install
+    - name: Install KeyDB from the upstream packages
+      when: keydb_install_method == 'package'
+      tags: [install]
+      block:
+        - name: Assert packages are published for this platform
+          ansible.builtin.assert:
+            that:
+              - ansible_distribution in keydb_deb_suites
+              - ansible_distribution_major_version in keydb_deb_suites[ansible_distribution]
+              - ansible_architecture in keydb_deb_arch_map
+            fail_msg: >-
+              Upstream publishes no KeyDB {{ keydb_version }} package for
+              {{ ansible_distribution }} {{ ansible_distribution_version }} /
+              {{ ansible_architecture }}. Published: Debian 10/11/12 and Ubuntu
+              18.04/20.04/22.04 on amd64/arm64 only. RPMs exist only for CentOS 7 and 8,
+              both long EOL. Use keydb_install_method=docker instead.
+            quiet: true
 
-    - name: Install KeyDB (Debian/Ubuntu)
-      apt:
-        name: keydb
-        state: present
-      when: ansible_os_family == "Debian"
+        - name: Resolve the package URL parts
+          ansible.builtin.set_fact:
+            keydb_suite: "{{ keydb_deb_suites[ansible_distribution][ansible_distribution_major_version] }}"
+            keydb_arch: "{{ keydb_deb_arch_map[ansible_architecture] }}"
 
-    - name: Create KeyDB PID directory and set permissions (Debian/Ubuntu)
-      file:
-        path: /var/run/keydb
-        state: directory
-        owner: keydb
-        group: keydb
-        mode: '0755'
-      when: ansible_os_family == "Debian"
+        # <pkg>_<version>-<suffix>_<arch>.deb — the suffix differs between families,
+        # so it comes from the suite map rather than from the directory name.
+        - name: Download the KeyDB packages
+          ansible.builtin.get_url:
+            url: >-
+              {{ keydb_deb_base_url }}/{{ keydb_suite.dir }}/{{ keydb_arch }}/keydb-latest/{{ item }}_{{
+              keydb_version }}-{{ keydb_suite.suffix }}_{{ keydb_arch }}.deb
+            dest: "/tmp/{{ item }}_{{ keydb_version }}.deb"
+            owner: root
+            group: root
+            mode: '0644'
+          loop: "{{ keydb_deb_packages }}"
 
-    - name: Ensure KeyDB configuration points to the correct PID file (Debian/Ubuntu)
-      lineinfile:
-        path: /etc/keydb/keydb.conf
-        regexp: '^pidfile'
-        line: "pidfile {{ keydb_pidfile }}"
-      when: ansible_os_family == "Debian"
+        - name: Install the KeyDB packages
+          ansible.builtin.apt:
+            deb: "/tmp/{{ item }}_{{ keydb_version }}.deb"
+            state: present
+          loop: "{{ keydb_deb_packages }}"
 
-    - name: Reload systemd manager configuration (Debian/Ubuntu)
-      command: systemctl daemon-reload
-      when: ansible_os_family == "Debian"
+        - name: Write keydb.conf
+          ansible.builtin.template:
+            src: keydb.conf.j2
+            dest: "{{ keydb_conf_path }}"
+            owner: keydb
+            group: keydb
+            mode: '0640'
+          no_log: "{{ keydb_admin_password | length > 0 }}"
+          notify: Restart keydb
 
-    - name: Import KeyDB RPM GPG key (RHEL/CentOS)
-      rpm_key:
-        state: present
-        key: "{{ keydb_gpg_rpm }}"
-      when: ansible_os_family == "RedHat"
+        - name: Enable and start keydb
+          ansible.builtin.systemd_service:
+            name: "{{ keydb_service_name }}"
+            enabled: true
+            state: started
 
-    - name: Check RHEL/CentOS version and skip if not supported
-      debug:
-        msg: "KeyDB is not supported on RedHat/CentOS versions other than 7 and 8."
-      when: ansible_distribution_major_version not in ['7', '8'] and ansible_os_family == "RedHat"
+    # ------------------------------------------------------------ docker install
+    - name: Install KeyDB as a container
+      when: keydb_install_method == 'docker'
+      tags: [install]
+      block:
+        - name: Create the KeyDB data directory
+          ansible.builtin.file:
+            path: "{{ keydb_data_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: '0750'
 
-    - name: Download KeyDB RPM package (RHEL/CentOS 7/8)
-      get_url:
-        url: "{{ keydb_rpm_url }}/centos{{ ansible_distribution_major_version }}/{{ ansible_architecture }}/keydb-latest-1.el{{ ansible_distribution_major_version }}.{{ ansible_architecture }}.rpm"
-        dest: "/tmp/keydb.rpm"
-      when: ansible_distribution_major_version in ['7', '8']
+        - name: Run the KeyDB container
+          community.docker.docker_container:
+            name: "{{ keydb_container_name }}"
+            image: "{{ keydb_image }}"
+            state: started
+            restart_policy: "{{ keydb_restart_policy }}"
+            pull: true
+            published_ports:
+              - "{{ keydb_bind_address }}:{{ keydb_port }}:6379"
+            volumes:
+              - "{{ keydb_data_dir }}:/data"
+            command: >-
+              keydb-server /etc/keydb/keydb.conf
+              --appendonly {{ 'yes' if keydb_appendonly else 'no' }}
+              {{ '--requirepass ' ~ keydb_admin_password if keydb_admin_password | length > 0 else '' }}
+          no_log: "{{ keydb_admin_password | length > 0 }}"
 
-    - name: Install KeyDB (RHEL/CentOS 7/8)
-      yum:
-        name: /tmp/keydb.rpm
-        state: present
-      when: ansible_distribution_major_version in ['7', '8']
+    # -------------------------------------------------------------------- verify
+    - name: Wait for the KeyDB port
+      ansible.builtin.wait_for:
+        host: "{{ '127.0.0.1' if keydb_bind_address == '0.0.0.0' else keydb_bind_address }}"
+        port: "{{ keydb_port }}"
+        timeout: 60
+      tags: [verify]
 
-    - name: Enable and start KeyDB service (Debian/Ubuntu)
-      systemd:
-        name: keydb-server
-        enabled: yes
-        state: started
-      when: ansible_os_family == "Debian"
-
-    - name: Enable and start KeyDB service (RHEL/CentOS)
-      systemd:
-        name: keydb
-        enabled: yes
-        state: started
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version in ['7', '8']
+    - name: Report the install method
+      ansible.builtin.debug:
+        msg: "KeyDB {{ keydb_version }} ({{ keydb_install_method }}) listening on {{ keydb_bind_address }}:{{ keydb_port }}"
+      tags: [verify]

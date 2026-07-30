@@ -1,37 +1,63 @@
 ---
+# Re-renders redis.conf from the same template install_redis.yml uses, so that
+# bind address / auth changes are applied without hand-editing the config with
+# lineinfile. Run install_redis.yml first — this play assumes redis is installed.
 - name: Configure Redis
   hosts: redis_servers
-  become: yes
-  vars:
-    redis_protected_mode: "no"
-    redis_bind: "0.0.0.0"
-    debian_redis_package: "redis-server"
-    redhat_redis_package: "redis"
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  handlers:
+    - name: Restart redis
+      ansible.builtin.systemd_service:
+        name: "{{ redis_service_name_map[ansible_os_family] }}"
+        state: restarted
+
   tasks:
-    - name: Modify 'protected-mode' in redis.conf
-      lineinfile:
-        path: /etc/redis/redis.conf
-        regexp: '^protected-mode'
-        line: "protected-mode {{ redis_protected_mode }}"
-        state: present
-        backrefs: yes
+    - name: Assert the platform is supported
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+        quiet: true
+      tags: [always]
 
-    - name: Modify 'bind' in redis.conf
-      lineinfile:
-        path: /etc/redis/redis.conf
-        regexp: '^bind'
-        line: "bind {{ redis_bind }}"
-        state: present
-        backrefs: yes
+    # A non-loopback bind with no password turns Redis into an open, unauthenticated
+    # database reachable from the network. Refuse that combination outright rather
+    # than let it ship quietly.
+    - name: Assert a password is set before binding beyond loopback
+      ansible.builtin.assert:
+        that:
+          - redis_admin_password | length > 0
+        fail_msg: >-
+          redis_bind_address is set to {{ redis_bind_address }} but redis_admin_password
+          is empty. Set vault_redis_admin_password (vaulted) before exposing Redis
+          beyond 127.0.0.1/::1.
+        quiet: true
+      when: redis_bind_address not in ['127.0.0.1', '::1']
+      no_log: true
+      tags: [configure]
 
-    - name: Restart Redis service on Debian-based systems
-      service:
-        name: "{{ debian_redis_package }}"
-        state: restarted
-      when: ansible_os_family == "Debian"
+    - name: Write redis.conf
+      ansible.builtin.template:
+        src: redis.conf.j2
+        dest: "{{ redis_config_path }}"
+        owner: redis
+        group: redis
+        mode: '0640'
+      notify: Restart redis
+      no_log: true
+      tags: [configure]
 
-    - name: Restart Redis service on RedHat-based systems
-      service:
-        name: "{{ redhat_redis_package }}"
-        state: restarted
-      when: ansible_os_family == "RedHat"
+    - name: Flush handlers to apply the new configuration now
+      ansible.builtin.meta: flush_handlers
+      tags: [configure]
+
+    - name: Wait for the Redis port
+      ansible.builtin.wait_for:
+        host: "{{ redis_bind_address if redis_bind_address != '0.0.0.0' else '127.0.0.1' }}"
+        port: "{{ redis_port }}"
+        timeout: 30
+      tags: [verify]

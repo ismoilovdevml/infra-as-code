@@ -1,40 +1,127 @@
 ---
-- name: Manage GCP VM instances
-  hosts: localhost
-  gather_facts: no
-  vars_prompt:
-    - name: "action"
-      prompt: "Enter action (create/delete/start/stop)"
-      private: no
+# Runs against the GCP API from the control node. The previous version shelled out
+# to `gcloud` with a hardcoded instance name, zone and image, and prompted for the
+# action interactively — none of which can run unattended or idempotently.
+- name: Manage GCP compute instances
+  hosts: local
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  vars:
+    gcp_common: &gcp_common
+      project: "{{ gcp_project }}"
+      auth_kind: "{{ gcp_auth_kind }}"
+      service_account_file: "{{ (gcp_service_account_file | expanduser) if gcp_auth_kind == 'serviceaccount' else omit }}"
+      scopes: "{{ gcp_scopes }}"
 
   tasks:
-    - name: Create VM instances
-      when: action == 'create'
-      shell: >
-        gcloud compute instances create vm-instance-1
-        --zone=us-central1-a
-        --machine-type=e2-medium
-        --image-family=ubuntu-2004-lts
-        --image-project=ubuntu-os-cloud
-        --boot-disk-size=30GB
-        --boot-disk-type=pd-ssd
-        --scopes=default,cloud-platform
+    - name: Assert the project and state are configured
+      ansible.builtin.assert:
+        that:
+          - gcp_project | length > 0
+          - gcp_project != 'my-project-id'
+          - gcp_state in ['present', 'started', 'stopped', 'absent']
+        fail_msg: >-
+          Set gcp_project to your real project ID and gcp_state to one of
+          present / started / stopped / absent.
+        quiet: true
+      tags: [always]
 
-    - name: Delete VM instance 1
-      when: action == 'delete'
-      shell: >
-        gcloud compute instances delete vm-instance-1
-        --zone=us-central1-a
-        --quiet
+    - name: Assert the service account key exists
+      ansible.builtin.stat:
+        path: "{{ gcp_service_account_file | expanduser }}"
+      register: gcp_sa_key
+      failed_when: not gcp_sa_key.stat.exists
+      when: gcp_auth_kind == 'serviceaccount'
+      tags: [always]
 
-    - name: Start VM instance 1
-      when: action == 'start'
-      shell: >
-        gcloud compute instances start vm-instance-1
-        --zone=us-central1-a
+    # ---------------------------------------------------------------- boot disks
+    # The disk is a separate resource. Creating it explicitly is what makes the
+    # instance task idempotent, and lets the disk outlive the instance.
+    - name: Create the boot disks
+      google.cloud.gcp_compute_disk:
+        <<: *gcp_common
+        name: "{{ item.name }}-boot"
+        size_gb: "{{ item.disk_size_gb | default(30) }}"
+        type: "{{ item.disk_type | default('pd-balanced') }}"
+        source_image: "{{ item.image }}"
+        zone: "{{ gcp_zone }}"
+        state: present
+      loop: "{{ gcp_instances }}"
+      loop_control:
+        label: "{{ item.name }}-boot"
+      register: gcp_disks
+      when: gcp_state != 'absent'
+      tags: [disk]
 
-    - name: Stop VM instance 1
-      when: action == 'stop'
-      shell: >
-        gcloud compute instances stop vm-instance-1
-        --zone=us-central1-a
+    # -------------------------------------------------------------- external IPs
+    - name: Reserve the external addresses
+      google.cloud.gcp_compute_address:
+        <<: *gcp_common
+        name: "{{ item.name }}-ip"
+        region: "{{ gcp_region }}"
+        state: present
+      loop: "{{ gcp_instances }}"
+      loop_control:
+        label: "{{ item.name }}-ip"
+      register: gcp_addresses
+      when:
+        - gcp_state != 'absent'
+        - item.assign_external_ip | default(true)
+      tags: [network]
+
+    # ----------------------------------------------------------------- instances
+    - name: Manage the instances
+      google.cloud.gcp_compute_instance:
+        <<: *gcp_common
+        name: "{{ item.0.name }}"
+        machine_type: "{{ item.0.machine_type | default('e2-medium') }}"
+        zone: "{{ gcp_zone }}"
+        state: "{{ gcp_state }}"
+        tags:
+          items: "{{ item.0.tags | default([]) }}"
+        labels: "{{ item.0.labels | default({}) }}"
+        disks:
+          - auto_delete: false
+            boot: true
+            source: "{{ gcp_disks.results[item.1].disk | default(omit) }}"
+        network_interfaces:
+          - network:
+              selfLink: "https://www.googleapis.com/compute/v1/projects/{{ gcp_project }}/{{ item.0.network | default('global/networks/default') }}"
+            access_configs: >-
+              {{ [{'name': 'External NAT', 'type': 'ONE_TO_ONE_NAT',
+                   'nat_ip': gcp_addresses.results[item.1].address | default(omit)}]
+                 if item.0.assign_external_ip | default(true) else [] }}
+      loop: "{{ gcp_instances | zip(range(gcp_instances | length)) | list }}"
+      loop_control:
+        label: "{{ item.0.name }} -> {{ gcp_state }}"
+      tags: [instance]
+
+    # ------------------------------------------------------------------- cleanup
+    - name: Delete the boot disks
+      google.cloud.gcp_compute_disk:
+        <<: *gcp_common
+        name: "{{ item.name }}-boot"
+        zone: "{{ gcp_zone }}"
+        state: absent
+      loop: "{{ gcp_instances }}"
+      loop_control:
+        label: "{{ item.name }}-boot"
+      when:
+        - gcp_state == 'absent'
+        - gcp_delete_disks | bool
+      tags: [disk]
+
+    - name: Release the external addresses
+      google.cloud.gcp_compute_address:
+        <<: *gcp_common
+        name: "{{ item.name }}-ip"
+        region: "{{ gcp_region }}"
+        state: absent
+      loop: "{{ gcp_instances }}"
+      loop_control:
+        label: "{{ item.name }}-ip"
+      when:
+        - gcp_state == 'absent'
+        - item.assign_external_ip | default(true)
+      tags: [network]

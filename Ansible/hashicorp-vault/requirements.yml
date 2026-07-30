@@ -1,0 +1,5 @@
+---
+# This module only uses ansible.builtin modules (deb822_repository, yum_repository,
+# rpm_key, systemd_service, ...). No external collection is required. Kept for
+# structural consistency with other modules in this repo.
+collections: []

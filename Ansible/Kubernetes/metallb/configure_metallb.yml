@@ -1,46 +1,50 @@
 ---
-- name: Configure MetalLB IP Address Pool
-  hosts: all
-  become: yes
-  vars:
-    metallb_namespace: "metallb-system"
-    ip_pool_start: "10.116.0.20"
-    ip_pool_end: "10.116.0.40"
-    ip_pool_name: "first-pool"
+- name: Configure MetalLB IP address pool
+  hosts: k8s_control
+  become: false
+  gather_facts: false
+  vars_files:
+    - vars.yml
 
   tasks:
-    - name: Create directory for MetalLB configuration
-      ansible.builtin.file:
-        path: /tmp/metallb
-        state: directory
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Verify the MetalLB CRDs are established
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig_path }}"
+            api_version: apiextensions.k8s.io/v1
+            kind: CustomResourceDefinition
+            name: ipaddresspools.metallb.io
+          register: metallb_crd_check
 
-    - name: Create MetalLB address pool configuration
-      ansible.builtin.copy:
-        dest: /tmp/metallb/address-pool.yaml
-        content: |
-          apiVersion: metallb.io/v1beta1
-          kind: IPAddressPool
-          metadata:
-            name: {{ ip_pool_name }}
-            namespace: {{ metallb_namespace }}
-          spec:
-            addresses:
-            - {{ ip_pool_start }}-{{ ip_pool_end }}
-          ---
-          apiVersion: metallb.io/v1beta1
-          kind: L2Advertisement
-          metadata:
-            name: {{ ip_pool_name }}
-            namespace: {{ metallb_namespace }}
-          spec:
-            ipAddressPools:
-            - {{ ip_pool_name }}
+        - name: Fail if the MetalLB CRDs are missing
+          ansible.builtin.assert:
+            that:
+              - metallb_crd_check.resources | length > 0
+            fail_msg: >-
+              ipaddresspools.metallb.io CRD not found. Run install_metallb.yml first
+              and wait for the release to finish installing.
+            quiet: true
 
-    - name: Apply MetalLB address pool configuration
-      ansible.builtin.command:
-        cmd: kubectl apply -f /tmp/metallb/address-pool.yaml
-      register: config_apply_output
+    - name: Apply the IPAddressPool and L2Advertisement
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        template: templates/ipaddresspool.yaml.j2
+      tags: [configure]
 
-    - name: Show MetalLB config apply output
-      debug:
-        var: config_apply_output.stdout
+    - name: Show the IPAddressPool status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        api_version: metallb.io/v1beta1
+        kind: IPAddressPool
+        name: "{{ metallb_ip_pool_name }}"
+        namespace: "{{ metallb_namespace }}"
+      register: metallb_pool_status
+      tags: [verify]
+
+    - name: Show the IPAddressPool
+      ansible.builtin.debug:
+        var: metallb_pool_status.resources
+      tags: [verify]

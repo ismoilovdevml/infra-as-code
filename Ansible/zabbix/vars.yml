@@ -1,11 +1,80 @@
-zabbix_server_db: mysql
+---
+# Zabbix 7.0 is the current LTS (full support until 2027-06-30, limited support
+# until 2029-06-30). 8.0 LTS is not yet released (planned Q3 2026) — do not
+# bump to 8.0 until it ships. https://www.zabbix.com/life_cycle_and_release_policy
+zabbix_series: "7.0"
+
+# --- repo.zabbix.com release package --------------------------------------------
+# https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/
+# https://repo.zabbix.com/zabbix/7.0/rhel/9/x86_64/
+zabbix_deb_release_dir: >-
+  https://repo.zabbix.com/zabbix/{{ zabbix_series }}/{{ ansible_distribution | lower }}/pool/main/z/zabbix-release
+zabbix_deb_release_file: >-
+  zabbix-release_latest_{{ zabbix_series }}+{{ ansible_distribution | lower }}{{ ansible_distribution_version }}_all.deb
+zabbix_deb_release_url: "{{ zabbix_deb_release_dir }}/{{ zabbix_deb_release_file }}"
+
+zabbix_rpm_release_dir: >-
+  https://repo.zabbix.com/zabbix/{{ zabbix_series }}/rhel/{{ ansible_distribution_major_version }}/x86_64
+zabbix_rpm_release_file: >-
+  zabbix-release-latest-{{ zabbix_series }}.el{{ ansible_distribution_major_version }}.noarch.rpm
+zabbix_rpm_release_url: "{{ zabbix_rpm_release_dir }}/{{ zabbix_rpm_release_file }}"
+
+# --- database backend -----------------------------------------------------------
+# "mysql" or "pgsql". Selects zabbix-server-<db>, zabbix-web-<db> (RHEL) package
+# suffixes and the DB-specific schema/import command.
+zabbix_db_type: mysql
 zabbix_server_dbhost: localhost
 zabbix_server_dbname: zabbix
 zabbix_server_dbuser: zabbix
-zabbix_server_dbpassword: kshak92scka
-zabbix_agent_server: 167.172.139.139
-zabbix_agent_interfaces:
-  - type: "agent"
-    main: 1
-    useip: 1
-    ip: "{{ ansible_host }}"
+zabbix_server_dbpassword: "{{ vault_zabbix_server_dbpassword | default('') }}"
+# This playbook does not install/provision the database server itself — MySQL
+# or PostgreSQL and the zabbix DB/user must already exist and be reachable from
+# zabbix_server_dbhost before running zabbix_server.yml.
+zabbix_db_schema_imported_marker: "{{ zabbix_data_dir }}/.schema_imported"
+
+# --- packages / services ---------------------------------------------------------
+# zabbix-agent2 (Go) is upstream's recommended default for new deployments over
+# the classic C zabbix-agent.
+zabbix_agent_flavor: agent2       # "agent" or "agent2"
+zabbix_web_server: nginx          # "nginx" or "apache"
+
+# Frontend package name differs by OS family: Debian/Ubuntu ships
+# zabbix-frontend-php; RHEL ships zabbix-web-<db>.
+zabbix_frontend_package:
+  Debian: zabbix-frontend-php
+  RedHat: "zabbix-web-{{ zabbix_db_type }}"
+
+zabbix_server_package: "zabbix-server-{{ zabbix_db_type }}"
+zabbix_agent_package: "zabbix-{{ zabbix_agent_flavor }}"
+zabbix_webconf_package: "zabbix-{{ zabbix_web_server }}-conf"
+
+zabbix_data_dir: /var/lib/zabbix
+zabbix_conf_dir: /etc/zabbix
+
+zabbix_server_listen_port: 10051
+zabbix_agent_listen_port: 10050
+
+zabbix_server_ip: "{{ groups['zabbix_server'][0] | default('') }}"
+
+# --- agent ------------------------------------------------------------------
+zabbix_agent_tlsconnect: unencrypted
+zabbix_agent_tlsaccept: unencrypted
+
+# --- Zabbix API (zabbix-hosts-management.yml / zabbix-templates-management.yml) --
+# Zabbix 7.0 deprecates the old auth-body-parameter flow in favour of a Bearer
+# token; 7.4 rejects the old flow outright. An API token
+# (Administration -> API tokens) is the fully Bearer-native path and is
+# preferred over ansible_user/ansible_httpapi_pass.
+# https://support.zabbix.com/browse/ZBX-22952
+zabbix_api_server: "{{ zabbix_server_ip }}"
+zabbix_api_use_ssl: false
+zabbix_api_validate_certs: true
+zabbix_api_port: 80
+zabbix_api_token: "{{ vault_zabbix_api_token | default('') }}"
+
+zabbix_host_group: "Production Servers"
+zabbix_template_name: "Linux by Zabbix agent"
+
+# uninstall playbooks: also delete data (DB is untouched either way, it is
+# managed outside this module).
+zabbix_purge_data: false

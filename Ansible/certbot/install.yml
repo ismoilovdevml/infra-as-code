@@ -1,20 +1,128 @@
 ---
-- name: Install Certbot and NGINX plugin on multiple OSes
+- name: Install Certbot
   hosts: certbot_servers
-  become: yes
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
   tasks:
-    - name: Install Certbot and NGINX plugin on Debian/Ubuntu
-      apt:
-        name:
-          - certbot
-          - python3-certbot-nginx
-        state: present
-      when: ansible_facts['os_family'] == "Debian"
-    
-    - name: Install Certbot and NGINX plugin on CentOS/RHEL/Rocky
-      dnf:
-        name:
-          - certbot
-          - python3-certbot-nginx
-        state: present
-      when: ansible_facts['os_family'] == "RedHat"
+    # ---------------------------------------------------------------- preflight
+    - name: Preflight
+      tags: [always]
+      block:
+        - name: Fail fast on unsupported platform
+          ansible.builtin.fail:
+            msg: >-
+              {{ ansible_distribution }} {{ ansible_distribution_version }} is not
+              supported. Supported: Debian/Ubuntu, RHEL/Rocky/AlmaLinux/Fedora (EPEL),
+              openSUSE/SLES, or any of these via certbot_install_method=snap.
+          when: ansible_os_family not in ['Debian', 'RedHat', 'Suse']
+
+        - name: Fail fast on Amazon Linux with the package method
+          ansible.builtin.fail:
+            msg: >-
+              Amazon Linux has no confirmed EPEL/certbot package support. Set
+              certbot_install_method=snap on this host instead.
+          when:
+            - ansible_distribution == 'Amazon'
+            - certbot_install_method == 'package'
+
+        - name: Assert a supported install method
+          ansible.builtin.assert:
+            that:
+              - certbot_install_method in ['package', 'snap']
+            fail_msg: "certbot_install_method must be 'package' or 'snap'."
+            quiet: true
+
+        - name: Assert a supported webserver plugin selection
+          ansible.builtin.assert:
+            that:
+              - certbot_webserver in ['nginx', 'apache', 'none']
+            fail_msg: "certbot_webserver must be 'nginx', 'apache' or 'none'."
+            quiet: true
+
+    # -------------------------------------------------------------- method: snap
+    - name: Install Certbot via snap
+      when: certbot_install_method == 'snap'
+      tags: [install]
+      block:
+        - name: Check whether snapd is installed
+          ansible.builtin.command: which snap
+          register: certbot_snap_present
+          changed_when: false
+          failed_when: false
+          check_mode: false
+
+        - name: Fail fast when snapd is not installed
+          ansible.builtin.fail:
+            msg: >-
+              snapd was not found on {{ inventory_hostname }}. Install it first
+              (see https://snapcraft.io/docs/installing-snapd), or set
+              certbot_install_method=package on this host instead.
+          when: certbot_snap_present.rc != 0
+
+        - name: Install the certbot snap (classic confinement)
+          community.general.snap:
+            name: certbot
+            classic: true
+            state: present
+
+        - name: Symlink certbot onto the PATH
+          ansible.builtin.file:
+            src: /snap/bin/certbot
+            dest: /usr/local/bin/certbot
+            state: link
+
+    # ----------------------------------------------------------- method: package
+    - name: Install Certbot from the OS package manager
+      when: certbot_install_method == 'package'
+      tags: [install]
+      block:
+        - name: Enable EPEL (RHEL/CentOS/Rocky/AlmaLinux only, not Fedora)
+          ansible.builtin.dnf:
+            name: epel-release
+            state: present
+          when:
+            - ansible_os_family == 'RedHat'
+            - ansible_distribution in certbot_epel_distributions
+
+        - name: Refresh the APT cache
+          ansible.builtin.apt:
+            update_cache: true
+            cache_valid_time: 3600
+          when: ansible_os_family == 'Debian'
+
+        - name: Install certbot and the webserver plugin
+          ansible.builtin.package:
+            name: >-
+              {{ ['certbot'] +
+                 ([certbot_plugin_package_map[ansible_os_family][certbot_webserver]]
+                  if certbot_webserver != 'none' else []) }}
+            state: present
+
+        # Renewal timer unit name varies by distro/package build — enable whichever
+        # of the candidates is actually present rather than hardcoding one.
+        - name: Discover installed systemd units
+          ansible.builtin.service_facts:
+
+        - name: Enable and start the renewal timer
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            enabled: true
+            state: started
+          loop: "{{ certbot_renew_timer_candidates }}"
+          when: item in ansible_facts.services
+
+    # ------------------------------------------------------------------- verify
+    - name: Collect the installed version
+      ansible.builtin.command: certbot --version
+      register: certbot_installed_version
+      changed_when: false
+      check_mode: false
+      tags: [verify]
+
+    - name: Show the installed version
+      ansible.builtin.debug:
+        msg: "{{ certbot_installed_version.stdout }}"
+      tags: [verify]

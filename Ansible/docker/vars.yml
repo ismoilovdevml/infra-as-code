@@ -1,0 +1,95 @@
+---
+# Path segment under https://download.docker.com/linux/<path>.
+# `ansible_distribution | lower` is NOT usable here: RedHat -> "redhat" (the path is
+# "rhel"), Rocky/Alma have their own dirs, and derivatives yield 404s.
+docker_repo_path_map:
+  Ubuntu: ubuntu
+  Debian: debian
+  Raspbian: raspbian
+  Linux Mint: ubuntu
+  Pop!_OS: ubuntu
+  Kali: debian
+  RedHat: rhel
+  CentOS: centos
+  Rocky: rocky
+  AlmaLinux: alma
+  OracleLinux: oracle
+  Fedora: fedora
+  SLES: sles
+
+# Distributions Docker Inc. publishes no docker-ce repo for. They get the
+# distribution's own container packages instead.
+docker_distro_package_map:
+  Amazon: docker
+  openSUSE Leap: docker
+  openSUSE Tumbleweed: docker
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# Optional exact pin, e.g. "5:29.6.1-1~ubuntu.24.04~noble" (apt) or
+# "3:29.6.1-1.el9" (dnf). Empty means "latest from the repo".
+docker_version: ""
+
+docker_conflicting_packages_debian:
+  - docker.io
+  - docker-compose
+  - docker-compose-v2
+  - docker-doc
+  - docker-buildx
+  - podman-docker
+  - containerd
+  - runc
+
+docker_conflicting_packages_redhat:
+  - docker
+  - docker-client
+  - docker-client-latest
+  - docker-common
+  - docker-latest
+  - docker-latest-logrotate
+  - docker-logrotate
+  - docker-engine
+
+# Users added to the `docker` group. Membership is root-equivalent — keep this list
+# short. A re-login (or `newgrp docker`) is required before it takes effect.
+# NOTE: `ansible_user_id` is `root` under become, so it must not be used here.
+docker_users: "{{ [ansible_user] if (ansible_user is defined and ansible_user != 'root') else [] }}"
+
+# Rendered to /etc/docker/daemon.json when non-empty.
+docker_daemon_options: {}
+
+docker_service_enabled: true
+docker_service_state: started
+
+# Refuse to run on releases upstream has dropped. Set to false to try anyway.
+docker_strict_platform_check: true
+docker_minimum_major_version:
+  Ubuntu: 22
+  Debian: 11
+  CentOS: 9
+  RedHat: 8
+  Rocky: 8
+  AlmaLinux: 8
+  OracleLinux: 8
+  Fedora: 43
+  SLES: 15
+
+# --- install_docker-compose.yml (legacy standalone binary) only -----------------
+# Compose v2+ ships as `docker-compose-plugin` and is already installed by
+# install_docker.yml. The standalone binary is legacy; upstream does not recommend it.
+docker_compose_standalone_version: "v5.3.1"
+docker_compose_standalone_path: /usr/local/bin/docker-compose
+# GitHub release assets use x86_64/aarch64, not amd64/arm64, and armv7l is armv7.
+docker_compose_arch_map:
+  x86_64: x86_64
+  aarch64: aarch64
+  armv7l: armv7
+  armv6l: armv6
+  ppc64le: ppc64le
+  riscv64: riscv64
+  s390x: s390x

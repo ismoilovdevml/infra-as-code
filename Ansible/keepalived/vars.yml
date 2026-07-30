@@ -1,8 +1,52 @@
 ---
-interface: eth1
-virtual_router_id: 51
-auth_pass: 1111
-virtual_ipaddress: 10.116.0.68
-master_priority: 100
-slave_priority: 80
-advert_int: 1
+keepalived_package_name: keepalived
+keepalived_service_name: keepalived
+keepalived_service_enabled: true
+keepalived_service_state: started
+
+# Refuse to run on anything but the three OS families this module maps a package for.
+keepalived_supported_os_families: [Debian, RedHat, Suse]
+
+# Inventory group containing every host participating in this VRRP instance (both the
+# `keepalived_master` and `keepalived_backup` hosts). Used to compute unicast_peer when
+# keepalived_use_unicast is true.
+keepalived_group: keepalived_nodes
+
+# Which hostvar holds each peer's reachable address, used both for unicast_src_ip (this host)
+# and unicast_peer (every other host in keepalived_group).
+keepalived_peer_address_attr: ansible_host
+
+# Unicast is the default: multicast (224.0.0.18) is blocked by default in most cloud VPCs
+# (AWS/GCP/Azure/DigitalOcean) and the keepalived.conf(5) man page itself recommends pairing
+# unicast with auth_type PASS. Set to false only on a network known to pass VRRP multicast.
+keepalived_use_unicast: true
+
+# --------------------------------------------------------------------------------- firewall
+# VRRP is IP protocol 112 (IANA/RFC 5798), not TCP or UDP. firewalld ships a built-in `vrrp`
+# service definition (protocol 112, destination 224.0.0.18/ff02::12) that this module uses
+# directly. ufw has no named VRRP profile, so protocol 112 is opened numerically there.
+# Unicast mode does not need the multicast destination open, only the protocol itself between
+# the peers — firewalld's built-in service opens it broadly, which is harmless since VRRP has
+# no useful payload beyond the advert itself.
+keepalived_manage_firewall: true
+
+# ----------------------------------------------------------------------------- VRRP instances
+# auth_pass: keepalived.conf(5) documents that only the first 8 characters are ever
+# significant — anything longer is silently truncated by keepalived itself. This module
+# asserts vault_keepalived_auth_pass is non-empty and <= 8 characters rather than shipping a
+# secret whose tail is silently discarded. VRRPv2 authentication was removed from the RFC3768
+# spec and provides no real cryptographic protection; treat it as a misconfiguration tripwire
+# between instances, not a security boundary — see README.
+#
+# priority/state below default from inventory group membership: hosts in the `keepalived_master`
+# group get state MASTER / higher priority, everything else in keepalived_group gets BACKUP.
+keepalived_instances:
+  - name: VI_1
+    interface: eth0
+    virtual_router_id: 51
+    state: "{{ 'MASTER' if 'keepalived_master' in group_names else 'BACKUP' }}"
+    priority: "{{ 150 if 'keepalived_master' in group_names else 100 }}"
+    advert_int: 1
+    auth_pass: "{{ vault_keepalived_auth_pass | default('') }}"
+    virtual_ipaddresses:
+      - 10.0.0.100

@@ -1,0 +1,96 @@
+---
+# Uninstalls Prometheus and/or its exporters. None of the prometheus.prometheus roles ship an
+# uninstall path, so this reverses the well-known, consistent layout used by every role in the
+# collection: systemd unit named after the role, binary in /usr/local/bin, config in
+# /etc/<role>, data in /var/lib/<role>. Removing a path that was never created is a no-op.
+#
+# Select what to remove with --tags, matching the tags used in install_prometheus.yml /
+# prometheus_exporters.yml, e.g.:
+#   ansible-playbook uninstall.yml --tags prometheus
+#   ansible-playbook uninstall.yml --tags node_exporter,alertmanager
+
+- name: Uninstall Prometheus
+  hosts: prometheus_servers
+  become: true
+  tags: prometheus
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: always
+
+    - name: Stop and disable Prometheus service
+      ansible.builtin.systemd_service:
+        name: prometheus
+        state: stopped
+        enabled: false
+      when: "'prometheus.service' in ansible_facts.services"
+
+    - name: Remove Prometheus binaries
+      ansible.builtin.file:
+        path: "/usr/local/bin/{{ item }}"
+        state: absent
+      loop:
+        - prometheus
+        - promtool
+
+    - name: Remove Prometheus config and data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/prometheus
+        - /var/lib/prometheus
+
+    - name: Remove Prometheus system user and group
+      block:
+        - name: Remove Prometheus system user
+          ansible.builtin.user:
+            name: prometheus
+            state: absent
+        - name: Remove Prometheus system group
+          ansible.builtin.group:
+            name: prometheus
+            state: absent
+
+- name: Uninstall Prometheus exporters
+  hosts: target_servers
+  become: true
+  vars_files:
+    - vars.yml
+  tags: exporters
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: always
+
+    - name: Stop and disable each enabled exporter's service
+      ansible.builtin.systemd_service:
+        name: "{{ item.key }}"
+        state: stopped
+        enabled: false
+      loop: "{{ exporter_ports | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when:
+        - exporters[item.key] | default(false)
+        - (item.key ~ '.service') in ansible_facts.services
+
+    - name: Remove each enabled exporter's binary
+      ansible.builtin.file:
+        path: "/usr/local/bin/{{ item.key }}"
+        state: absent
+      loop: "{{ exporter_ports | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: exporters[item.key] | default(false)
+
+    - name: Remove each enabled exporter's config and data directories
+      ansible.builtin.file:
+        path: "{{ item.1 }}/{{ item.0.key }}"
+        state: absent
+      loop: "{{ (exporter_ports | dict2items) | product(['/etc', '/var/lib']) | list }}"
+      loop_control:
+        label: "{{ item.1 }}/{{ item.0.key }}"
+      when: exporters[item.0.key] | default(false)

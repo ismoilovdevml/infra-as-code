@@ -1,53 +1,61 @@
 ---
-- name: Install Trivy using Docker
+- name: Run a Trivy vulnerability scan via Docker
   hosts: trivy_servers
-  become: yes
-  vars:
-    cache_dir: "/root/.cache"
-    trivy_image_name: "python:3.4-alpine"  # Bu yerda o'rnatiladigan image'ni aniq belgilang
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
 
   tasks:
-
-    - name: Check if Docker is installed
-      ansible.builtin.shell: which docker
-      register: docker_installed
+    # ---------------------------------------------------------------- preflight
+    - name: Check whether Docker is installed
+      ansible.builtin.command: which docker
+      register: trivy_docker_present
       changed_when: false
       failed_when: false
+      check_mode: false
+      tags: [always]
 
-    - name: Show info message if Docker is not installed
-      ansible.builtin.debug:
-        msg: "Docker is not installed, skipping the installation of Trivy."
-      when: docker_installed.rc != 0
+    - name: Fail fast when Docker is not installed
+      ansible.builtin.fail:
+        msg: >-
+          Docker is required for install_trivy_docker.yml but was not found on
+          {{ inventory_hostname }}. Install it first (see the docker module in this
+          repository), or use install_trivy_os.yml / install_trivy_binary.yml instead.
+      when: trivy_docker_present.rc != 0
+      tags: [always]
 
-    - name: Skip tasks if Docker is not installed
-      ansible.builtin.meta: end_play
-      when: docker_installed.rc != 0
+    - name: Create the Trivy cache directory
+      ansible.builtin.file:
+        path: "{{ trivy_docker_cache_dir }}"
+        state: directory
+        mode: '0750'
+      tags: [install]
 
-    - name: Pull Trivy Docker image if Docker is installed
-      docker_image:
-        name: aquasec/trivy
-        tag: "0.18.3"
+    - name: Pull the Trivy image
+      community.docker.docker_image:
+        name: "{{ trivy_docker_image_repo }}"
+        tag: "{{ trivy_docker_image_tag }}"
         source: pull
-      when: docker_installed.rc == 0
+      tags: [install]
 
-    - name: Run Trivy scan (Linux)
-      docker_container:
+    # ------------------------------------------------------------------- verify
+    - name: Run a Trivy image scan
+      community.docker.docker_container:
         name: trivy_scan
-        image: aquasec/trivy:0.18.3
-        command: "image {{ trivy_image_name }}"
+        image: "{{ trivy_docker_image_repo }}:{{ trivy_docker_image_tag }}"
+        command: "image {{ trivy_docker_scan_target }}"
         volumes:
-          - "{{ cache_dir }}:/root/.cache/"
+          - "{{ trivy_docker_cache_dir }}:/root/.cache/"
           - /var/run/docker.sock:/var/run/docker.sock
-        state: started
-        auto_remove: yes
-      when: docker_installed.rc == 0 and ansible_facts['os_family'] == "Linux"
+        detach: false
+        cleanup: true
+        output_logs: true
+      register: trivy_scan
+      changed_when: true
+      tags: [verify]
 
-    - name: Show Trivy scan result
-      ansible.builtin.shell: "docker logs trivy_scan"
-      register: trivy_scan_result
-      when: docker_installed.rc == 0 and ansible_facts['os_family'] == "Linux"
-
-    - name: Print Trivy scan result
-      debug:
-        msg: "{{ trivy_scan_result.stdout }}"
-      when: docker_installed.rc == 0 and ansible_facts['os_family'] == "Linux"
+    - name: Show the scan result
+      ansible.builtin.debug:
+        msg: "{{ trivy_scan.container.Output | default(trivy_scan.stdout) | default('see container logs') }}"
+      tags: [verify]

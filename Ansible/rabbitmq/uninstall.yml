@@ -1,0 +1,60 @@
+---
+- name: Uninstall RabbitMQ
+  hosts: rabbitmq_servers
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Stop and disable rabbitmq-server
+      ansible.builtin.systemd_service:
+        name: "{{ rabbitmq_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [uninstall]
+
+    - name: Remove the RabbitMQ package (Debian family)
+      ansible.builtin.apt:
+        name: "{{ rabbitmq_package_name }}"
+        state: absent
+        purge: "{{ rabbitmq_purge_data }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the RabbitMQ package (RedHat family)
+      ansible.builtin.dnf:
+        name: "{{ rabbitmq_package_name }}"
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]
+
+    - name: Remove the RabbitMQ data and log directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ rabbitmq_data_dir }}"
+        - "{{ rabbitmq_log_dir }}"
+        - "{{ rabbitmq_conf_dir }}"
+      when: rabbitmq_purge_data | bool
+      tags: [uninstall]
+
+    - name: Remove the APT repository files (Debian family)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/rabbitmq-erlang.sources
+        - /etc/apt/sources.list.d/rabbitmq-server.sources
+        - "{{ rabbitmq_apt_keyring }}"
+      when: ansible_os_family == 'Debian'
+      tags: [uninstall]
+
+    - name: Remove the yum repository file (RedHat family)
+      ansible.builtin.file:
+        path: /etc/yum.repos.d/rabbitmq.repo
+        state: absent
+      when: ansible_os_family == 'RedHat'
+      tags: [uninstall]

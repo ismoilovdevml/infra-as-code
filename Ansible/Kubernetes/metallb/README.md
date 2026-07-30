@@ -1,76 +1,71 @@
-# MetalLB Setup with Ansible 🚀
+# MetalLB
 
-This repository contains Ansible playbooks to **install**, **configure**, and **uninstall** MetalLB in a Kubernetes cluster using Helm.
+Installs MetalLB via its Helm chart (`kubernetes.core.helm`) and configures a Layer 2
+`IPAddressPool` / `L2Advertisement` (`metallb.io/v1beta1` CRDs — the ConfigMap-based
+configuration this project used before v0.13 is gone). Also enables `strictARP` on
+kube-proxy, required for MetalLB's Layer 2 mode to own ARP replies for service IPs.
 
-## Requirements 📋
+This module talks to the cluster over the Kubernetes API, not SSH: every play targets
+`localhost` with a kubeconfig (see `inventory.ini`). Run it from an admin workstation,
+a bastion, or a control-plane node used as the Ansible controller.
 
-- Ansible installed on your control node.
-- Helm and kubectl configured on the target machine.
-- Kubernetes cluster with access to manage system-level configurations.
+## Requirements
 
-## Playbook Overview 📝
+- Ansible core >= 2.15
+- Collections: `kubernetes.core` (`ansible-galaxy collection install -r requirements.yml`)
+- Python `kubernetes` client library on the controller (`pip install kubernetes`)
+- `helm` >= 3.8 on the controller (see `../helm/`)
+- A kubeconfig with cluster-admin (or equivalent) access
+- A bare-metal or on-prem cluster (cloud LoadBalancer services already have a
+  provider-managed implementation and do not need MetalLB)
 
-### 1. Install MetalLB
-
-This playbook installs MetalLB using Helm and modifies the `kube-proxy` configuration to enable strict ARP mode.
-
-- **Playbook File:** `install_metallb.yml`
-- **Tasks:**
-  - Enables strict ARP in the `kube-proxy` config.
-  - Adds the MetalLB Helm repository.
-  - Installs MetalLB in the `metallb-system` namespace.
-  - Verifies the installation by checking the MetalLB pods.
-
-#### Usage:
+## Usage
 
 ```bash
-ansible-playbook -i inventory.ini install_metallb.yml
+ansible-playbook install_metallb.yml
+ansible-playbook configure_metallb.yml \
+  -e metallb_ip_pool_start=10.0.0.200 -e metallb_ip_pool_end=10.0.0.220
+ansible-playbook install_metallb.yml --check --diff
+ansible-playbook uninstall_metallb.yml
 ```
 
-### 2. Configure MetalLB
-This playbook configures an IP address pool and L2 advertisement for MetalLB.
+## Variables
 
-* **Playbook File:** `configure_metallb.yml`
-* **Tasks:**
-    * Creates a MetalLB address pool configuration file.
-    * Applies the configuration to the Kubernetes cluster.
-### Usage:
-```bash
-ansible-playbook -i inventory.ini configure_metallb.yml
-```
-### 3. Uninstall MetalLB
-This playbook uninstalls MetalLB and removes the metallb-system namespace.
+| Variable | Default | Description |
+|---|---|---|
+| `kubeconfig_path` | `$KUBECONFIG` or `~/.kube/config` | Kubeconfig used for every task |
+| `metallb_chart_version` | `0.16.1` | Chart version (no `v` prefix) |
+| `metallb_namespace` | `metallb-system` | Release namespace |
+| `metallb_restart_kube_proxy` | `true` | Restarts the kube-proxy DaemonSet after the strictARP patch |
+| `metallb_extra_values` | `{}` | Merged into the Helm values as-is (e.g. to disable the FRR-K8s backend) |
+| `metallb_ip_pool_name` | `first-pool` | `IPAddressPool` / `L2Advertisement` name |
+| `metallb_ip_pool_start` | `10.0.0.200` | Placeholder — set to a real range routable on your LAN |
+| `metallb_ip_pool_end` | `10.0.0.220` | Placeholder — set to a real range routable on your LAN |
 
-* **Playbook File:** `uninstall_metallb.yml`
-**Tasks:**
-    * Uninstalls the MetalLB Helm release.
-    * Deletes the metallb-system namespace.
-### Usage:
-
-```bash
-ansible-playbook -i inventory.ini uninstall_metallb.yml
-```
-### Inventory Setup ⚙️
-Prepare an inventory file to specify the target Kubernetes nodes:
-
-```ini
-[all]
-target-host ansible_user=root ansible_ssh_private_key_file=~/.ssh/id_rsa
-```
-### Testing 🧪
-1. **Verify MetalLB Installation:** After installation, check the MetalLB pods:
+## Verify
 
 ```bash
 kubectl get pods -n metallb-system
+kubectl get ipaddresspools,l2advertisements -n metallb-system
+kubectl get configmap kube-proxy -n kube-system -o jsonpath='{.data.config\.conf}' | grep strictARP
 ```
-2. **Verify Configuration:** After applying the configuration, check the IP address pool:
-```bash
-kubectl get ipaddresspools -n metallb-system
-```
-3. **Uninstall and Cleanup:** After uninstallation, ensure the namespace is removed:
-```bash
-kubectl get namespaces
-```
-### Supported Platforms 🖥️
-* Kubernetes clusters (compatible with both cloud and on-premises).
-* Requires Helm and kubectl access.
+
+## Notes
+
+- `strictARP` lives inside a YAML string nested in the `kube-proxy` ConfigMap
+  (`data['config.conf']`), not a top-level field, so it is patched with a text
+  substitution rather than a structured merge — this mirrors upstream's own
+  `sed`-based instructions without shelling out.
+- Restarting the kube-proxy DaemonSet causes a brief network blip cluster-wide (each
+  kube-proxy pod is recreated to pick up the new config). Set
+  `metallb_restart_kube_proxy=false` to skip this and restart it yourself on your own
+  maintenance window.
+- Clusters without a kube-proxy ConfigMap (eBPF dataplanes, kube-proxy replaced) skip
+  the strictARP step entirely rather than failing.
+- `configure_metallb.yml` requires the MetalLB CRDs to already be Established; run it
+  only after `install_metallb.yml` has finished.
+- The Helm chart defaults to also deploying the FRR-K8s BGP backend alongside the
+  speaker. This module only configures Layer 2 mode; the BGP components sit idle when
+  no `BGPPeer`/`BGPAdvertisement` is applied. To drop them for a smaller footprint, set
+  `metallb_extra_values: {speaker: {frr: {enabled: false}}, frrk8s: {enabled: false}}`
+  (left empty by default, since it changes the chart's own defaults).

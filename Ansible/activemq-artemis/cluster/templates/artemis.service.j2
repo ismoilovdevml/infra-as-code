@@ -1,14 +1,26 @@
+{{ ansible_managed | comment }}
+# Upstream ships no systemd unit for Linux (only a Windows service installer);
+# this one is authored by this repository, following the artemis-service wrapper
+# convention (Type=forking + PIDFile) documented in Ansible Middleware's own
+# systemd examples.
 [Unit]
-Description=ActiveMQ Artemis Service
-After=network.target
+Description=Apache ActiveMQ Artemis
+Documentation=https://artemis.apache.org/
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=forking
-ExecStart={{ artemis_instance_dir }}/bin/artemis-service start
-ExecStop={{ artemis_instance_dir }}/bin/artemis-service stop
 User={{ artemis_user }}
 Group={{ artemis_group }}
-Restart=on-abort
+PIDFile={{ artemis_instance_dir }}/data/artemis.pid
+ExecStart={{ artemis_instance_dir }}/bin/artemis-service start
+ExecStop={{ artemis_instance_dir }}/bin/artemis-service stop
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+TimeoutStopSec=60
+LimitNOFILE=100000
 
 [Install]
 WantedBy=multi-user.target

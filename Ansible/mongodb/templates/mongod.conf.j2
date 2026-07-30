@@ -1,0 +1,26 @@
+{{ ansible_managed | comment }}
+# storage.dbPath and systemLog.path are set to the packaged per-family defaults;
+# everything else this playbook manages is set explicitly below.
+
+storage:
+  dbPath: {{ mongodb_data_dir_map[ansible_os_family] }}
+  journal:
+    enabled: true
+
+systemLog:
+  destination: file
+  logAppend: true
+  path: {{ mongodb_log_dir }}/mongod.log
+
+net:
+  port: {{ mongodb_port }}
+  bindIp: {{ mongodb_bind_address }}
+
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+{% if ansible_os_family == 'RedHat' %}
+  pidFilePath: /var/run/mongodb/mongod.pid
+{% endif %}
+
+security:
+  authorization: {{ 'enabled' if mongodb_admin_password | length > 0 else 'disabled' }}
