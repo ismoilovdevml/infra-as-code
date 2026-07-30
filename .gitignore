@@ -13,3 +13,5 @@ terraform.rc
 .terraform.tfstate.backup
 .vscode
 Ansible/nexus/myenv/*
+# Playwright MCP session artifacts
+.playwright-mcp/

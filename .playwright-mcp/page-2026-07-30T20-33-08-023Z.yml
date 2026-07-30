@@ -1,9 +1,0 @@
-- generic [ref=e4]:
-  - heading "Ansible Dashboard" [level=1] [ref=e9]
-  - paragraph [ref=e10]:
-    - text: This dashboard runs playbooks against real infrastructure, so it requires an API token. It is the
-    - code [ref=e11]: DASHBOARD_TOKEN
-    - text: the backend was started with. If none was set, the backend logged a generated one at startup.
-  - textbox "API token" [active] [ref=e12]: wrong-token
-  - paragraph [ref=e14]: That token was rejected by the API.
-  - button "Connect" [ref=e13] [cursor=pointer]
